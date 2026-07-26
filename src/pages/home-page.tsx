@@ -24,32 +24,44 @@ export function HomePage() {
     })
   }
 
+  const createAndOpenProject = () => {
+    void (async () => {
+      setBusy(true)
+      setError(null)
+      try {
+        const project = await createProject()
+        navigate(`/project/${project.id}`)
+      } catch (err) {
+        setError(err instanceof Error ? err.message : 'Could not create project')
+      } finally {
+        setBusy(false)
+      }
+    })()
+  }
+
+  const slots = Array.from({ length: MAX_PROJECTS }, (_, index) => projects[index] ?? null)
+
   return (
     <div className="screen">
       <div className="home-hero">
-        <BrandMark size={64} className="brand-mark" />
+        <BrandMark size={72} className="brand-mark" />
         <p className="eyebrow">Kody · on-device</p>
         <h1 className="brand">
-          Go Video <span>Go</span>
+          Kody <span>Video</span>
         </h1>
-        <p className="lede">Hold the screen to record highlights. Private until you share.</p>
+        <p className="lede">
+          Six local clip projects. Hold anywhere to record, tap OK when it feels ready.
+        </p>
       </div>
 
       {error ? <div className="error-banner">{error}</div> : null}
 
-      {projects.length === 0 ? (
-        <div className="empty-state">
-          <h2 style={{ fontFamily: 'var(--font-display)', margin: '0 0 8px' }}>Start a project</h2>
-          <p className="muted" style={{ margin: 0, maxWidth: '30ch', lineHeight: 1.45 }}>
-            Up to {MAX_PROJECTS} projects stay in this browser. Refresh-safe via IndexedDB — nothing
-            uploads.
-          </p>
-        </div>
-      ) : (
-        <ul className="project-list">
-          {projects.map((project) => (
-            <li key={project.id} className="project-row">
-              <Link to={`/project/${project.id}`}>
+      <section className="project-slots" aria-label="Kody Video projects">
+        {slots.map((project, index) =>
+          project ? (
+            <article key={project.id} className="project-slot filled">
+              <Link className="slot-open" to={`/project/${project.id}`}>
+                <span className="slot-number">Slot {index + 1}</span>
                 <strong>{project.name}</strong>
                 <small>
                   {project.clipCount} clip{project.clipCount === 1 ? '' : 's'} ·{' '}
@@ -59,51 +71,50 @@ export function HomePage() {
               <div className="project-actions">
                 <button
                   type="button"
-                  className="btn-icon"
+                  className="btn btn-ghost"
                   aria-label={`Rename ${project.name}`}
                   onClick={() => setRenaming(project)}
                 >
-                  ✎
+                  Rename
                 </button>
                 <button
                   type="button"
-                  className="btn-icon"
+                  className="btn btn-ghost danger"
                   aria-label={`Delete ${project.name}`}
                   onClick={() => {
-                    if (!confirm(`Delete “${project.name}” and all its clips?`)) return
+                    if (!confirm(`Delete "${project.name}" and all its clips?`)) return
                     void (async () => {
                       await deleteProject(project.id)
                       refresh()
                     })()
                   }}
                 >
-                  ⌫
+                  Delete
                 </button>
               </div>
-            </li>
-          ))}
-        </ul>
-      )}
+            </article>
+          ) : (
+            <button
+              key={`empty-${index}`}
+              type="button"
+              className="project-slot empty"
+              disabled={busy || projects.length >= MAX_PROJECTS}
+              onClick={createAndOpenProject}
+            >
+              <span className="slot-number">Slot {index + 1}</span>
+              <strong>New Kody</strong>
+              <small>Tap to create a private project</small>
+            </button>
+          ),
+        )}
+      </section>
 
       <div className="home-footer">
         <button
           type="button"
           className="btn btn-primary"
           disabled={busy || projects.length >= MAX_PROJECTS}
-          onClick={() => {
-            void (async () => {
-              setBusy(true)
-              setError(null)
-              try {
-                const project = await createProject()
-                navigate(`/project/${project.id}`)
-              } catch (err) {
-                setError(err instanceof Error ? err.message : 'Could not create project')
-              } finally {
-                setBusy(false)
-              }
-            })()
-          }}
+          onClick={createAndOpenProject}
         >
           {projects.length >= MAX_PROJECTS ? `Limit ${MAX_PROJECTS}` : 'New project'}
         </button>
