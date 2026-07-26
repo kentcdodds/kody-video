@@ -27,7 +27,7 @@ export function OnboardingOverlay({ onDismiss }: OnboardingOverlayProps) {
   return (
     <div className="onboarding-overlay" role="dialog" aria-label="Kody Video quick start">
       <div className="onboarding-card">
-        <BrandMark size={58} className="brand-mark" />
+        <BrandMark size={96} className="brand-mark onboarding-art" variant="camera" />
         <p className="eyebrow">Kody Video quick start</p>
         <h2>Camera first. Editor second.</h2>
         <ol>

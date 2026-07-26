@@ -1,3 +1,5 @@
+import { BrandMark } from './brand-mark'
+
 interface ExportSheetProps {
   projectName: string
   progress: number | null
@@ -19,8 +21,13 @@ export function ExportSheet({
   onDownloadClips,
   onClose,
 }: ExportSheetProps) {
+  const showCelebrate = !!message && messageTone !== 'error' && !busy
+
   return (
     <div className="sheet" role="dialog" aria-label="Share project">
+      {showCelebrate ? (
+        <BrandMark size={84} className="export-celebrate-art" variant="share" />
+      ) : null}
       <h3>OK, share {projectName}</h3>
       <p className="muted" style={{ margin: 0, lineHeight: 1.45 }}>
         Make one local video on this device (no upload). On phones, Android usually opens the system
