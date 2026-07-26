@@ -261,29 +261,42 @@ export async function exportProjectAsWebm(
   // Give the recorder a moment to latch onto the canvas track.
   await wait(120)
 
-  const totalMs = clips.reduce((sum, clip) => sum + effectiveDurationMs(clip), 0)
-  let elapsed = 0
+  const exportable = clips.filter((clip) => effectiveDurationMs(clip) >= 40)
+  if (exportable.length === 0) {
+    throw new Error('Nothing to export')
+  }
+
+  let paintedTotalMs = 0
 
   try {
-    for (const clip of clips) {
-      const clipMs = effectiveDurationMs(clip)
-      if (clipMs < 40) continue
-      await paintClipToCanvas({
+    for (let i = 0; i < exportable.length; i += 1) {
+      const clip = exportable[i]
+      const remainingGuessMs = exportable
+        .slice(i + 1)
+        .reduce((sum, item) => sum + effectiveDurationMs(item), 0)
+
+      const paintedMs = await paintClipToCanvas({
         clip,
         canvas,
         ctx,
         audioContext,
         dest,
         onFrameProgress: (clipElapsed) => {
-          if (totalMs > 0) onProgress?.((elapsed + clipElapsed) / totalMs)
+          const denom = paintedTotalMs + clipElapsed + remainingGuessMs
+          if (denom > 0) onProgress?.((paintedTotalMs + clipElapsed) / denom)
         },
       })
-      elapsed += clipMs
-      onProgress?.(totalMs > 0 ? elapsed / totalMs : 1)
+      if (paintedMs <= 0) {
+        throw new Error('A clip produced no exportable video frames')
+      }
+      paintedTotalMs += paintedMs
+      const denom = paintedTotalMs + remainingGuessMs
+      onProgress?.(denom > 0 ? paintedTotalMs / denom : 1)
     }
 
     // Hold the last frame briefly so the final GOP isn't truncated.
     await wait(180)
+    onProgress?.(1)
   } finally {
     if (recorder.state !== 'inactive') recorder.stop()
     canvasStream.getTracks().forEach((t) => t.stop())
@@ -293,7 +306,7 @@ export async function exportProjectAsWebm(
   }
 
   const blob = await stopped
-  const minBytes = Math.max(8_000, Math.floor(totalMs * 4))
+  const minBytes = Math.max(8_000, Math.floor(Math.max(paintedTotalMs, 1_000) * 4))
   if (blob.size < minBytes) {
     throw new Error(
       `Export produced an unusable file (${Math.round(blob.size / 1024)}KB). Try “Files” instead.`,
@@ -311,6 +324,7 @@ interface PaintArgs {
   onFrameProgress?: (clipElapsedMs: number) => void
 }
 
+/** @returns painted segment duration in milliseconds */
 async function paintClipToCanvas({
   clip,
   canvas,
@@ -318,7 +332,7 @@ async function paintClipToCanvas({
   audioContext,
   dest,
   onFrameProgress,
-}: PaintArgs): Promise<void> {
+}: PaintArgs): Promise<number> {
   const url = URL.createObjectURL(clip.blob)
   const video = document.createElement('video')
   video.src = url
@@ -337,8 +351,13 @@ async function paintClipToCanvas({
     await waitForVideoDimensions(video)
 
     const startSec = clip.trimStartMs / 1000
-    const endSec = Math.min(clip.trimEndMs, clip.durationMs) / 1000
-    if (!(endSec > startSec)) return
+    const trimEndSec = Math.min(clip.trimEndMs, clip.durationMs) / 1000
+    if (!(trimEndSec > startSec)) return 0
+
+    // Prefer real media durations over wall-clock capture estimates so A/V
+    // segment lengths stay aligned across clips.
+    const videoMediaEnd = Number.isFinite(video.duration) ? video.duration : trimEndSec
+    let endSec = Math.min(trimEndSec, videoMediaEnd)
 
     video.currentTime = startSec
     await waitForEvent(video, 'seeked')
@@ -346,7 +365,23 @@ async function paintClipToCanvas({
     const audioBuffer =
       audioContext && dest ? await decodeClipAudio(audioContext, clip.blob) : null
 
-    if (audioContext && dest && audioBuffer) {
+    const audioOffset = audioBuffer
+      ? Math.min(Math.max(0, startSec), Math.max(0, audioBuffer.duration - 0.01))
+      : 0
+    const audioAvailable = audioBuffer
+      ? Math.max(0, audioBuffer.duration - audioOffset)
+      : 0
+
+    if (audioBuffer && audioAvailable > 0.05) {
+      // Keep each stitch segment to the shorter of video/audio so the next
+      // clip's soundtrack cannot start while the previous picture is still up.
+      endSec = Math.min(endSec, startSec + audioAvailable)
+    }
+
+    const segmentSec = endSec - startSec
+    if (!(segmentSec > 0.04)) return 0
+
+    if (audioContext && dest && audioBuffer && audioAvailable > 0.05) {
       try {
         if (audioContext.state === 'suspended') {
           await audioContext.resume().catch(() => undefined)
@@ -360,32 +395,53 @@ async function paintClipToCanvas({
     }
 
     await video.play()
+    // Wait until the video clock actually advances so BufferSource doesn't
+    // lead the picture by the play()/decoder startup gap.
+    await waitForPlaybackStart(video, startSec)
 
-    if (bufferSource && audioContext && audioBuffer) {
-      const offset = Math.min(Math.max(0, startSec), Math.max(0, audioBuffer.duration - 0.01))
-      const duration = Math.min(
-        Math.max(0, endSec - startSec),
-        Math.max(0, audioBuffer.duration - offset),
-      )
-      if (duration > 0.02) {
-        bufferSource.start(audioContext.currentTime, offset, duration)
-      }
+    // Always stamp at least one frame after startup (covers ended-on-start).
+    if (video.videoWidth > 0) {
+      drawCover(ctx, video, canvas.width, canvas.height)
+    }
+
+    const videoLeadSec = Math.max(0, video.currentTime - startSec)
+    const audioPlayOffset = audioOffset + videoLeadSec
+    const audioPlayDuration = Math.max(0, Math.min(segmentSec - videoLeadSec, audioAvailable - videoLeadSec))
+    const audioStartedAt = audioContext?.currentTime ?? null
+    // Schedule any remaining audio after startup lead, including short floor
+    // segments where videoLeadSec can leave only a few milliseconds.
+    if (bufferSource && audioContext && audioStartedAt !== null && audioPlayDuration > 0) {
+      // Skip the audio that already elapsed on the video clock during startup.
+      bufferSource.start(audioStartedAt, audioPlayOffset, audioPlayDuration)
     }
 
     await new Promise<void>((resolve, reject) => {
       let raf = 0
       let lastFrameAt = performance.now()
+      let lastVideoTime = video.currentTime
+
+      const finish = () => {
+        if (video.videoWidth > 0) {
+          drawCover(ctx, video, canvas.width, canvas.height)
+        }
+        cancelAnimationFrame(raf)
+        video.pause()
+        resolve()
+      }
+
       const draw = () => {
         const now = performance.now()
-        if (video.ended || video.currentTime >= endSec - 0.04) {
-          cancelAnimationFrame(raf)
-          video.pause()
-          resolve()
+        const videoElapsed = Math.max(0, video.currentTime - startSec)
+
+        if (video.ended || video.currentTime >= endSec - 0.04 || videoElapsed >= segmentSec - 0.03) {
+          finish()
           return
         }
 
-        // Stall watchdog: if playback never advances, abort this clip.
-        if (now - lastFrameAt > 8000) {
+        if (video.currentTime > lastVideoTime + 0.001) {
+          lastVideoTime = video.currentTime
+          lastFrameAt = now
+        } else if (now - lastFrameAt > 8000) {
           cancelAnimationFrame(raf)
           video.pause()
           reject(new Error('Clip playback stalled during export'))
@@ -394,9 +450,8 @@ async function paintClipToCanvas({
 
         if (video.videoWidth > 0) {
           drawCover(ctx, video, canvas.width, canvas.height)
-          lastFrameAt = now
         }
-        onFrameProgress?.(Math.max(0, (video.currentTime - startSec) * 1000))
+        onFrameProgress?.(Math.min(segmentSec, videoElapsed) * 1000)
         raf = requestAnimationFrame(draw)
       }
 
@@ -406,6 +461,8 @@ async function paintClipToCanvas({
       }
       raf = requestAnimationFrame(draw)
     })
+
+    return Math.max(40, Math.round(segmentSec * 1000))
   } finally {
     try {
       bufferSource?.stop()
@@ -417,6 +474,21 @@ async function paintClipToCanvas({
     video.removeAttribute('src')
     video.load()
   }
+}
+
+async function waitForPlaybackStart(video: HTMLVideoElement, startSec: number): Promise<void> {
+  if (video.currentTime > startSec + 0.01) return
+  const deadline = performance.now() + 1500
+  await new Promise<void>((resolve) => {
+    const tick = () => {
+      if (video.currentTime > startSec + 0.01 || video.ended || performance.now() > deadline) {
+        resolve()
+        return
+      }
+      requestAnimationFrame(tick)
+    }
+    tick()
+  })
 }
 
 async function decodeClipAudio(
