@@ -14,10 +14,13 @@ npm run dev
 Open the printed localhost URL in Chrome (desktop or Android). Camera/microphone require a **secure context** (`http://localhost` or HTTPS).
 
 ```bash
-npm run build    # production build + service worker
-npm run preview  # serve dist (PWA cache active)
-npm test         # IndexedDB/storage unit tests
+npm run build      # production build + service worker
+npm run preview    # serve dist (PWA cache active)
+npm test           # IndexedDB/storage unit tests
+npm run test:smoke # Playwright UX smoke (fake camera, offline shell)
 ```
+
+**Live app:** [https://kody-video.pages.dev](https://kody-video.pages.dev) (Cloudflare Pages, builds from `main`)
 
 For a phone on the same network, use your machine’s LAN URL over HTTPS, or tunnel (`npm run dev -- --host` plus a trusted tunnel). `getUserMedia` will fail on plain `http://<lan-ip>` in most browsers.
 
