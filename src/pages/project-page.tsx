@@ -7,6 +7,7 @@ import {
   useRevalidator,
   type LoaderFunctionArgs,
 } from 'react-router-dom'
+import { BlobVideo } from '../components/blob-video'
 import { ExportSheet } from '../components/export-sheet'
 import { OnboardingOverlay } from '../components/onboarding-overlay'
 import { PlaybackOverlay } from '../components/playback-overlay'
@@ -27,6 +28,7 @@ import {
   downloadClipsAsSeparateFiles,
   exportProjectAsWebm,
   projectFilename,
+  shareClipFile,
   shareOrDownload,
 } from '../lib/media'
 import { HoldRecorder } from '../lib/recorder'
@@ -85,6 +87,7 @@ export function ProjectPage() {
   const [exportProgress, setExportProgress] = useState<number | null>(null)
   const [exportBusy, setExportBusy] = useState(false)
   const [exportMessage, setExportMessage] = useState<string | null>(null)
+  const [exportMessageTone, setExportMessageTone] = useState<'info' | 'error'>('info')
 
   const totalDurationMs = data.clips.reduce((sum, clip) => sum + effectiveDurationMs(clip), 0)
 
@@ -314,6 +317,7 @@ export function ProjectPage() {
       <div
         className="camera-stage"
         onPointerDown={(event) => {
+          if (mode !== 'record') return
           if (event.button !== 0) return
           if (countdown !== null) {
             clearCountdown()
@@ -328,24 +332,43 @@ export function ProjectPage() {
           beginRecord(event.pointerId, 'hold')
         }}
         onPointerUp={(event) => {
+          if (mode !== 'record') return
           if (recordingMode !== 'hands-free') {
             void endRecord(event.pointerId)
           }
         }}
         onPointerCancel={(event) => {
+          if (mode !== 'record') return
           if (recordingMode !== 'hands-free') {
             void endRecord(event.pointerId)
           }
         }}
         onContextMenu={(event) => event.preventDefault()}
       >
-        <video
-          ref={bindCameraVideo}
-          className={`camera-video${camera.facing === 'user' ? ' mirror' : ''}`}
-          muted
-          playsInline
-          autoPlay
-        />
+        {mode === 'record' ? (
+          <video
+            ref={bindCameraVideo}
+            className={`camera-video${camera.facing === 'user' ? ' mirror' : ''}`}
+            muted
+            playsInline
+            autoPlay
+          />
+        ) : selected ? (
+          <BlobVideo
+            key={selected.id}
+            blob={selected.blob}
+            className="editor-clip-preview"
+            muted
+            playsInline
+            preload="metadata"
+            onLoadedData={(event) => {
+              const video = event.currentTarget
+              video.currentTime = selected.trimStartMs / 1000
+            }}
+          />
+        ) : (
+          <div className="editor-empty-preview">Select a clip in the timeline</div>
+        )}
 
         {recording ? (
           <div className="record-overlay">
@@ -369,7 +392,7 @@ export function ProjectPage() {
           </div>
         ) : null}
 
-        {needsPermission ? (
+        {mode === 'record' && needsPermission ? (
           <div className="permission-panel">
             <div>
               <h2>Camera access</h2>
@@ -596,17 +619,56 @@ export function ProjectPage() {
           progress={exportProgress}
           busy={exportBusy}
           message={exportMessage}
+          messageTone={exportMessageTone}
           onClose={() => {
             if (!exportBusy) setSheet('none')
           }}
           onDownloadClips={() => {
-            downloadClipsAsSeparateFiles(data.clips, data.project!.name)
-            setExportMessage('Started clip downloads (no upload).')
+            void (async () => {
+              setExportBusy(true)
+              setExportMessageTone('info')
+              try {
+                // Prefer sharing the latest clip on mobile; also kick off individual downloads.
+                const last = data.clips.at(-1)
+                if (last) {
+                  const mode = await shareClipFile(
+                    last,
+                    data.project!.name,
+                    data.clips.length - 1,
+                  )
+                  if (mode === 'cancelled') {
+                    setExportMessage('Share canceled.')
+                  } else if (data.clips.length === 1) {
+                    setExportMessage(
+                      mode === 'shared'
+                        ? 'Shared the clip from this device.'
+                        : 'Opened/saved the clip file.',
+                    )
+                  } else {
+                    downloadClipsAsSeparateFiles(data.clips, data.project!.name)
+                    setExportMessage(
+                      mode === 'shared'
+                        ? 'Shared the latest clip. Also started downloads for all clips.'
+                        : 'Started clip file saves (no upload).',
+                    )
+                  }
+                } else {
+                  downloadClipsAsSeparateFiles(data.clips, data.project!.name)
+                  setExportMessage('Started clip file saves (no upload).')
+                }
+              } catch (err) {
+                setExportMessageTone('error')
+                setExportMessage(err instanceof Error ? err.message : 'Could not save clip files')
+              } finally {
+                setExportBusy(false)
+              }
+            })()
           }}
           onExport={() => {
             void (async () => {
               setExportBusy(true)
               setExportMessage(null)
+              setExportMessageTone('info')
               setExportProgress(0)
               try {
                 const blob = await exportProjectAsWebm(data.clips, setExportProgress)
@@ -614,13 +676,15 @@ export function ProjectPage() {
                 const shareMode = await shareOrDownload(blob, filename)
                 switch (shareMode) {
                   case 'shared':
-                    setExportMessage('Shared from this device.')
+                    setExportMessage('Shared the stitched video from this device.')
                     break
                   case 'downloaded':
-                    setExportMessage('Downloaded. Nothing was uploaded.')
+                    setExportMessage(
+                      'Saved/opened the stitched video locally. On Android, use the share sheet if the file did not appear in Downloads.',
+                    )
                     break
                   case 'cancelled':
-                    setExportMessage('Share canceled — export stayed on this device.')
+                    setExportMessage('Share canceled — video stayed on this device.')
                     break
                   default: {
                     const _exhaustive: never = shareMode
@@ -628,10 +692,11 @@ export function ProjectPage() {
                   }
                 }
               } catch (err) {
+                setExportMessageTone('error')
                 setExportMessage(
                   err instanceof Error
-                    ? `${err.message} Try “Files” for separate downloads.`
-                    : 'Export failed. Try downloading clips separately.',
+                    ? `${err.message} Tap Files to save original clips instead.`
+                    : 'Export failed. Tap Files to save original clips instead.',
                 )
               } finally {
                 setExportBusy(false)
