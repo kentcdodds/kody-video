@@ -124,6 +124,9 @@ export function Timeline({ projectId, clips, selectedClipId, onSelect, refresh }
     index: number,
   ) => {
     if (event.button !== 0) return
+    // A previous session that never reached finishPointer (e.g. its tile
+    // unmounted mid-drag) must not leak into this gesture.
+    if (dragRef.current) clearDrag()
     event.currentTarget.setPointerCapture(event.pointerId)
 
     dragRef.current = {
@@ -251,8 +254,15 @@ export function Timeline({ projectId, clips, selectedClipId, onSelect, refresh }
                 e.preventDefault()
               }}
               ref={(el) => {
-                if (el) tileRefs.current.set(clip.id, el)
-                else tileRefs.current.delete(clip.id)
+                if (el) {
+                  tileRefs.current.set(clip.id, el)
+                } else {
+                  tileRefs.current.delete(clip.id)
+                  // The dragged tile disappeared (clip deleted/reordered by a
+                  // revalidation) — end the session so the pan blocker and
+                  // is-dragging dimming can't stick around.
+                  if (dragRef.current?.clipId === clip.id) clearDrag()
+                }
               }}
             >
               <div className="clip-filmstrip">
