@@ -342,7 +342,7 @@ a {
 
 .camera-screen {
   padding: 0;
-  background: #000;
+  background: #10171a;
 }
 
 .camera-top {
@@ -384,10 +384,19 @@ a {
   flex: 1;
   min-height: 0;
   background:
-    radial-gradient(80% 60% at 50% 20%, rgba(125, 206, 160, 0.08), transparent 60%),
-    #050c0a;
+    radial-gradient(80% 60% at 50% 20%, rgba(68, 215, 168, 0.08), transparent 60%),
+    #050708;
   overflow: hidden;
   touch-action: none;
+  transition: flex-basis 220ms ease, margin 220ms ease, border-radius 220ms ease;
+}
+
+.editor-mode .camera-stage {
+  flex: 0 0 min(48vh, 430px);
+  margin: calc(62px + var(--safe-top)) 10px 0;
+  border-radius: 26px;
+  border: 1px solid var(--line);
+  box-shadow: var(--shadow);
 }
 
 .camera-video {
@@ -420,7 +429,7 @@ a {
   padding: 8px 14px;
   border-radius: 999px;
   background: rgba(0, 0, 0, 0.55);
-  border: 1px solid rgba(240, 79, 58, 0.55);
+  border: 1px solid rgba(255, 107, 90, 0.62);
   color: #fff;
   font-variant-numeric: tabular-nums;
   font-weight: 600;
@@ -431,19 +440,46 @@ a {
   width: 10px;
   height: 10px;
   border-radius: 50%;
-  background: var(--accent);
+  background: var(--danger);
 }
 
 .hold-hint {
   position: absolute;
   left: 50%;
-  bottom: 28%;
+  bottom: 24%;
   transform: translateX(-50%);
   color: rgba(243, 247, 244, 0.78);
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  align-items: center;
   font-size: 0.95rem;
   letter-spacing: 0.02em;
   text-shadow: 0 2px 12px rgba(0, 0, 0, 0.65);
   animation: soft-glow 1.6s ease-in-out infinite alternate;
+  pointer-events: none;
+}
+
+.hold-hint strong {
+  font-family: var(--font-display);
+  font-size: 1.5rem;
+  line-height: 1;
+}
+
+.hold-hint span {
+  color: var(--ink-muted);
+}
+
+.countdown-overlay {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  color: var(--accent);
+  font-family: var(--font-display);
+  font-size: clamp(6rem, 34vw, 10rem);
+  text-shadow: 0 12px 34px rgba(0, 0, 0, 0.55);
+  background: rgba(16, 23, 26, 0.24);
   pointer-events: none;
 }
 
@@ -473,19 +509,119 @@ a {
 .camera-bottom {
   position: relative;
   z-index: 3;
-  background: linear-gradient(180deg, rgba(5, 12, 10, 0.2), rgba(5, 12, 10, 0.96) 28%);
+  background: linear-gradient(180deg, rgba(16, 23, 26, 0), rgba(16, 23, 26, 0.95) 24%);
   padding: 10px 12px calc(12px + var(--safe-bottom));
   display: flex;
   flex-direction: column;
   gap: 10px;
 }
 
+.editor-mode .camera-bottom {
+  flex: 1;
+  min-height: 0;
+  background: transparent;
+  padding-top: 12px;
+}
+
+.record-dock {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.record-summary {
+  align-self: center;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 12px;
+  border-radius: 999px;
+  background: rgba(16, 23, 26, 0.68);
+  border: 1px solid var(--line);
+  color: var(--ink);
+}
+
+.record-summary span {
+  color: var(--ink-muted);
+  font-size: 0.86rem;
+}
+
+.record-actions {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr)) auto;
+  gap: 8px;
+  align-items: center;
+}
+
+.record-actions .btn {
+  min-width: 0;
+  padding: 0 12px;
+}
+
+.ok-button {
+  width: 86px;
+  height: 86px;
+  min-width: 86px;
+  border-radius: 50%;
+  background:
+    radial-gradient(circle at 34% 28%, rgba(243, 245, 244, 0.72), transparent 18%),
+    linear-gradient(145deg, var(--accent), #5f8575);
+  color: #10171a;
+  border: 4px solid rgba(243, 245, 244, 0.72);
+  box-shadow: 0 16px 34px rgba(68, 215, 168, 0.24);
+  font-family: var(--font-display);
+  font-size: 1.55rem;
+  font-weight: 700;
+  letter-spacing: -0.04em;
+}
+
+.ok-button.compact {
+  width: 58px;
+  height: 58px;
+  min-width: 58px;
+  border-width: 3px;
+  font-size: 1.05rem;
+}
+
+.ok-button:disabled {
+  opacity: 0.42;
+  cursor: not-allowed;
+}
+
+.editor-panel {
+  min-height: 0;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 12px;
+  border-radius: 28px 28px 0 0;
+  background: linear-gradient(180deg, rgba(47, 62, 70, 0.92), rgba(23, 33, 38, 0.98));
+  border: 1px solid var(--line);
+  box-shadow: var(--shadow);
+}
+
+.editor-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.editor-header .eyebrow {
+  margin-bottom: 3px;
+}
+
+.editor-header strong {
+  font-family: var(--font-display);
+}
+
 .timeline {
   display: flex;
   gap: 8px;
   overflow-x: auto;
-  padding: 4px 2px 2px;
-  min-height: 72px;
+  padding: 4px 2px 6px;
+  min-height: 92px;
   scrollbar-width: none;
 }
 
@@ -495,9 +631,9 @@ a {
 
 .clip-thumb {
   flex: 0 0 auto;
-  width: 72px;
-  height: 64px;
-  border-radius: 12px;
+  width: 92px;
+  height: 82px;
+  border-radius: 16px;
   border: 2px solid transparent;
   background: var(--bg-soft);
   overflow: hidden;
@@ -507,6 +643,7 @@ a {
 
 .clip-thumb.selected {
   border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-soft);
 }
 
 .clip-thumb video {
@@ -534,6 +671,16 @@ a {
   justify-content: space-between;
 }
 
+.editor-actions {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.editor-actions .trim-action {
+  grid-column: 1 / -1;
+}
+
 .toolbar-group {
   display: flex;
   gap: 6px;
@@ -547,7 +694,7 @@ a {
   right: 0;
   bottom: 0;
   z-index: 5;
-  background: linear-gradient(180deg, #16362d, #0b1f1a);
+  background: linear-gradient(180deg, #364850, #172126);
   border-top-left-radius: 22px;
   border-top-right-radius: 22px;
   border-top: 1px solid var(--line);
@@ -594,7 +741,7 @@ a {
 }
 
 .field input:focus {
-  border-color: rgba(240, 79, 58, 0.65);
+  border-color: rgba(68, 215, 168, 0.65);
 }
 
 .trim-grid {
@@ -614,7 +761,7 @@ a {
 .progress-bar > span {
   display: block;
   height: 100%;
-  background: linear-gradient(90deg, var(--accent), #ff8a6a);
+  background: linear-gradient(90deg, var(--accent), var(--ok));
   width: 0%;
   transition: width 120ms linear;
 }
@@ -625,7 +772,10 @@ a {
   bottom: calc(110px + var(--safe-bottom));
   transform: translateX(-50%);
   z-index: 6;
-  background: rgba(7, 20, 17, 0.9);
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  background: rgba(16, 23, 26, 0.92);
   border: 1px solid var(--line);
   color: var(--ink);
   padding: 10px 14px;
@@ -633,6 +783,11 @@ a {
   font-size: 0.9rem;
   white-space: nowrap;
   animation: rise-in 220ms ease both;
+}
+
+.toast button {
+  color: var(--accent);
+  font-weight: 700;
 }
 
 .visually-hidden {

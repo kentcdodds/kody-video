@@ -32,6 +32,14 @@ import { HoldRecorder } from '../lib/recorder'
 import { effectiveDurationMs, formatDuration, type ClipId } from '../lib/types'
 
 type Sheet = 'none' | 'trim' | 'export'
+type ProjectMode = 'record' | 'editor'
+type RecordingMode = 'hold' | 'hands-free'
+
+interface ToastState {
+  message: string
+  actionLabel?: string
+  onAction?: () => void
+}
 
 export async function projectLoader({ params }: LoaderFunctionArgs): Promise<ProjectLoaderData> {
   const projectId = params.projectId
@@ -58,15 +66,19 @@ export function ProjectPage() {
   const pointerIdRef = useRef<number | null>(null)
   const recordRafRef = useRef(0)
   const toastTimerRef = useRef(0)
+  const countdownTimerRef = useRef(0)
 
   const [selectedClipId, setSelectedClipId] = useState<ClipId | null>(
     () => data.clips.at(-1)?.id ?? null,
   )
+  const [mode, setMode] = useState<ProjectMode>('record')
   const [recording, setRecording] = useState(false)
+  const [recordingMode, setRecordingMode] = useState<RecordingMode | null>(null)
   const [recordMs, setRecordMs] = useState(0)
+  const [countdown, setCountdown] = useState<number | null>(null)
   const [sheet, setSheet] = useState<Sheet>('none')
   const [playing, setPlaying] = useState(false)
-  const [toast, setToast] = useState<string | null>(null)
+  const [toast, setToast] = useState<ToastState | null>(null)
   const [exportProgress, setExportProgress] = useState<number | null>(null)
   const [exportBusy, setExportBusy] = useState(false)
   const [exportMessage, setExportMessage] = useState<string | null>(null)
@@ -86,10 +98,16 @@ export function ProjectPage() {
     })
   }, [revalidator])
 
-  const showToast = useCallback((message: string) => {
+  const showToast = useCallback((message: string, action?: Omit<ToastState, 'message'>) => {
     window.clearTimeout(toastTimerRef.current)
-    setToast(message)
+    setToast({ message, ...action })
     toastTimerRef.current = window.setTimeout(() => setToast(null), 2200)
+  }, [])
+
+  const clearCountdown = useCallback(() => {
+    window.clearTimeout(countdownTimerRef.current)
+    countdownTimerRef.current = 0
+    setCountdown(null)
   }, [])
 
   const stopRecordTicker = useCallback(() => {
@@ -98,8 +116,8 @@ export function ProjectPage() {
   }, [])
 
   const beginRecord = useCallback(
-    (pointerId: number) => {
-      if (recording || playing || sheet !== 'none') return
+    (pointerId: number | null, nextRecordingMode: RecordingMode) => {
+      if (recording || playing || sheet !== 'none' || countdown !== null) return
       if (!camera.stream || !camera.isReady) {
         showToast('Camera not ready')
         return
@@ -108,6 +126,7 @@ export function ProjectPage() {
       try {
         recorderRef.current.start(camera.stream)
         setRecording(true)
+        setRecordingMode(nextRecordingMode)
         setRecordMs(0)
         const started = performance.now()
         const tick = () => {
@@ -118,18 +137,26 @@ export function ProjectPage() {
       } catch {
         showToast('Could not start recording')
         pointerIdRef.current = null
+        setRecordingMode(null)
       }
     },
-    [camera.isReady, camera.stream, playing, recording, sheet, showToast],
+    [camera.isReady, camera.stream, countdown, playing, recording, sheet, showToast],
   )
 
   const endRecord = useCallback(
     async (pointerId?: number) => {
-      if (pointerId !== undefined && pointerIdRef.current !== pointerId) return
+      if (
+        pointerId !== undefined &&
+        pointerIdRef.current !== null &&
+        pointerIdRef.current !== pointerId
+      ) {
+        return
+      }
       if (!recorderRef.current.isRecording && !recording) return
       pointerIdRef.current = null
       stopRecordTicker()
       setRecording(false)
+      setRecordingMode(null)
       try {
         const result = await recorderRef.current.stop()
         if (!result) {
@@ -140,12 +167,73 @@ export function ProjectPage() {
         const clip = await appendRecording(projectId, result)
         setSelectedClipId(clip.id)
         refresh()
+        if (mode === 'record') {
+          showToast('Clip added')
+        }
       } catch (err) {
         showToast(err instanceof Error ? err.message : 'Save failed')
       }
     },
-    [projectId, recording, refresh, showToast, stopRecordTicker],
+    [mode, projectId, recording, refresh, showToast, stopRecordTicker],
   )
+
+  const startSelfTimer = useCallback(() => {
+    if (recording || playing || sheet !== 'none' || countdown !== null) return
+    if (!camera.stream || !camera.isReady) {
+      showToast('Camera not ready')
+      return
+    }
+
+    let next = 3
+    setCountdown(next)
+    const tick = () => {
+      next -= 1
+      if (next <= 0) {
+        countdownTimerRef.current = 0
+        setCountdown(null)
+        beginRecord(null, 'hands-free')
+        showToast('Hands-free recording. Tap preview to stop.')
+        return
+      }
+      setCountdown(next)
+      countdownTimerRef.current = window.setTimeout(tick, 1000)
+    }
+    countdownTimerRef.current = window.setTimeout(tick, 1000)
+  }, [
+    beginRecord,
+    camera.isReady,
+    camera.stream,
+    countdown,
+    playing,
+    recording,
+    sheet,
+    showToast,
+  ])
+
+  const deleteLastClip = useCallback(() => {
+    const lastClip = data.clips.at(-1)
+    if (!lastClip) {
+      showToast('No clips yet')
+      return
+    }
+    void (async () => {
+      await removeClip(lastClip.id)
+      setSelectedClipId(data.clips.at(-2)?.id ?? null)
+      refresh()
+      showToast('Last clip deleted', {
+        actionLabel: 'Undo',
+        onAction: () => {
+          void (async () => {
+            if (!projectId) return
+            const restored = await undoLastDelete(projectId)
+            if (restored) setSelectedClipId(restored.id)
+            refresh()
+            showToast('Clip restored')
+          })()
+        },
+      })
+    })()
+  }, [data.clips, projectId, refresh, showToast])
 
   if (!projectId) {
     navigate('/')
@@ -174,23 +262,25 @@ export function ProjectPage() {
   const bindCameraVideo = useCallback(
     (element: HTMLVideoElement | null) => {
       if (!element) {
+        clearCountdown()
         stopRecordTicker()
         recorderRef.current.cancel()
         window.clearTimeout(toastTimerRef.current)
       }
       attachCameraVideo(element)
     },
-    [attachCameraVideo, stopRecordTicker],
+    [attachCameraVideo, clearCountdown, stopRecordTicker],
   )
 
   return (
-    <div className="screen camera-screen">
+    <div className={`screen camera-screen ${mode}-mode${recording ? ' is-recording' : ''}`}>
       <div className="camera-top">
         <Link
           to="/"
           className="btn-icon"
           aria-label="Back to projects"
           onClick={() => {
+            clearCountdown()
             stopRecordTicker()
             recorderRef.current.cancel()
             window.clearTimeout(toastTimerRef.current)
@@ -217,14 +307,27 @@ export function ProjectPage() {
         className="camera-stage"
         onPointerDown={(event) => {
           if (event.button !== 0) return
+          if (countdown !== null) {
+            clearCountdown()
+            showToast('Timer canceled')
+            return
+          }
+          if (recording && recordingMode === 'hands-free') {
+            void endRecord()
+            return
+          }
           event.currentTarget.setPointerCapture(event.pointerId)
-          beginRecord(event.pointerId)
+          beginRecord(event.pointerId, 'hold')
         }}
         onPointerUp={(event) => {
-          void endRecord(event.pointerId)
+          if (recordingMode !== 'hands-free') {
+            void endRecord(event.pointerId)
+          }
         }}
         onPointerCancel={(event) => {
-          void endRecord(event.pointerId)
+          if (recordingMode !== 'hands-free') {
+            void endRecord(event.pointerId)
+          }
         }}
         onContextMenu={(event) => event.preventDefault()}
       >
@@ -240,13 +343,22 @@ export function ProjectPage() {
           <div className="record-overlay">
             <div className="record-pill" aria-live="polite">
               <span className="record-dot" />
-              REC {formatDuration(recordMs)}
+              {recordingMode === 'hands-free' ? 'TAP TO STOP' : 'REC'} {formatDuration(recordMs)}
             </div>
           </div>
         ) : null}
 
-        {!recording && data.clips.length === 0 && camera.isReady ? (
-          <div className="hold-hint">Hold anywhere to record</div>
+        {countdown !== null ? (
+          <div className="countdown-overlay" aria-live="assertive">
+            {countdown}
+          </div>
+        ) : null}
+
+        {!recording && countdown === null && mode === 'record' && camera.isReady ? (
+          <div className="hold-hint">
+            <strong>Hold anywhere</strong>
+            <span>release to append</span>
+          </div>
         ) : null}
 
         {needsPermission ? (
@@ -271,129 +383,191 @@ export function ProjectPage() {
       </div>
 
       <div className="camera-bottom">
-        <Timeline
-          clips={data.clips}
-          selectedClipId={resolvedSelectedId}
-          onSelect={setSelectedClipId}
-        />
-
-        <div className="toolbar">
-          <div className="toolbar-group">
-            <button
-              type="button"
-              className="btn btn-ghost"
-              disabled={!resolvedSelectedId || recording}
-              onClick={() => {
-                void (async () => {
-                  if (!resolvedSelectedId) return
-                  await removeClip(resolvedSelectedId)
-                  setSelectedClipId(null)
-                  refresh()
-                  showToast('Clip deleted — undo available')
-                })()
-              }}
-            >
-              Delete
-            </button>
-            <button
-              type="button"
-              className="btn btn-ghost"
-              disabled={!data.canUndo || recording}
-              onClick={() => {
-                void (async () => {
-                  const restored = await undoLastDelete(projectId)
-                  if (restored) setSelectedClipId(restored.id)
-                  refresh()
-                  showToast('Clip restored')
-                })()
-              }}
-            >
-              Undo
-            </button>
+        {mode === 'record' ? (
+          <div className="record-dock">
+            <div className="record-summary">
+              <strong>
+                {data.clips.length} clip{data.clips.length === 1 ? '' : 's'}
+              </strong>
+              <span>{formatDuration(totalDurationMs)} total</span>
+            </div>
+            <div className="record-actions">
+              <button
+                type="button"
+                className="btn btn-secondary"
+                disabled={recording}
+                onClick={() => setMode('editor')}
+              >
+                Editor
+              </button>
+              <button
+                type="button"
+                className="btn btn-ghost"
+                disabled={recording || countdown !== null}
+                onClick={startSelfTimer}
+              >
+                Timer
+              </button>
+              <button
+                type="button"
+                className="btn btn-ghost"
+                disabled={data.clips.length === 0 || recording}
+                onClick={deleteLastClip}
+              >
+                Delete last
+              </button>
+              <button
+                type="button"
+                className="ok-button"
+                disabled={data.clips.length === 0 || recording}
+                onClick={() => {
+                  setExportMessage(null)
+                  setExportProgress(null)
+                  setSheet('export')
+                }}
+              >
+                OK
+              </button>
+            </div>
           </div>
-          <div className="toolbar-group">
-            <button
-              type="button"
-              className="btn-icon"
-              aria-label="Move clip left"
-              disabled={!resolvedSelectedId || recording}
-              onClick={() => {
-                void (async () => {
-                  if (!resolvedSelectedId) return
-                  await moveSelectedClip(projectId, resolvedSelectedId, 'left')
-                  refresh()
-                })()
-              }}
-            >
-              ‹
-            </button>
-            <button
-              type="button"
-              className="btn-icon"
-              aria-label="Move clip right"
-              disabled={!resolvedSelectedId || recording}
-              onClick={() => {
-                void (async () => {
-                  if (!resolvedSelectedId) return
-                  await moveSelectedClip(projectId, resolvedSelectedId, 'right')
-                  refresh()
-                })()
-              }}
-            >
-              ›
-            </button>
-            <button
-              type="button"
-              className="btn-icon"
-              aria-label="Duplicate clip"
-              disabled={!resolvedSelectedId || recording}
-              onClick={() => {
-                void (async () => {
-                  if (!resolvedSelectedId) return
-                  const copy = await duplicateSelectedClip(resolvedSelectedId)
-                  setSelectedClipId(copy.id)
-                  refresh()
-                })()
-              }}
-            >
-              ⧉
-            </button>
-            <button
-              type="button"
-              className="btn-icon"
-              aria-label="Trim clip"
-              disabled={!selected || recording}
-              onClick={() => setSheet('trim')}
-            >
-              ✂
-            </button>
-          </div>
-        </div>
+        ) : (
+          <div className="editor-panel">
+            <div className="editor-header">
+              <div>
+                <p className="eyebrow">Editor</p>
+                <strong>{selected ? `Clip ${data.clips.findIndex((c) => c.id === selected.id) + 1}` : 'No clip selected'}</strong>
+              </div>
+              <button type="button" className="btn btn-secondary" onClick={() => setMode('record')}>
+                Camera
+              </button>
+            </div>
 
-        <div className="toolbar">
-          <button
-            type="button"
-            className="btn btn-secondary"
-            style={{ flex: 1 }}
-            disabled={data.clips.length === 0 || recording}
-            onClick={() => setPlaying(true)}
-          >
-            Preview
-          </button>
-          <button
-            type="button"
-            className="btn btn-primary"
-            style={{ flex: 1 }}
-            disabled={data.clips.length === 0 || recording}
-            onClick={() => {
-              setExportMessage(null)
-              setExportProgress(null)
-              setSheet('export')
-            }}
-          >
-            Share
-          </button>
-        </div>
+            <Timeline
+              clips={data.clips}
+              selectedClipId={resolvedSelectedId}
+              onSelect={setSelectedClipId}
+            />
+
+            <div className="editor-actions">
+              <button
+                type="button"
+                className="btn btn-primary trim-action"
+                disabled={!selected || recording}
+                onClick={() => setSheet('trim')}
+              >
+                Trim
+              </button>
+              <button
+                type="button"
+                className="btn btn-ghost"
+                disabled={!resolvedSelectedId || recording}
+                onClick={() => {
+                  void (async () => {
+                    if (!resolvedSelectedId) return
+                    await removeClip(resolvedSelectedId)
+                    setSelectedClipId(null)
+                    refresh()
+                    showToast('Clip deleted', {
+                      actionLabel: 'Undo',
+                      onAction: () => {
+                        void (async () => {
+                          const restored = await undoLastDelete(projectId)
+                          if (restored) setSelectedClipId(restored.id)
+                          refresh()
+                          showToast('Clip restored')
+                        })()
+                      },
+                    })
+                  })()
+                }}
+              >
+                Delete
+              </button>
+              <button
+                type="button"
+                className="btn btn-ghost"
+                disabled={!resolvedSelectedId || recording}
+                onClick={() => {
+                  void (async () => {
+                    if (!resolvedSelectedId) return
+                    const copy = await duplicateSelectedClip(resolvedSelectedId)
+                    setSelectedClipId(copy.id)
+                    refresh()
+                  })()
+                }}
+              >
+                Duplicate
+              </button>
+              <button
+                type="button"
+                className="btn btn-ghost"
+                disabled={!resolvedSelectedId || recording}
+                onClick={() => {
+                  void (async () => {
+                    if (!resolvedSelectedId) return
+                    await moveSelectedClip(projectId, resolvedSelectedId, 'left')
+                    refresh()
+                  })()
+                }}
+              >
+                Move left
+              </button>
+              <button
+                type="button"
+                className="btn btn-ghost"
+                disabled={!resolvedSelectedId || recording}
+                onClick={() => {
+                  void (async () => {
+                    if (!resolvedSelectedId) return
+                    await moveSelectedClip(projectId, resolvedSelectedId, 'right')
+                    refresh()
+                  })()
+                }}
+              >
+                Move right
+              </button>
+              <button
+                type="button"
+                className="btn btn-ghost"
+                disabled={!data.canUndo || recording}
+                onClick={() => {
+                  void (async () => {
+                    const restored = await undoLastDelete(projectId)
+                    if (restored) setSelectedClipId(restored.id)
+                    refresh()
+                    showToast('Clip restored')
+                  })()
+                }}
+              >
+                Undo
+              </button>
+            </div>
+
+            <div className="toolbar">
+              <button
+                type="button"
+                className="btn btn-secondary"
+                style={{ flex: 1 }}
+                disabled={data.clips.length === 0 || recording}
+                onClick={() => setPlaying(true)}
+              >
+                Preview
+              </button>
+              <button
+                type="button"
+                className="ok-button compact"
+                disabled={data.clips.length === 0 || recording}
+                onClick={() => {
+                  setExportMessage(null)
+                  setExportProgress(null)
+                  setSheet('export')
+                }}
+              >
+                OK
+              </button>
+            </div>
+          </div>
+        )}
       </div>
 
       {sheet === 'trim' && selected ? (
@@ -450,7 +624,23 @@ export function ProjectPage() {
         />
       ) : null}
 
-      {toast ? <div className="toast">{toast}</div> : null}
+      {toast ? (
+        <div className="toast">
+          <span>{toast.message}</span>
+          {toast.actionLabel && toast.onAction ? (
+            <button
+              type="button"
+              onClick={() => {
+                window.clearTimeout(toastTimerRef.current)
+                setToast(null)
+                toast.onAction?.()
+              }}
+            >
+              {toast.actionLabel}
+            </button>
+          ) : null}
+        </div>
+      ) : null}
     </div>
   )
 }
