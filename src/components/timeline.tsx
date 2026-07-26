@@ -12,13 +12,16 @@ import { TimelineThumbImage } from './timeline-thumb-image'
 const PX_PER_SECOND = 26
 const MIN_TILE_WIDTH = 56
 const MAX_TILE_WIDTH = 200
-/** Reorder only starts after a deliberate press-and-hold — plain horizontal
- * swipes must scroll the strip, never grab a clip. */
-const LONG_PRESS_MS = 400
+/** Reorder only starts after a deliberate motionless press-and-hold — any
+ * swipe must scroll the strip, never grab a clip. */
+const LONG_PRESS_MS = 500
 /** Movement beyond this before the long press cancels the pending lift. */
 const MOVE_CANCEL_PX = 8
 const EDGE_SCROLL_ZONE_PX = 44
 const EDGE_SCROLL_STEP_PX = 12
+/** Per-frame velocity decay for the release fling. */
+const FLING_DECAY = 0.94
+const FLING_MIN_VELOCITY = 0.06
 
 interface TimelineProps {
   projectId: ProjectId
@@ -38,7 +41,7 @@ export function Timeline({ projectId, clips, selectedClipId, onSelect, refresh }
   const [gapIndex, setGapIndex] = useState<number | null>(null)
   const trackRef = useRef<HTMLDivElement | null>(null)
   const tileRefs = useRef(new Map<ClipId, HTMLButtonElement>())
-  const touchBlockerRef = useRef<((event: TouchEvent) => void) | null>(null)
+  const flingRafRef = useRef(0)
   const dragRef = useRef<{
     clipId: ClipId
     startX: number
@@ -46,12 +49,13 @@ export function Timeline({ projectId, clips, selectedClipId, onSelect, refresh }
     startScrollLeft: number
     fromIndex: number
     pointerId: number
-    pointerType: string
     longPressTimer: ReturnType<typeof setTimeout> | null
     lifted: boolean
-    /** Mouse/pen gesture turned into a manual drag-to-scroll. */
+    /** Gesture turned into a drag-to-scroll (all pointer types). */
     scrolling: boolean
     gapIndex: number
+    /** Recent pointer samples for the release fling. */
+    samples: { t: number; x: number }[]
   } | null>(null)
 
   const selectClip = (id: ClipId) => {
@@ -68,28 +72,42 @@ export function Timeline({ projectId, clips, selectedClipId, onSelect, refresh }
     )
   }
 
-  /** While a clip is lifted, stop native panning from hijacking the drag.
-   * (React registers touch listeners as passive, so this must be native.) */
-  const addPanBlocker = () => {
-    const track = trackRef.current
-    if (!track || touchBlockerRef.current) return
-    const blocker = (event: TouchEvent) => event.preventDefault()
-    touchBlockerRef.current = blocker
-    track.addEventListener('touchmove', blocker, { passive: false })
+  const stopFling = () => {
+    cancelAnimationFrame(flingRafRef.current)
+    flingRafRef.current = 0
   }
 
-  const removePanBlocker = () => {
+  /** Continue a released swipe with decaying momentum. */
+  const startFling = (samples: { t: number; x: number }[]) => {
     const track = trackRef.current
-    if (track && touchBlockerRef.current) {
-      track.removeEventListener('touchmove', touchBlockerRef.current)
+    if (!track || samples.length < 2) return
+    const last = samples[samples.length - 1]
+    const first = samples[0]
+    // A finger that stopped moving before lifting should not fling.
+    if (performance.now() - last.t > 80) return
+    const dt = last.t - first.t
+    if (dt <= 0) return
+    // Finger velocity in px/ms; the strip scrolls opposite the finger.
+    let velocity = -((last.x - first.x) / dt)
+    if (Math.abs(velocity) < FLING_MIN_VELOCITY) return
+    let previous = performance.now()
+    const tick = (now: number) => {
+      const elapsed = Math.min(64, now - previous)
+      previous = now
+      track.scrollLeft += velocity * elapsed
+      velocity *= FLING_DECAY ** (elapsed / 16)
+      if (Math.abs(velocity) >= FLING_MIN_VELOCITY) {
+        flingRafRef.current = requestAnimationFrame(tick)
+      } else {
+        flingRafRef.current = 0
+      }
     }
-    touchBlockerRef.current = null
+    flingRafRef.current = requestAnimationFrame(tick)
   }
 
   const clearDrag = () => {
     const state = dragRef.current
     if (state?.longPressTimer) clearTimeout(state.longPressTimer)
-    removePanBlocker()
     dragRef.current = null
     setDraggingId(null)
     setGapIndex(null)
@@ -114,7 +132,6 @@ export function Timeline({ projectId, clips, selectedClipId, onSelect, refresh }
     state.gapIndex = state.fromIndex
     setDraggingId(clipId)
     setGapIndex(state.fromIndex)
-    addPanBlocker()
     navigator.vibrate?.(20)
   }
 
@@ -124,6 +141,7 @@ export function Timeline({ projectId, clips, selectedClipId, onSelect, refresh }
     index: number,
   ) => {
     if (event.button !== 0) return
+    stopFling()
     // A previous session that never reached finishPointer (e.g. its tile
     // unmounted mid-drag) must not leak into this gesture.
     if (dragRef.current) clearDrag()
@@ -136,11 +154,11 @@ export function Timeline({ projectId, clips, selectedClipId, onSelect, refresh }
       startScrollLeft: trackRef.current?.scrollLeft ?? 0,
       fromIndex: index,
       pointerId: event.pointerId,
-      pointerType: event.pointerType,
       longPressTimer: setTimeout(() => beginLift(clip.id), LONG_PRESS_MS),
       lifted: false,
       scrolling: false,
       gapIndex: index,
+      samples: [{ t: performance.now(), x: event.clientX }],
     }
   }
 
@@ -179,14 +197,13 @@ export function Timeline({ projectId, clips, selectedClipId, onSelect, refresh }
       state.longPressTimer = null
     }
     state.scrolling = true
-    if (state.pointerType === 'touch') {
-      // touch-action: pan-x lets the browser scroll the strip natively (with
-      // momentum); it will send pointercancel when it takes over.
-      return
-    }
-    // Mouse/pen have no native pan — scroll the strip manually.
+    // Drive the scroll ourselves for every pointer type — relying on native
+    // pan proved flaky on real Android devices, where the gesture could end
+    // up neither scrolling nor cancelling.
     const track = trackRef.current
     if (track) track.scrollLeft = state.startScrollLeft - dx
+    state.samples.push({ t: performance.now(), x: event.clientX })
+    if (state.samples.length > 6) state.samples.shift()
   }
 
   const finishPointer = (event: ReactPointerEvent<HTMLButtonElement>, cancelled: boolean) => {
@@ -199,10 +216,14 @@ export function Timeline({ projectId, clips, selectedClipId, onSelect, refresh }
       /* already released */
     }
 
-    const { clipId, fromIndex, lifted, scrolling, gapIndex: gap } = state
+    const { clipId, fromIndex, lifted, scrolling, gapIndex: gap, samples } = state
     clearDrag()
 
-    if (cancelled || scrolling) return
+    if (scrolling) {
+      if (!cancelled) startFling(samples)
+      return
+    }
+    if (cancelled) return
     if (!lifted) {
       selectClip(clipId)
       return
@@ -227,6 +248,11 @@ export function Timeline({ projectId, clips, selectedClipId, onSelect, refresh }
       role="listbox"
       aria-label="Clip timeline"
       ref={trackRef}
+      onContextMenu={(event) => {
+        // Android long-press opens a context menu and cancels the pointer
+        // stream, which would kill the lift right as it begins.
+        event.preventDefault()
+      }}
     >
       {clips.map((clip, index) => {
         const selected = clip.id === selectedClipId
@@ -258,10 +284,15 @@ export function Timeline({ projectId, clips, selectedClipId, onSelect, refresh }
                   tileRefs.current.set(clip.id, el)
                 } else {
                   tileRefs.current.delete(clip.id)
-                  // The dragged tile disappeared (clip deleted/reordered by a
-                  // revalidation) — end the session so the pan blocker and
-                  // is-dragging dimming can't stick around.
-                  if (dragRef.current?.clipId === clip.id) clearDrag()
+                  // Inline refs re-run on every render (null, then the new
+                  // element), so defer: only treat this as an unmount — and
+                  // end a drag session for a truly removed tile — if the
+                  // tile did not immediately re-register in the same commit.
+                  queueMicrotask(() => {
+                    if (!tileRefs.current.has(clip.id) && dragRef.current?.clipId === clip.id) {
+                      clearDrag()
+                    }
+                  })
                 }
               }}
             >
