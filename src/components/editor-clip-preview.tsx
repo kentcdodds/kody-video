@@ -5,6 +5,16 @@ interface EditorClipPreviewProps {
   clip: ClipRecord
 }
 
+function nudgeFrame(video: HTMLVideoElement): void {
+  if (!video.paused || video.readyState < 2) return
+  void video
+    .play()
+    .then(() => {
+      video.pause()
+    })
+    .catch(() => undefined)
+}
+
 /**
  * Stage preview for the selected timeline clip.
  * Remounts whenever the clip identity, blob, or trim start changes so the
@@ -26,16 +36,14 @@ export function EditorClipPreview({ clip }: EditorClipPreviewProps) {
         const video = event.currentTarget
         if (Math.abs(video.currentTime - startSec) > 0.04) {
           video.currentTime = startSec
+          return
         }
+        // Already at trim start (common for trimStartMs = 0) — still nudge a
+        // decoded frame so WebM previews are not left blank without a seek.
+        nudgeFrame(video)
       }}
       onSeeked={(event) => {
-        // Nudge a frame decode after seek so WebM previews aren't stuck blank.
-        const video = event.currentTarget
-        if (video.paused && video.readyState >= 2) {
-          void video.play().then(() => {
-            video.pause()
-          }).catch(() => undefined)
-        }
+        nudgeFrame(event.currentTarget)
       }}
     />
   )

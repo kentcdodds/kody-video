@@ -1,4 +1,4 @@
-import { useRef, type VideoHTMLAttributes } from 'react'
+import { useCallback, useRef, type RefCallback, type VideoHTMLAttributes } from 'react'
 import { bindBlobUrl } from '../lib/blob-url'
 
 type BlobVideoProps = Omit<VideoHTMLAttributes<HTMLVideoElement>, 'src'> & {
@@ -12,12 +12,12 @@ export function BlobVideo({ blob, ...props }: BlobVideoProps) {
     blob: null,
   })
 
-  return (
-    <video
-      {...props}
-      ref={(element) => {
-        bindBlobUrl(element, blob, stateRef.current)
-      }}
-    />
+  const setVideoRef = useCallback<RefCallback<HTMLVideoElement>>(
+    (element) => {
+      bindBlobUrl(element, blob, stateRef.current)
+    },
+    [blob],
   )
+
+  return <video {...props} ref={setVideoRef} />
 }

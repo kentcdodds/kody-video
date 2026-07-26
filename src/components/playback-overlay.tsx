@@ -11,6 +11,7 @@ interface PlaybackOverlayProps {
 export function PlaybackOverlay({ clips, onClose }: PlaybackOverlayProps) {
   const [index, setIndex] = useState(0)
   const endSecRef = useRef(0)
+  const advancingRef = useRef(false)
   const clip = clips[index]
 
   if (!clip) {
@@ -19,6 +20,19 @@ export function PlaybackOverlay({ clips, onClose }: PlaybackOverlayProps) {
 
   const startSec = clip.trimStartMs / 1000
   endSecRef.current = Math.min(clip.trimEndMs, clip.durationMs) / 1000
+
+  const advance = () => {
+    if (advancingRef.current) return
+    advancingRef.current = true
+    if (index < clips.length - 1) {
+      setIndex((current) => current + 1)
+      return
+    }
+    onClose()
+  }
+
+  // Reset the guard whenever this clip instance mounts via key change.
+  advancingRef.current = false
 
   return (
     <div className="permission-panel" style={{ background: 'rgba(0,0,0,0.92)' }}>
@@ -37,22 +51,12 @@ export function PlaybackOverlay({ clips, onClose }: PlaybackOverlayProps) {
           onSeeked={(event) => {
             void event.currentTarget.play().catch(() => undefined)
           }}
-          onEnded={() => {
-            if (index < clips.length - 1) {
-              setIndex((current) => current + 1)
-              return
-            }
-            onClose()
-          }}
+          onEnded={advance}
           onTimeUpdate={(event) => {
             const video = event.currentTarget
             if (video.currentTime < endSecRef.current - 0.03) return
             video.pause()
-            if (index < clips.length - 1) {
-              setIndex((current) => current + 1)
-              return
-            }
-            onClose()
+            advance()
           }}
         />
         <p className="muted" style={{ margin: '12px 0 16px' }}>

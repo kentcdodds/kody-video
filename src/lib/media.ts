@@ -367,7 +367,7 @@ async function paintClipToCanvas({
     const segmentSec = endSec - startSec
     if (!(segmentSec > 0.04)) return
 
-    if (audioContext && dest && audioBuffer && audioAvailable > 0.02) {
+    if (audioContext && dest && audioBuffer && audioAvailable > 0.05) {
       try {
         if (audioContext.state === 'suspended') {
           await audioContext.resume().catch(() => undefined)
@@ -385,6 +385,11 @@ async function paintClipToCanvas({
     // lead the picture by the play()/decoder startup gap.
     await waitForPlaybackStart(video, startSec)
 
+    // Always stamp at least one frame after startup (covers ended-on-start).
+    if (video.videoWidth > 0) {
+      drawCover(ctx, video, canvas.width, canvas.height)
+    }
+
     const videoLeadSec = Math.max(0, video.currentTime - startSec)
     const audioPlayOffset = audioOffset + videoLeadSec
     const audioPlayDuration = Math.max(0, Math.min(segmentSec - videoLeadSec, audioAvailable - videoLeadSec))
@@ -400,6 +405,9 @@ async function paintClipToCanvas({
       let lastVideoTime = video.currentTime
 
       const finish = () => {
+        if (video.videoWidth > 0) {
+          drawCover(ctx, video, canvas.width, canvas.height)
+        }
         cancelAnimationFrame(raf)
         video.pause()
         resolve()
