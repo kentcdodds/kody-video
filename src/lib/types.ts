@@ -19,10 +19,14 @@ export interface ClipMeta {
   createdAt: number
   width?: number
   height?: number
+  thumbWidth?: number
+  thumbHeight?: number
 }
 
 export interface ClipRecord extends ClipMeta {
   blob: Blob
+  /** Filmstrip poster frames (JPEG). Generated lazily for old clips. */
+  thumbs?: Blob[]
 }
 
 export interface DeletedClipSnapshot {

@@ -1,10 +1,15 @@
-import { pickRecorderMimeType } from './media'
+import { measureBlobDuration, pickRecordingMimeType } from './media'
 
 export interface RecordingResult {
   blob: Blob
   mimeType: string
   durationMs: number
+  width?: number
+  height?: number
 }
+
+/** Ignore accidental taps shorter than this — they can't produce a real clip. */
+const MIN_TAKE_MS = 120
 
 /**
  * Hold-to-record helper around MediaRecorder.
@@ -16,6 +21,8 @@ export class HoldRecorder {
   private startedAt = 0
   private mimeType = ''
   private stopping = false
+  private trackWidth: number | undefined
+  private trackHeight: number | undefined
 
   get isRecording(): boolean {
     return this.recorder?.state === 'recording'
@@ -25,14 +32,19 @@ export class HoldRecorder {
   start(stream: MediaStream): boolean {
     if (this.isRecording || this.stopping) return false
 
-    this.mimeType = pickRecorderMimeType()
+    this.mimeType = pickRecordingMimeType()
     this.chunks = []
     this.startedAt = performance.now()
+
+    const settings = stream.getVideoTracks()[0]?.getSettings()
+    this.trackWidth = settings?.width
+    this.trackHeight = settings?.height
 
     const recorder = this.mimeType
       ? new MediaRecorder(stream, {
           mimeType: this.mimeType,
-          videoBitsPerSecond: 2_500_000,
+          videoBitsPerSecond: 3_500_000,
+          audioBitsPerSecond: 128_000,
         })
       : new MediaRecorder(stream)
 
@@ -41,7 +53,7 @@ export class HoldRecorder {
       if (event.data.size > 0) this.chunks.push(event.data)
     }
     this.recorder = recorder
-    recorder.start(100)
+    recorder.start(250)
     return true
   }
 
@@ -54,23 +66,41 @@ export class HoldRecorder {
     }
 
     this.stopping = true
-    const durationMs = Math.max(0, Math.round(performance.now() - this.startedAt))
+    const wallClockMs = Math.max(0, Math.round(performance.now() - this.startedAt))
 
     return new Promise((resolve, reject) => {
       recorder.onstop = () => {
         const blob = new Blob(this.chunks, { type: this.mimeType })
+        const width = this.trackWidth
+        const height = this.trackHeight
         this.recorder = null
         this.chunks = []
         this.stopping = false
-        if (blob.size === 0 || durationMs < 120) {
+        if (blob.size === 0 || wallClockMs < MIN_TAKE_MS) {
           resolve(null)
           return
         }
-        resolve({
-          blob,
-          mimeType: this.mimeType,
-          durationMs,
-        })
+        // The blob's real duration is shorter than wall clock (encoder start
+        // latency); trims and export math must use the media duration.
+        void measureBlobDuration(blob)
+          .then((measuredMs) => {
+            resolve({
+              blob,
+              mimeType: this.mimeType || blob.type || 'video/webm',
+              durationMs: measuredMs > 0 ? measuredMs : wallClockMs,
+              width,
+              height,
+            })
+          })
+          .catch(() => {
+            resolve({
+              blob,
+              mimeType: this.mimeType || blob.type || 'video/webm',
+              durationMs: wallClockMs,
+              width,
+              height,
+            })
+          })
       }
       recorder.onerror = () => {
         this.recorder = null

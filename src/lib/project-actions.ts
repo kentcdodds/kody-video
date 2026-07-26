@@ -13,6 +13,7 @@ import {
   undoDeleteLastClip,
   updateClipTrim,
 } from './storage'
+import { ensureClipThumbs } from './thumbs'
 import {
   effectiveDurationMs,
   type ClipId,
@@ -24,6 +25,8 @@ import {
 export interface ProjectSummary extends Project {
   clipCount: number
   durationMs: number
+  /** First available clip thumbnail, for the project slot background. */
+  posterThumb: Blob | null
 }
 
 export interface ProjectLoaderData {
@@ -36,14 +39,19 @@ export interface ProjectLoaderData {
 
 export async function loadHomeProjects(): Promise<ProjectSummary[]> {
   const list = await listProjects()
+  // Stable slot order (creation order) — OK Video-style fixed project slots
+  // that don't shuffle every time you open a project.
+  list.sort((a, b) => a.createdAt - b.createdAt)
   return Promise.all(
     list.map(async (project) => {
       const clips = await getClipsForProject(project.id)
       const durationMs = clips.reduce((sum, clip) => sum + effectiveDurationMs(clip), 0)
+      const withThumb = clips.find((clip) => clip.thumbs && clip.thumbs.length > 0)
       return {
         ...project,
         clipCount: clips.length,
         durationMs,
+        posterThumb: withThumb?.thumbs?.[0] ?? null,
       }
     }),
   )
@@ -67,7 +75,15 @@ export async function loadProjectPage(projectId: ProjectId): Promise<ProjectLoad
       }
     }
     await setLastOpenedProjectId(projectId)
-    return { project, clips, canUndo: !!undo, onboardingDismissed: settings.onboardingDismissed, error: null }
+    // Backfill filmstrip thumbnails for clips recorded before they existed.
+    const hydrated = await Promise.all(clips.map((clip) => ensureClipThumbs(clip)))
+    return {
+      project,
+      clips: hydrated,
+      canUndo: !!undo,
+      onboardingDismissed: settings.onboardingDismissed,
+      error: null,
+    }
   } catch (err) {
     return {
       project: null,
@@ -81,15 +97,19 @@ export async function loadProjectPage(projectId: ProjectId): Promise<ProjectLoad
 
 export async function appendRecording(
   projectId: ProjectId,
-  input: { blob: Blob; mimeType: string; durationMs: number },
+  input: { blob: Blob; mimeType: string; durationMs: number; width?: number; height?: number },
 ): Promise<ClipRecord> {
   const clip = await addClip({
     projectId,
     blob: input.blob,
     mimeType: input.mimeType,
     durationMs: input.durationMs,
+    width: input.width,
+    height: input.height,
   })
   await clearUndo(projectId)
+  // Thumbnails render on the next revalidation; don't block the recorder.
+  void ensureClipThumbs(clip)
   return clip
 }
 

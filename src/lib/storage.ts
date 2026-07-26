@@ -195,7 +195,7 @@ export async function getClipMetasForProject(projectId: ProjectId): Promise<Clip
 }
 
 function toMeta(clip: ClipRecord): ClipMeta {
-  const { blob: _blob, ...meta } = clip
+  const { blob: _blob, thumbs: _thumbs, ...meta } = clip
   return meta
 }
 
@@ -236,6 +236,29 @@ export async function addClip(input: AddClipInput): Promise<ClipRecord> {
   })
   await tx.done
   return clip
+}
+
+export interface ClipThumbsInput {
+  thumbs: Blob[]
+  thumbWidth: number
+  thumbHeight: number
+  videoWidth?: number
+  videoHeight?: number
+}
+
+export async function updateClipThumbs(clipId: ClipId, input: ClipThumbsInput): Promise<void> {
+  const db = await getDb()
+  const clip = await db.get('clips', clipId)
+  if (!clip) return
+  const updated: ClipRecord = {
+    ...clip,
+    thumbs: input.thumbs,
+    thumbWidth: input.thumbWidth,
+    thumbHeight: input.thumbHeight,
+    width: clip.width ?? input.videoWidth,
+    height: clip.height ?? input.videoHeight,
+  }
+  await db.put('clips', updated)
 }
 
 export async function updateClipTrim(

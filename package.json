@@ -14,9 +14,11 @@
   },
   "dependencies": {
     "idb": "^8.0.3",
+    "mp4-muxer": "^5.2.2",
     "react": "^19.1.0",
     "react-dom": "^19.1.0",
-    "react-router-dom": "^7.6.3"
+    "react-router-dom": "^7.6.3",
+    "webm-muxer": "^5.1.4"
   },
   "devDependencies": {
     "@playwright/test": "^1.62.0",

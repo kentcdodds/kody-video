@@ -10,6 +10,13 @@ import {
   type FacingMode,
 } from '../lib/media'
 
+export interface CameraZoomRange {
+  min: number
+  max: number
+  step: number
+  value: number
+}
+
 export interface UseCameraResult {
   videoRef: RefCallback<HTMLVideoElement>
   stream: MediaStream | null
@@ -18,13 +25,34 @@ export interface UseCameraResult {
   canFlip: boolean
   error: string | null
   isReady: boolean
+  /** Zoom capability of the active camera, when the device exposes one. */
+  zoom: CameraZoomRange | null
+  torchAvailable: boolean
+  torchOn: boolean
   start: () => Promise<void>
   flip: () => Promise<void>
   stop: () => void
+  setZoom: (value: number) => void
+  setTorch: (on: boolean) => Promise<void>
   enableMic: () => Promise<void>
   releaseMic: () => void
   /** Latest live stream from the ref (safer than React state after awaits). */
   getStream: () => MediaStream | null
+}
+
+interface ZoomCapability {
+  min?: number
+  max?: number
+  step?: number
+}
+
+interface ExtendedCapabilities extends MediaTrackCapabilities {
+  zoom?: ZoomCapability
+  torch?: boolean
+}
+
+interface ExtendedSettings extends MediaTrackSettings {
+  zoom?: number
 }
 
 /**
@@ -46,6 +74,9 @@ export function useCamera(): UseCameraResult {
   const [canFlip, setCanFlip] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [isReady, setIsReady] = useState(false)
+  const [zoom, setZoomState] = useState<CameraZoomRange | null>(null)
+  const [torchAvailable, setTorchAvailable] = useState(false)
+  const [torchOn, setTorchOn] = useState(false)
 
   const attachToVideo = useCallback((next: MediaStream) => {
     const video = videoElRef.current
@@ -54,15 +85,46 @@ export function useCamera(): UseCameraResult {
     void video.play().catch(() => undefined)
   }, [])
 
+  const readTrackCapabilities = useCallback((next: MediaStream) => {
+    const track = next.getVideoTracks()[0]
+    if (!track || typeof track.getCapabilities !== 'function') {
+      setZoomState(null)
+      setTorchAvailable(false)
+      setTorchOn(false)
+      return
+    }
+    try {
+      const caps = track.getCapabilities() as ExtendedCapabilities
+      if (caps.zoom && typeof caps.zoom.min === 'number' && typeof caps.zoom.max === 'number') {
+        const settings = track.getSettings() as ExtendedSettings
+        setZoomState({
+          min: caps.zoom.min,
+          max: caps.zoom.max,
+          step: caps.zoom.step && caps.zoom.step > 0 ? caps.zoom.step : 0.1,
+          value: typeof settings.zoom === 'number' ? settings.zoom : caps.zoom.min,
+        })
+      } else {
+        setZoomState(null)
+      }
+      setTorchAvailable(caps.torch === true)
+      setTorchOn(false)
+    } catch {
+      setZoomState(null)
+      setTorchAvailable(false)
+      setTorchOn(false)
+    }
+  }, [])
+
   const replaceStream = useCallback(
     (next: MediaStream) => {
       stopStream(streamRef.current)
       streamRef.current = next
       setStream(next)
       attachToVideo(next)
+      readTrackCapabilities(next)
       setIsReady(true)
     },
-    [attachToVideo],
+    [attachToVideo, readTrackCapabilities],
   )
 
   const start = useCallback(async () => {
@@ -102,7 +164,8 @@ export function useCamera(): UseCameraResult {
   }, [replaceStream])
 
   const flip = useCallback(async () => {
-    const nextFacing: FacingMode = facingRef.current === 'environment' ? 'user' : 'environment'
+    const previousFacing = facingRef.current
+    const nextFacing: FacingMode = previousFacing === 'environment' ? 'user' : 'environment'
     facingRef.current = nextFacing
     setFacing(nextFacing)
     setError(null)
@@ -110,9 +173,35 @@ export function useCamera(): UseCameraResult {
       const next = await openCameraStream(nextFacing, { audio: false })
       replaceStream(next)
     } catch (err) {
+      facingRef.current = previousFacing
+      setFacing(previousFacing)
       setError(permissionMessage(err))
     }
   }, [replaceStream])
+
+  const setZoom = useCallback((value: number) => {
+    const track = streamRef.current?.getVideoTracks()[0]
+    if (!track) return
+    setZoomState((current) => {
+      if (!current) return current
+      const clamped = Math.min(current.max, Math.max(current.min, value))
+      void track
+        .applyConstraints({ advanced: [{ zoom: clamped } as MediaTrackConstraintSet] })
+        .catch(() => undefined)
+      return { ...current, value: clamped }
+    })
+  }, [])
+
+  const setTorch = useCallback(async (on: boolean) => {
+    const track = streamRef.current?.getVideoTracks()[0]
+    if (!track) return
+    try {
+      await track.applyConstraints({ advanced: [{ torch: on } as MediaTrackConstraintSet] })
+      setTorchOn(on)
+    } catch {
+      setTorchOn(false)
+    }
+  }, [])
 
   const releaseMic = useCallback(() => {
     stopAudioTracks(streamRef.current)
@@ -176,6 +265,9 @@ export function useCamera(): UseCameraResult {
     streamRef.current = null
     setStream(null)
     setIsReady(false)
+    setZoomState(null)
+    setTorchAvailable(false)
+    setTorchOn(false)
     if (videoElRef.current) {
       videoElRef.current.srcObject = null
     }
@@ -207,9 +299,14 @@ export function useCamera(): UseCameraResult {
     canFlip,
     error,
     isReady,
+    zoom,
+    torchAvailable,
+    torchOn,
     start,
     flip,
     stop,
+    setZoom,
+    setTorch,
     enableMic,
     releaseMic,
     getStream,

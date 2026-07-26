@@ -1,5 +1,5 @@
+import { loadClipVideo } from './export/shared'
 import type { ClipRecord } from './types'
-import { effectiveDurationMs } from './types'
 
 export type FacingMode = 'environment' | 'user'
 
@@ -54,6 +54,7 @@ export async function openCameraStream(
     facingMode: { ideal: facing },
     width: { ideal: 1280 },
     height: { ideal: 720 },
+    frameRate: { ideal: 30 },
   }
 
   try {
@@ -119,40 +120,47 @@ export function pickRecorderMimeType(): string {
   return ''
 }
 
-export function measureBlobDuration(blob: Blob): Promise<number> {
-  return new Promise((resolve, reject) => {
-    const url = URL.createObjectURL(blob)
-    const video = document.createElement('video')
-    video.preload = 'metadata'
-    video.muted = true
-    video.playsInline = true
+/**
+ * Mime preference for live capture. On phones, H.264 is typically the only
+ * hardware-accelerated encoder — recording VP9 in software is what makes the
+ * camera preview and the saved clip drop frames — so prefer it there.
+ * Desktops have plenty of headroom, so prefer WebM for broad compatibility.
+ */
+export function pickRecordingMimeType(): string {
+  if (typeof MediaRecorder === 'undefined') return ''
+  const mobile = [
+    'video/mp4;codecs=avc1.640028,mp4a.40.2',
+    'video/mp4;codecs=avc1,mp4a.40.2',
+    'video/mp4',
+    'video/webm;codecs=h264,opus',
+    'video/webm;codecs=vp8,opus',
+    'video/webm;codecs=vp9,opus',
+    'video/webm',
+  ]
+  const desktop = [
+    'video/webm;codecs=vp9,opus',
+    'video/webm;codecs=vp8,opus',
+    'video/webm;codecs=h264,opus',
+    'video/webm',
+    'video/mp4',
+  ]
+  for (const type of isMobileBrowser() ? mobile : desktop) {
+    if (MediaRecorder.isTypeSupported(type)) return type
+  }
+  return ''
+}
 
-    const cleanup = () => {
-      URL.revokeObjectURL(url)
-      video.removeAttribute('src')
-      video.load()
-    }
-
-    video.onloadedmetadata = () => {
-      if (!Number.isFinite(video.duration) || video.duration === Infinity) {
-        video.currentTime = Number.MAX_SAFE_INTEGER
-        video.ontimeupdate = () => {
-          const durationMs = Math.max(0, Math.round((video.duration || 0) * 1000))
-          cleanup()
-          resolve(durationMs)
-        }
-        return
-      }
-      const durationMs = Math.max(0, Math.round(video.duration * 1000))
-      cleanup()
-      resolve(durationMs)
-    }
-    video.onerror = () => {
-      cleanup()
-      reject(new Error('Could not read clip duration'))
-    }
-    video.src = url
-  })
+/**
+ * Read the real media duration of a recorded blob (handles MediaRecorder
+ * WebM files that report Infinity until seeked past the end).
+ */
+export async function measureBlobDuration(blob: Blob, timeoutMs = 5000): Promise<number> {
+  const loaded = await loadClipVideo(blob, timeoutMs)
+  try {
+    return loaded.mediaDurationMs
+  } finally {
+    loaded.release()
+  }
 }
 
 export async function canFlipCamera(): Promise<boolean> {
@@ -166,404 +174,8 @@ export async function canFlipCamera(): Promise<boolean> {
   }
 }
 
-function isMobileBrowser(): boolean {
+export function isMobileBrowser(): boolean {
   return /Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent)
-}
-
-export interface ExportWebmOptions {
-  /**
-   * Prefer creating/resuming this from the Make-video click so Android unlocks audio.
-   * Export closes the context when finished.
-   */
-  audioContext?: AudioContext
-}
-
-/**
- * Stitch clips into a single WebM using canvas captureStream + MediaRecorder.
- * Applies trim in/out by seeking each source clip.
- * Audio is mixed from decodeAudioData → BufferSource (muted video frames for autoplay).
- */
-export async function exportProjectAsWebm(
-  clips: ClipRecord[],
-  onProgress?: (ratio: number) => void,
-  options: ExportWebmOptions = {},
-): Promise<Blob> {
-  if (clips.length === 0) {
-    throw new Error('Nothing to export')
-  }
-
-  // Portrait output matches phone capture; keep moderate for mobile encoders.
-  const width = isMobileBrowser() ? 540 : 720
-  const height = isMobileBrowser() ? 960 : 1280
-  const canvas = document.createElement('canvas')
-  canvas.width = width
-  canvas.height = height
-  const ctx = canvas.getContext('2d', { alpha: false })
-  if (!ctx) throw new Error('Canvas not available')
-
-  // Warm the canvas so captureStream has a first frame on Chromium Android.
-  ctx.fillStyle = '#000'
-  ctx.fillRect(0, 0, width, height)
-
-  const canvasStream = canvas.captureStream(30)
-  if (canvasStream.getVideoTracks().length === 0) {
-    throw new Error('This browser cannot capture canvas video for export')
-  }
-
-  let audioContext: AudioContext | null = options.audioContext ?? null
-  let dest: MediaStreamAudioDestinationNode | null = null
-  try {
-    if (!audioContext) {
-      audioContext = new AudioContext()
-    }
-    if (audioContext.state === 'suspended') {
-      await audioContext.resume().catch(() => undefined)
-    }
-    dest = audioContext.createMediaStreamDestination()
-  } catch {
-    // Video-only export if AudioContext is unavailable.
-    audioContext = null
-    dest = null
-  }
-
-  const mixedStream = new MediaStream([
-    ...canvasStream.getVideoTracks(),
-    ...(dest?.stream.getAudioTracks() ?? []),
-  ])
-
-  const mimeType = pickRecorderMimeType()
-  let recorder: MediaRecorder
-  try {
-    recorder = mimeType
-      ? new MediaRecorder(mixedStream, {
-          mimeType: mimeType.includes('webm') || mimeType.includes('mp4') ? mimeType : undefined,
-          videoBitsPerSecond: isMobileBrowser() ? 1_500_000 : 2_500_000,
-        })
-      : new MediaRecorder(mixedStream)
-  } catch {
-    recorder = new MediaRecorder(mixedStream)
-  }
-
-  const chunks: BlobPart[] = []
-  recorder.ondataavailable = (event) => {
-    if (event.data.size > 0) chunks.push(event.data)
-  }
-
-  const stopped = new Promise<Blob>((resolve, reject) => {
-    recorder.onstop = () => {
-      resolve(new Blob(chunks, { type: recorder.mimeType || 'video/webm' }))
-    }
-    recorder.onerror = () => reject(new Error('Export recording failed'))
-  })
-
-  recorder.start(200)
-
-  // Give the recorder a moment to latch onto the canvas track.
-  await wait(120)
-
-  const exportable = clips.filter((clip) => effectiveDurationMs(clip) >= 40)
-  if (exportable.length === 0) {
-    throw new Error('Nothing to export')
-  }
-
-  let paintedTotalMs = 0
-
-  try {
-    for (let i = 0; i < exportable.length; i += 1) {
-      const clip = exportable[i]
-      const remainingGuessMs = exportable
-        .slice(i + 1)
-        .reduce((sum, item) => sum + effectiveDurationMs(item), 0)
-
-      const paintedMs = await paintClipToCanvas({
-        clip,
-        canvas,
-        ctx,
-        audioContext,
-        dest,
-        onFrameProgress: (clipElapsed) => {
-          const denom = paintedTotalMs + clipElapsed + remainingGuessMs
-          if (denom > 0) onProgress?.((paintedTotalMs + clipElapsed) / denom)
-        },
-      })
-      if (paintedMs <= 0) {
-        throw new Error('A clip produced no exportable video frames')
-      }
-      paintedTotalMs += paintedMs
-      const denom = paintedTotalMs + remainingGuessMs
-      onProgress?.(denom > 0 ? paintedTotalMs / denom : 1)
-    }
-
-    // Hold the last frame briefly so the final GOP isn't truncated.
-    await wait(180)
-    onProgress?.(1)
-  } finally {
-    if (recorder.state !== 'inactive') recorder.stop()
-    canvasStream.getTracks().forEach((t) => t.stop())
-    if (audioContext) {
-      await audioContext.close().catch(() => undefined)
-    }
-  }
-
-  const blob = await stopped
-  const minBytes = Math.max(8_000, Math.floor(Math.max(paintedTotalMs, 1_000) * 4))
-  if (blob.size < minBytes) {
-    throw new Error(
-      `Export produced an unusable file (${Math.round(blob.size / 1024)}KB). Try “Files” instead.`,
-    )
-  }
-  return blob
-}
-
-interface PaintArgs {
-  clip: ClipRecord
-  canvas: HTMLCanvasElement
-  ctx: CanvasRenderingContext2D
-  audioContext: AudioContext | null
-  dest: MediaStreamAudioDestinationNode | null
-  onFrameProgress?: (clipElapsedMs: number) => void
-}
-
-/** @returns painted segment duration in milliseconds */
-async function paintClipToCanvas({
-  clip,
-  canvas,
-  ctx,
-  audioContext,
-  dest,
-  onFrameProgress,
-}: PaintArgs): Promise<number> {
-  const url = URL.createObjectURL(clip.blob)
-  const video = document.createElement('video')
-  video.src = url
-  video.playsInline = true
-  // Must be muted for autoplay policies on Android Chrome/Brave during export.
-  // Audio is mixed separately from a decoded AudioBuffer so the stitch keeps sound.
-  video.muted = true
-  video.preload = 'auto'
-  video.setAttribute('playsinline', 'true')
-  video.setAttribute('webkit-playsinline', 'true')
-
-  let bufferSource: AudioBufferSourceNode | null = null
-
-  try {
-    await waitForEvent(video, 'loadeddata')
-    await waitForVideoDimensions(video)
-
-    const startSec = clip.trimStartMs / 1000
-    const trimEndSec = Math.min(clip.trimEndMs, clip.durationMs) / 1000
-    if (!(trimEndSec > startSec)) return 0
-
-    // Prefer real media durations over wall-clock capture estimates so A/V
-    // segment lengths stay aligned across clips.
-    const videoMediaEnd = Number.isFinite(video.duration) ? video.duration : trimEndSec
-    let endSec = Math.min(trimEndSec, videoMediaEnd)
-
-    video.currentTime = startSec
-    await waitForEvent(video, 'seeked')
-
-    const audioBuffer =
-      audioContext && dest ? await decodeClipAudio(audioContext, clip.blob) : null
-
-    const audioOffset = audioBuffer
-      ? Math.min(Math.max(0, startSec), Math.max(0, audioBuffer.duration - 0.01))
-      : 0
-    const audioAvailable = audioBuffer
-      ? Math.max(0, audioBuffer.duration - audioOffset)
-      : 0
-
-    if (audioBuffer && audioAvailable > 0.05) {
-      // Keep each stitch segment to the shorter of video/audio so the next
-      // clip's soundtrack cannot start while the previous picture is still up.
-      endSec = Math.min(endSec, startSec + audioAvailable)
-    }
-
-    const segmentSec = endSec - startSec
-    if (!(segmentSec > 0.04)) return 0
-
-    if (audioContext && dest && audioBuffer && audioAvailable > 0.05) {
-      try {
-        if (audioContext.state === 'suspended') {
-          await audioContext.resume().catch(() => undefined)
-        }
-        bufferSource = audioContext.createBufferSource()
-        bufferSource.buffer = audioBuffer
-        bufferSource.connect(dest)
-      } catch {
-        bufferSource = null
-      }
-    }
-
-    await video.play()
-    // Wait until the video clock actually advances so BufferSource doesn't
-    // lead the picture by the play()/decoder startup gap.
-    await waitForPlaybackStart(video, startSec)
-
-    // Always stamp at least one frame after startup (covers ended-on-start).
-    if (video.videoWidth > 0) {
-      drawCover(ctx, video, canvas.width, canvas.height)
-    }
-
-    const videoLeadSec = Math.max(0, video.currentTime - startSec)
-    const audioPlayOffset = audioOffset + videoLeadSec
-    const audioPlayDuration = Math.max(0, Math.min(segmentSec - videoLeadSec, audioAvailable - videoLeadSec))
-    const audioStartedAt = audioContext?.currentTime ?? null
-    // Schedule any remaining audio after startup lead, including short floor
-    // segments where videoLeadSec can leave only a few milliseconds.
-    if (bufferSource && audioContext && audioStartedAt !== null && audioPlayDuration > 0) {
-      // Skip the audio that already elapsed on the video clock during startup.
-      bufferSource.start(audioStartedAt, audioPlayOffset, audioPlayDuration)
-    }
-
-    await new Promise<void>((resolve, reject) => {
-      let raf = 0
-      let lastFrameAt = performance.now()
-      let lastVideoTime = video.currentTime
-
-      const finish = () => {
-        if (video.videoWidth > 0) {
-          drawCover(ctx, video, canvas.width, canvas.height)
-        }
-        cancelAnimationFrame(raf)
-        video.pause()
-        resolve()
-      }
-
-      const draw = () => {
-        const now = performance.now()
-        const videoElapsed = Math.max(0, video.currentTime - startSec)
-
-        if (video.ended || video.currentTime >= endSec - 0.04 || videoElapsed >= segmentSec - 0.03) {
-          finish()
-          return
-        }
-
-        if (video.currentTime > lastVideoTime + 0.001) {
-          lastVideoTime = video.currentTime
-          lastFrameAt = now
-        } else if (now - lastFrameAt > 8000) {
-          cancelAnimationFrame(raf)
-          video.pause()
-          reject(new Error('Clip playback stalled during export'))
-          return
-        }
-
-        if (video.videoWidth > 0) {
-          drawCover(ctx, video, canvas.width, canvas.height)
-        }
-        onFrameProgress?.(Math.min(segmentSec, videoElapsed) * 1000)
-        raf = requestAnimationFrame(draw)
-      }
-
-      video.onerror = () => {
-        cancelAnimationFrame(raf)
-        reject(new Error('Failed while exporting a clip'))
-      }
-      raf = requestAnimationFrame(draw)
-    })
-
-    return Math.max(40, Math.round(segmentSec * 1000))
-  } finally {
-    try {
-      bufferSource?.stop()
-    } catch {
-      // already ended
-    }
-    bufferSource?.disconnect()
-    URL.revokeObjectURL(url)
-    video.removeAttribute('src')
-    video.load()
-  }
-}
-
-async function waitForPlaybackStart(video: HTMLVideoElement, startSec: number): Promise<void> {
-  if (video.currentTime > startSec + 0.01) return
-  const deadline = performance.now() + 1500
-  await new Promise<void>((resolve) => {
-    const tick = () => {
-      if (video.currentTime > startSec + 0.01 || video.ended || performance.now() > deadline) {
-        resolve()
-        return
-      }
-      requestAnimationFrame(tick)
-    }
-    tick()
-  })
-}
-
-async function decodeClipAudio(
-  audioContext: AudioContext,
-  blob: Blob,
-): Promise<AudioBuffer | null> {
-  try {
-    const bytes = await blob.arrayBuffer()
-    // decodeAudioData may detach the buffer; copy so callers can reuse the blob.
-    return await audioContext.decodeAudioData(bytes.slice(0))
-  } catch {
-    return null
-  }
-}
-
-function drawCover(
-  ctx: CanvasRenderingContext2D,
-  video: HTMLVideoElement,
-  width: number,
-  height: number,
-): void {
-  const vw = video.videoWidth || width
-  const vh = video.videoHeight || height
-  const scale = Math.max(width / vw, height / vh)
-  const dw = vw * scale
-  const dh = vh * scale
-  const dx = (width - dw) / 2
-  const dy = (height - dh) / 2
-  ctx.fillStyle = '#000'
-  ctx.fillRect(0, 0, width, height)
-  ctx.drawImage(video, dx, dy, dw, dh)
-}
-
-function waitForEvent(target: HTMLMediaElement, event: string): Promise<void> {
-  return new Promise((resolve, reject) => {
-    const onOk = () => {
-      cleanup()
-      resolve()
-    }
-    const onErr = () => {
-      cleanup()
-      reject(new Error(`Media event failed: ${event}`))
-    }
-    const cleanup = () => {
-      target.removeEventListener(event, onOk)
-      target.removeEventListener('error', onErr)
-    }
-    target.addEventListener(event, onOk, { once: true })
-    target.addEventListener('error', onErr, { once: true })
-  })
-}
-
-async function waitForVideoDimensions(video: HTMLVideoElement): Promise<void> {
-  if (video.videoWidth > 0 && video.videoHeight > 0) return
-  await new Promise<void>((resolve, reject) => {
-    const started = performance.now()
-    const tick = () => {
-      if (video.videoWidth > 0 && video.videoHeight > 0) {
-        resolve()
-        return
-      }
-      if (performance.now() - started > 4000) {
-        reject(new Error('Clip never produced video frames'))
-        return
-      }
-      requestAnimationFrame(tick)
-    }
-    tick()
-  })
-}
-
-function wait(ms: number): Promise<void> {
-  return new Promise((resolve) => {
-    window.setTimeout(resolve, ms)
-  })
 }
 
 export async function downloadBlob(blob: Blob, filename: string): Promise<void> {
@@ -579,52 +191,62 @@ export async function downloadBlob(blob: Blob, filename: string): Promise<void> 
   setTimeout(() => URL.revokeObjectURL(url), 60_000)
 }
 
+export function canShareFile(blob: Blob, filename: string): boolean {
+  const file = new File([blob], filename, { type: blob.type || 'video/webm' })
+  return navigator.canShare?.({ files: [file] }) === true
+}
+
+/**
+ * Open the system share sheet for a file. Must be called from a user gesture
+ * (Web Share requires transient activation) — never from the tail of an
+ * async flow.
+ */
+export async function shareFile(blob: Blob, filename: string): Promise<'shared' | 'cancelled'> {
+  const file = new File([blob], filename, { type: blob.type || 'video/webm' })
+  try {
+    await navigator.share({ files: [file], title: filename })
+    return 'shared'
+  } catch (error) {
+    if (error instanceof DOMException && error.name === 'AbortError') {
+      return 'cancelled'
+    }
+    throw error
+  }
+}
+
 export async function shareOrDownload(
   blob: Blob,
   filename: string,
 ): Promise<'shared' | 'downloaded' | 'cancelled'> {
-  const type = blob.type || 'video/webm'
-  const file = new File([blob], filename, { type })
-
-  // On Android, Web Share with files is far more reliable than <a download>.
-  if (navigator.canShare?.({ files: [file] })) {
+  if (canShareFile(blob, filename)) {
     try {
-      await navigator.share({
-        files: [file],
-        title: filename,
-      })
-      return 'shared'
-    } catch (error) {
-      if (error instanceof DOMException && error.name === 'AbortError') {
-        return 'cancelled'
-      }
+      return await shareFile(blob, filename)
+    } catch {
       // Fall through to download attempt.
     }
   }
-
-  if (isMobileBrowser()) {
-    // Last-resort mobile path: open the blob URL so the browser can hand off to the viewer/share sheet.
-    const url = URL.createObjectURL(blob)
-    const opened = window.open(url, '_blank', 'noopener')
-    if (!opened) {
-      await downloadBlob(blob, filename)
-      setTimeout(() => URL.revokeObjectURL(url), 60_000)
-      return 'downloaded'
-    }
-    setTimeout(() => URL.revokeObjectURL(url), 60_000)
-    return 'downloaded'
-  }
-
   await downloadBlob(blob, filename)
   return 'downloaded'
 }
 
-export function downloadClipsAsSeparateFiles(clips: ClipRecord[], projectName: string): void {
-  clips.forEach((clip, index) => {
+/**
+ * Save every original clip as its own file. Downloads are spaced out so the
+ * browser's multiple-download prompt has a chance to appear once instead of
+ * silently dropping all but the first file.
+ */
+export async function downloadClipsAsSeparateFiles(
+  clips: ClipRecord[],
+  projectName: string,
+): Promise<void> {
+  for (let index = 0; index < clips.length; index += 1) {
+    const clip = clips[index]
     const ext = clip.mimeType.includes('mp4') ? 'mp4' : 'webm'
     const name = `${slugify(projectName)}-clip-${String(index + 1).padStart(2, '0')}.${ext}`
-    void downloadBlob(clip.blob, name)
-  })
+    await downloadBlob(clip.blob, name)
+    if (index < clips.length - 1) {
+      await new Promise((resolve) => setTimeout(resolve, 400))
+    }
+  }
 }
 
 /** Share/download a single original clip — most reliable path on mobile. */
