@@ -1,6 +1,6 @@
 # Kody Video
 
-Mobile-first web clips camera: **hold anywhere on the preview to record**, arrange clips on a timeline, then export/share — all **on-device**.
+Mobile-first web clips camera: **hold anywhere on the preview to record**, arrange clips on a filmstrip timeline, then tap **OK** to export/share — all **on-device**.
 
 Kody Video is inspired by the OK Video interaction model: camera-first capture, quick clip cleanup, and one big OK/share moment. It is an independent project with its own name, mark, and implementation; it is not affiliated with OK Video and does not use OK Video trademarks or assets. The koala mascot is credited to the KCD community / [kentcdodds.com/kody](https://kentcdodds.com/kody). App artwork in `public/art/` was generated from that Kody reference (camera, timeline, share, app icon).
 
@@ -16,25 +16,26 @@ Open the printed localhost URL in Chrome (desktop or Android). Camera/microphone
 ```bash
 npm run build      # production build + service worker
 npm run preview    # serve dist (PWA cache active)
-npm test           # IndexedDB/storage unit tests
-npm run test:smoke # Playwright UX smoke (fake camera, offline shell)
+npm test           # storage/export-planner unit tests
+npm run test:smoke # Playwright UX smoke (fake camera, records + exports)
 ```
 
 **Live app:** [https://kody-video.pages.dev](https://kody-video.pages.dev) (Cloudflare Pages, builds from `main`)
 
 For a phone on the same network, use your machine’s LAN URL over HTTPS, or tunnel (`npm run dev -- --host` plus a trusted tunnel). `getUserMedia` will fail on plain `http://<lan-ip>` in most browsers.
 
-## What works (v1)
+## What works
 
-- Live camera preview (rear preferred; flip when multiple cameras exist)
-- Hold-to-record anywhere on the preview via `MediaRecorder` + pointer events
-- Recording feedback (red pulse + elapsed) and project total duration
-- Timeline: select, delete, undo delete, reorder (left/right), duplicate, trim in/out
-- Sequential project preview playback
-- Up to **6** local projects (create / open / rename / delete)
-- Big OK/share CTA: stitch clips to a single WebM (canvas `captureStream` + `MediaRecorder`), then Web Share API or download
-- Fallback: download clips as separate files
-- Installable PWA (manifest + Workbox service worker for app shell)
+- Full-bleed live camera (rear preferred; flip, torch, and zoom when the device exposes them)
+- Hold-to-record anywhere on the preview; drag up/down while holding to zoom
+- Self-timer for hands-free takes (tap to stop)
+- Recording feedback (REC pill + elapsed) with a page that does **not** re-render per frame — capture stays smooth
+- Editor: filmstrip timeline (thumbnails, width ∝ duration), drag to reorder, duplicate, delete w/ undo, **in-timeline trim with drag handles**
+- Project preview playback: tap edges to skip clips, tap middle to stop
+- Up to **6** stable project slots (create / open / rename / delete, poster art from your clips)
+- Big OK CTA: on-device export to **one video file**, then Share (system sheet) or Save
+- Fallback: save clips as separate files
+- Installable PWA (manifest + Workbox service worker for the app shell)
 - **No accounts, no uploads, no analytics**
 
 See [`manual-test-checklist.md`](./manual-test-checklist.md) for camera/offline QA steps.
@@ -43,30 +44,50 @@ See [`manual-test-checklist.md`](./manual-test-checklist.md) for camera/offline 
 
 ```
 src/
-  lib/storage.ts          IndexedDB (idb) — projects, clip blobs, undo snapshot
-  lib/project-actions.ts  Loader/mutation helpers for routes
-  lib/recorder.ts         Hold-to-record MediaRecorder wrapper
-  lib/media.ts            getUserMedia helpers + canvas export stitching
-  pages/                  Home (project list) + Project (camera/editor)
-  router.tsx              React Router data routers (loaders)
+  lib/storage.ts            IndexedDB (idb) — projects, clip blobs + thumbnails, undo
+  lib/project-actions.ts    Loader/mutation helpers for routes
+  lib/recorder.ts           Hold-to-record MediaRecorder wrapper (hardware-codec aware)
+  lib/media.ts              getUserMedia/permissions/share/download helpers
+  lib/thumbs.ts             Filmstrip thumbnail generation (stored per clip)
+  lib/export/               Export engines (see below)
+  components/record-screen  Camera surface (capture, zoom, timer, dock)
+  components/editor-screen  Timeline, trim, clip actions
+  pages/                    Home (project slots) + Project (record/editor shell)
+  router.tsx                React Router data routers (loaders)
 ```
+
+### Export pipeline
+
+`lib/export/` stitches clips into one file with two engines:
+
+1. **WebCodecs (preferred, all Chromium + recent Firefox/Safari):** each clip plays muted while frames are captured via `requestVideoFrameCallback`, normalized on a canvas, and encoded with `VideoEncoder`. Audio is decoded (`decodeAudioData`) and encoded **sample-accurately** per segment, so audio can never drift across clips. Encoder backpressure pauses the source, so slow devices slow the export down instead of dropping frames. Container/codec negotiation prefers **MP4 (H.264 + AAC)** — the most shareable output on Android — and falls back to **WebM (VP9/VP8 + Opus)**.
+2. **Realtime fallback:** the old `canvas.captureStream` + `MediaRecorder` stitcher, hardened with timeouts and degenerate-segment skipping, for browsers without WebCodecs.
+
+`plan.ts` is a pure, unit-tested planner that clamps trims and drops unplayable segments up front. The share flow completes the export **first**, then Share/Save run on fresh taps so the Web Share API always has the user activation it requires.
+
+### Recording quality
+
+- Phones prefer **hardware H.264** (`video/mp4`/`h264` MediaRecorder types) over software VP9 — software encoding is what makes previews and clips drop frames on Android.
+- Clip duration is measured from the encoded media after stop (wall-clock time includes encoder startup latency and corrupts trim/export math).
+- The elapsed timer is a leaf component writing `textContent` from rAF; nothing else re-renders during capture.
+- A screen wake lock is held while recording.
 
 ### React data flow (no `useEffect` for app logic)
 
 - **Route loaders** (`homeLoader` / `projectLoader`) load IndexedDB state; mutations call `useRevalidator()`.
-- **Camera** attaches via a **video ref callback** (start on mount, stop on unmount) — no mount effect.
-- **Blob URLs** bind/revoke in media ref callbacks (`BlobVideo`).
+- **Camera** attaches via a **video ref callback** (start on mount, stop on unmount).
+- **Blob URLs** bind/revoke in media ref callbacks (`BlobVideo`, `BlobImage`, `TimelineThumbImage`).
 - **Sheets** reset with `key={id}` instead of syncing props → state in an effect.
-- **Recording timer / toasts** use `requestAnimationFrame` / `setTimeout` started from event handlers.
+- **Timers / toasts** use `requestAnimationFrame` / `setTimeout` started from event handlers.
 
 ### Storage (refresh-safe + personal)
 
-| Store    | Contents                                      |
-|----------|-----------------------------------------------|
-| projects | JSON metadata + ordered `clipIds`             |
-| clips    | Clip metadata **and** `Blob` media            |
-| undo     | Last deleted clip per project (for Undo)      |
-| meta     | Settings (`maxProjects`, last opened id)      |
+| Store    | Contents                                              |
+|----------|-------------------------------------------------------|
+| projects | JSON metadata + ordered `clipIds`                     |
+| clips    | Clip metadata, `Blob` media, filmstrip thumbnails     |
+| undo     | Last deleted clip per project (for Undo)              |
+| meta     | Settings (`maxProjects`, last opened id, onboarding)  |
 
 Database name: `kody-video`. Blobs never leave the device unless the user explicitly shares/downloads.
 
@@ -79,21 +100,9 @@ Database name: `kody-video`. Blobs never leave the device unless the user explic
 
 Verified approach: `npm run build && npm run preview`, load once online, then DevTools → Network → Offline (or OS airplane mode) and reload.
 
-### Export tradeoffs
-
-**Preferred path:** sequential playback of each clip (honoring trim) into a canvas, `captureStream(30)`, mix audio via `AudioContext`, record with `MediaRecorder` → one `.webm`.
-
-| Pros | Cons |
-|------|------|
-| Single file, no server, no huge wasm download | Re-encodes; quality/bitrate vary by browser |
-| Works in Chromium without ffmpeg.wasm | Some browsers are flaky with audio capture from media elements |
-| Trim in/out applied during export | Portrait 720×1280 canvas may letterbox/crop sources |
-
-If stitching fails, use **Files** in the share sheet to download each original recording locally.
-
 ## Browser limits
 
-- **iOS Safari:** `MediaRecorder` / canvas export support is incomplete compared to Chrome Android; treat Chromium as the primary target.
+- **iOS Safari:** WebCodecs audio support is incomplete; the realtime fallback engine covers it, but Chromium (especially Android) is the primary target.
 - **Permissions:** denied camera/mic must be re-enabled in site settings; the UI surfaces this.
 - **Storage quotas:** large projects can hit IndexedDB quotas; the soft 6-project cap helps.
 - **Background tabs:** recording should stay in the foreground; browsers may throttle capture.
@@ -106,9 +115,11 @@ If stitching fails, use **Files** in the share sheet to download each original r
 
 ## Scripts
 
-| Command           | Purpose                     |
-|-------------------|-----------------------------|
-| `npm run dev`     | Vite dev server             |
-| `npm run build`   | Typecheck + production bundle |
-| `npm run preview` | Preview production build    |
-| `npm test`        | Vitest storage/unit tests   |
+| Command                              | Purpose                                    |
+|--------------------------------------|--------------------------------------------|
+| `npm run dev`                        | Vite dev server                            |
+| `npm run build`                      | Typecheck + production bundle              |
+| `npm run preview`                    | Preview production build                   |
+| `npm test`                           | Vitest storage/export-planner tests        |
+| `npm run test:smoke`                 | Playwright smoke: record → edit → export   |
+| `node scripts/probe-export-chrome.mjs` | Export validation in Chrome stable (real codecs) |

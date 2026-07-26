@@ -1,10 +1,13 @@
 import { startTransition, useState } from 'react'
 import { Link, useLoaderData, useNavigate, useRevalidator } from 'react-router-dom'
+import { BlobImage } from '../components/blob-image'
 import { BrandMark } from '../components/brand-mark'
+import { ConfirmSheet } from '../components/confirm-sheet'
+import { HomeOptionsSheet } from '../components/home-options-sheet'
 import { RenameSheet } from '../components/rename-sheet'
 import { loadHomeProjects, type ProjectSummary } from '../lib/project-actions'
 import { createProject, deleteProject, renameProject } from '../lib/storage'
-import { MAX_PROJECTS, formatDuration, type Project } from '../lib/types'
+import { MAX_PROJECTS, formatDuration } from '../lib/types'
 
 export async function homeLoader(): Promise<ProjectSummary[]> {
   return loadHomeProjects()
@@ -15,7 +18,9 @@ export function HomePage() {
   const revalidator = useRevalidator()
   const navigate = useNavigate()
   const [error, setError] = useState<string | null>(null)
-  const [renaming, setRenaming] = useState<Project | null>(null)
+  const [menuProject, setMenuProject] = useState<ProjectSummary | null>(null)
+  const [renaming, setRenaming] = useState<ProjectSummary | null>(null)
+  const [deleting, setDeleting] = useState<ProjectSummary | null>(null)
   const [busy, setBusy] = useState(false)
 
   const refresh = () => {
@@ -40,36 +45,39 @@ export function HomePage() {
   }
 
   const slots = Array.from({ length: MAX_PROJECTS }, (_, index) => projects[index] ?? null)
-  const isEmpty = projects.length === 0
+  const atCap = projects.length >= MAX_PROJECTS
 
   return (
-    <div className="screen">
+    <div className="screen home-screen">
       <div className="home-hero">
         <div className="home-hero-art" aria-hidden="true">
-          <BrandMark size={168} className="brand-hero-art" variant="camera" />
+          <BrandMark size={96} className="brand-hero-art" variant="camera" />
         </div>
-        <p className="eyebrow">Kody · on-device</p>
         <h1 className="brand">
           Kody <span>Video</span>
         </h1>
-        <p className="lede">
-          Six local clip projects. Hold anywhere to record, tap OK when it feels ready.
-        </p>
+        <p className="lede">Hold to record. Tap OK to share.</p>
       </div>
 
       {error ? <div className="error-banner">{error}</div> : null}
 
-      {isEmpty ? (
-        <div className="home-empty-callout" aria-hidden="true">
-          <BrandMark size={88} variant="timeline" className="home-empty-art" />
-          <p>Kody keeps every clip on this phone until you share.</p>
-        </div>
-      ) : null}
-
       <section className="project-slots" aria-label="Kody Video projects">
         {slots.map((project, index) =>
           project ? (
-            <article key={project.id} className="project-slot filled">
+            <article
+              key={project.id}
+              className={project.posterThumb ? 'project-slot filled has-poster' : 'project-slot filled'}
+            >
+              {project.posterThumb ? (
+                <BlobImage
+                  blob={project.posterThumb}
+                  className="slot-poster"
+                  alt=""
+                  aria-hidden="true"
+                  draggable={false}
+                />
+              ) : null}
+              <div className="slot-fade" aria-hidden="true" />
               <Link className="slot-open" to={`/project/${project.id}`}>
                 <span className="slot-number">Slot {index + 1}</span>
                 <strong>{project.name}</strong>
@@ -78,57 +86,65 @@ export function HomePage() {
                   {formatDuration(project.durationMs)}
                 </small>
               </Link>
-              <div className="project-actions">
-                <button
-                  type="button"
-                  className="btn btn-ghost"
-                  aria-label={`Rename ${project.name}`}
-                  onClick={() => setRenaming(project)}
-                >
-                  Rename
-                </button>
-                <button
-                  type="button"
-                  className="btn btn-ghost danger"
-                  aria-label={`Delete ${project.name}`}
-                  onClick={() => {
-                    if (!confirm(`Delete "${project.name}" and all its clips?`)) return
-                    void (async () => {
-                      await deleteProject(project.id)
-                      refresh()
-                    })()
-                  }}
-                >
-                  Delete
-                </button>
-              </div>
+              <button
+                type="button"
+                className="slot-options"
+                aria-label={`Options for ${project.name}`}
+                onClick={() => setMenuProject(project)}
+              >
+                <span aria-hidden="true">⋯</span>
+              </button>
             </article>
           ) : (
             <button
               key={`empty-${index}`}
               type="button"
               className="project-slot empty"
-              disabled={busy || projects.length >= MAX_PROJECTS}
+              disabled={busy || atCap}
               onClick={createAndOpenProject}
             >
-              <span className="slot-number">Slot {index + 1}</span>
-              <strong>New Kody</strong>
-              <small>Tap to create a private project</small>
+              <span className="slot-plus" aria-hidden="true">
+                +
+              </span>
+              <strong>New project</strong>
+              <small>{atCap ? 'Six-project limit' : `Slot ${index + 1}`}</small>
             </button>
           ),
         )}
       </section>
 
+      <p className="home-privacy">Clips stay on this phone until you share.</p>
+
       <div className="home-footer">
         <button
           type="button"
           className="btn btn-primary"
-          disabled={busy || projects.length >= MAX_PROJECTS}
+          disabled={busy || atCap}
           onClick={createAndOpenProject}
         >
-          {projects.length >= MAX_PROJECTS ? `Limit ${MAX_PROJECTS}` : 'New project'}
+          {atCap ? `Limit ${MAX_PROJECTS}` : 'New project'}
         </button>
       </div>
+
+      {menuProject ? (
+        <HomeOptionsSheet
+          projectName={menuProject.name}
+          onClose={() => setMenuProject(null)}
+          onOpen={() => {
+            const id = menuProject.id
+            setMenuProject(null)
+            navigate(`/project/${id}`)
+          }}
+          onRename={() => {
+            setRenaming(menuProject)
+            setMenuProject(null)
+          }}
+          onDelete={() => {
+            setDeleting(menuProject)
+            setMenuProject(null)
+          }}
+        />
+      ) : null}
 
       {renaming ? (
         <RenameSheet
@@ -137,6 +153,19 @@ export function HomePage() {
           onClose={() => setRenaming(null)}
           onSave={async (name) => {
             await renameProject(renaming.id, name)
+            refresh()
+          }}
+        />
+      ) : null}
+
+      {deleting ? (
+        <ConfirmSheet
+          title="Delete project?"
+          message={`Delete “${deleting.name}” and all its clips? This can’t be undone.`}
+          confirmLabel="Delete"
+          onClose={() => setDeleting(null)}
+          onConfirm={async () => {
+            await deleteProject(deleting.id)
             refresh()
           }}
         />

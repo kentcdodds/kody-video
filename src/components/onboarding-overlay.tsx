@@ -7,19 +7,19 @@ interface OnboardingOverlayProps {
 const steps = [
   {
     title: 'Hold to record',
-    body: 'Press anywhere on the live preview. Release to append a clip.',
+    body: 'Press anywhere on the camera. Release to stop and append a clip.',
   },
   {
-    title: 'Preview the take',
-    body: 'Open Tools → Editor to scrub clips, trim rough edges, and check the sequence.',
+    title: 'Preview',
+    body: 'Tap the play button to watch your cut. Tap the edges to skip clips.',
   },
   {
-    title: 'Delete fast',
-    body: 'Open Tools → Delete last after a bad take. The snackbar gives you Undo.',
+    title: 'Fix mistakes fast',
+    body: 'Backspace deletes the last clip (with Undo). Scissors opens the editor to trim or reorder.',
   },
   {
     title: 'Tap OK',
-    body: 'The round OK button exports or shares from this device. No uploads.',
+    body: 'Exports one video on-device, then Share or Save. Nothing leaves this phone until you choose.',
   },
 ]
 
@@ -27,9 +27,13 @@ export function OnboardingOverlay({ onDismiss }: OnboardingOverlayProps) {
   return (
     <div className="onboarding-overlay" role="dialog" aria-label="Kody Video quick start">
       <div className="onboarding-card">
-        <BrandMark size={96} className="brand-mark onboarding-art" variant="camera" />
-        <p className="eyebrow">Kody Video quick start</p>
-        <h2>Camera first. Editor second.</h2>
+        <div className="onboarding-card-top">
+          <BrandMark size={72} className="brand-mark onboarding-art" variant="camera" />
+          <div>
+            <p className="eyebrow">Quick start</p>
+            <h2>Camera first. Fun second.</h2>
+          </div>
+        </div>
         <ol>
           {steps.map((step, index) => (
             <li key={step.title}>

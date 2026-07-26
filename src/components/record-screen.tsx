@@ -1,9 +1,18 @@
 import { useCallback, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
-import type { UseCameraResult } from '../hooks/use-camera'
+import type { CameraZoomRange, UseCameraResult } from '../hooks/use-camera'
 import { appendRecording, removeClip, undoLastDelete } from '../lib/project-actions'
 import { HoldRecorder } from '../lib/recorder'
 import { effectiveDurationMs, formatDuration, type ClipRecord, type Project } from '../lib/types'
+import {
+  IconBack,
+  IconDelete,
+  IconEditor,
+  IconFlip,
+  IconPlay,
+  IconTimer,
+  IconTorch,
+} from './record-icons'
 import { RecordTimer } from './record-timer'
 
 type RecordingMode = 'hold' | 'hands-free'
@@ -26,6 +35,45 @@ interface RecordScreenProps {
   refresh: () => void
 }
 
+/** Build a small set of zoom chip levels clamped to device min/max (e.g. 1×, 2×, 5×). */
+function zoomChipLevels(zoom: CameraZoomRange): number[] {
+  const { min, max } = zoom
+  const candidates = [1, 2]
+  if (max > 2.05) {
+    const rounded = Math.round(max)
+    // Prefer a clean integer near max (4×/5×); otherwise use the true max.
+    candidates.push(Math.abs(rounded - max) <= 0.35 ? rounded : Number(max.toFixed(1)))
+  }
+  const levels = candidates
+    .map((level) => Math.min(max, Math.max(min, level)))
+    .filter((level, index, arr) => arr.findIndex((other) => Math.abs(other - level) < 0.05) === index)
+    .sort((a, b) => a - b)
+  // Always include device min when it isn't already represented (ultra-wide lenses).
+  if (levels.every((level) => Math.abs(level - min) > 0.05)) {
+    levels.unshift(min)
+  }
+  return levels
+}
+
+function formatZoomLabel(level: number): string {
+  const rounded = Math.round(level * 10) / 10
+  if (Number.isInteger(rounded)) return `${rounded}×`
+  return `${rounded.toFixed(1)}×`
+}
+
+function nearestZoomLevel(levels: number[], value: number): number {
+  let best = levels[0]!
+  let bestDist = Math.abs(value - best)
+  for (const level of levels) {
+    const dist = Math.abs(value - level)
+    if (dist < bestDist) {
+      best = level
+      bestDist = dist
+    }
+  }
+  return best
+}
+
 export function RecordScreen({
   project,
   clips,
@@ -45,12 +93,20 @@ export function RecordScreen({
   const lockedRef = useRef(interactionLocked)
   lockedRef.current = interactionLocked
 
+  const dragZoomPressYRef = useRef(0)
+  const dragZoomStartValueRef = useRef(0)
+  const dragZoomStageHeightRef = useRef(0)
+  const stageRef = useRef<HTMLDivElement | null>(null)
+
   const [recording, setRecording] = useState(false)
   const [recordingMode, setRecordingMode] = useState<RecordingMode | null>(null)
   const [recordStartedAt, setRecordStartedAt] = useState(0)
   const [countdown, setCountdown] = useState<number | null>(null)
 
   const totalDurationMs = clips.reduce((sum, clip) => sum + effectiveDurationMs(clip), 0)
+  const zoomLevels = camera.zoom ? zoomChipLevels(camera.zoom) : []
+  const activeZoomLevel =
+    camera.zoom && zoomLevels.length > 0 ? nearestZoomLevel(zoomLevels, camera.zoom.value) : null
 
   const clearCountdown = useCallback(() => {
     window.clearTimeout(countdownTimerRef.current)
@@ -249,6 +305,7 @@ export function RecordScreen({
   return (
     <div className={`record-screen${recording ? ' is-recording' : ''}`}>
       <div
+        ref={stageRef}
         className="record-stage"
         onPointerDown={(event) => {
           if (event.button !== 0) return
@@ -261,8 +318,25 @@ export function RecordScreen({
             void endRecord()
             return
           }
+          dragZoomPressYRef.current = event.clientY
+          dragZoomStartValueRef.current = camera.zoom?.value ?? 1
+          dragZoomStageHeightRef.current = event.currentTarget.clientHeight
           event.currentTarget.setPointerCapture(event.pointerId)
           void beginRecord(event.pointerId, 'hold')
+        }}
+        onPointerMove={(event) => {
+          if (recordingMode !== 'hold') return
+          if (pointerIdRef.current === null || pointerIdRef.current !== event.pointerId) return
+          const zoom = camera.zoom
+          if (!zoom) return
+          const range = zoom.max - zoom.min
+          if (range <= 0) return
+          const stageHeight = dragZoomStageHeightRef.current || stageRef.current?.clientHeight || 1
+          // Full zoom range over ~60% of stage height; drag up = zoom in.
+          const travel = stageHeight * 0.6
+          const deltaY = dragZoomPressYRef.current - event.clientY
+          const next = dragZoomStartValueRef.current + (deltaY / travel) * range
+          camera.setZoom(next)
         }}
         onPointerUp={(event) => {
           if (recordingMode !== 'hands-free') {
@@ -288,7 +362,9 @@ export function RecordScreen({
           <div className="record-overlay">
             <div className="record-pill" aria-live="polite">
               <span className="record-dot" />
-              {recordingMode === 'hands-free' ? 'TAP TO STOP' : 'REC'}{' '}
+              <span className="record-pill-label">
+                {recordingMode === 'hands-free' ? 'TAP TO STOP' : 'REC'}
+              </span>
               <RecordTimer startedAt={recordStartedAt} className="record-elapsed" />
             </div>
           </div>
@@ -296,12 +372,12 @@ export function RecordScreen({
 
         {countdown !== null ? (
           <div className="countdown-overlay" aria-live="assertive">
-            {countdown}
+            <span className="countdown-number">{countdown}</span>
           </div>
         ) : null}
 
         {!recording && countdown === null && camera.isReady ? (
-          <div className="hold-hint">
+          <div className={`hold-hint${clips.length > 0 ? ' hold-hint-subtle' : ''}`}>
             <strong>Hold anywhere</strong>
             <span>release to stop</span>
           </div>
@@ -326,22 +402,59 @@ export function RecordScreen({
 
       <div className="record-top">
         <Link to="/" className="btn-icon" aria-label="Back to projects" onClick={cleanupOnUnmount}>
-          ←
+          <IconBack />
         </Link>
         <div className="record-meta">
           <strong>{project.name}</strong>
-          <small>{formatDuration(totalDurationMs)}</small>
+          <span className="record-total">{formatDuration(totalDurationMs)}</span>
         </div>
-        <button
-          type="button"
-          className="btn-icon"
-          aria-label="Flip camera"
-          disabled={!camera.canFlip || recording || countdown !== null}
-          onClick={() => void camera.flip()}
-        >
-          ↻
-        </button>
+        <div className="record-top-actions">
+          {camera.torchAvailable ? (
+            <button
+              type="button"
+              className={`btn-icon${camera.torchOn ? ' is-active' : ''}`}
+              aria-label="Toggle flash"
+              aria-pressed={camera.torchOn}
+              disabled={recording || countdown !== null}
+              onClick={() => void camera.setTorch(!camera.torchOn)}
+            >
+              <IconTorch on={camera.torchOn} />
+            </button>
+          ) : null}
+          <button
+            type="button"
+            className="btn-icon"
+            aria-label="Flip camera"
+            disabled={!camera.canFlip || recording || countdown !== null}
+            onClick={() => void camera.flip()}
+          >
+            <IconFlip />
+          </button>
+        </div>
       </div>
+
+      {camera.zoom && zoomLevels.length > 0 ? (
+        <div className="record-zoom" role="group" aria-label="Zoom">
+          {zoomLevels.map((level) => {
+            const isActive = activeZoomLevel !== null && Math.abs(activeZoomLevel - level) < 0.05
+            return (
+              <button
+                key={level}
+                type="button"
+                className={`zoom-chip${isActive ? ' is-active' : ''}`}
+                aria-pressed={isActive}
+                disabled={countdown !== null}
+                onClick={(event) => {
+                  event.stopPropagation()
+                  camera.setZoom(level)
+                }}
+              >
+                {formatZoomLabel(level)}
+              </button>
+            )
+          })}
+        </div>
+      ) : null}
 
       <div className="record-dock">
         <div className="record-tools">
@@ -355,7 +468,7 @@ export function RecordScreen({
               onOpenEditor()
             }}
           >
-            ✂
+            <IconEditor />
           </button>
           <button
             type="button"
@@ -364,7 +477,7 @@ export function RecordScreen({
             disabled={recording || countdown !== null}
             onClick={startSelfTimer}
           >
-            ⏱
+            <IconTimer />
           </button>
           <button
             type="button"
@@ -373,7 +486,7 @@ export function RecordScreen({
             disabled={recording || clips.length === 0}
             onClick={onPlay}
           >
-            ▶
+            <IconPlay />
           </button>
           <button
             type="button"
@@ -382,7 +495,7 @@ export function RecordScreen({
             disabled={recording || clips.length === 0}
             onClick={deleteLastClip}
           >
-            ⌫
+            <IconDelete />
           </button>
         </div>
         <button

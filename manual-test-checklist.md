@@ -5,43 +5,53 @@ Run locally with HTTPS or `localhost` (`npm run dev`). Camera/mic require a secu
 ## Permissions
 - [ ] First open prompts for camera; microphone is requested when you start recording
 - [ ] Idle preview does not block Android voice-to-text in Brave/Chrome
-- [ ] Exported stitched video includes microphone audio from recorded clips
-- [ ] Export audio stays lined up with each clip (no early soundtrack / cross-clip drift)
-- [ ] Editor stage preview updates when tapping different timeline clips
-- [ ] Light/dark follows system `prefers-color-scheme`
-- [ ] Record dock shows Tools + OK (Editor/Timer/Delete live in the Tools sheet)
 - [ ] Deny → clear denied panel with retry guidance
 - [ ] Allow → live rear-camera preview (or fallback)
 - [ ] Flip camera works when multiple cameras exist
+- [ ] Torch toggle appears on devices with a flash; zoom chips appear when supported
+- [ ] Light/dark follows system `prefers-color-scheme`
 
 ## Hold-to-record
-- [ ] Press/hold anywhere on the preview starts recording (red pulse + elapsed)
-- [ ] Release stops and appends a clip to the timeline
+- [ ] Press/hold anywhere on the preview starts recording (REC pill + elapsed)
+- [ ] Camera preview stays smooth while recording (no visible frame drops)
+- [ ] Dragging up/down during a hold zooms in/out (zoom-capable devices)
+- [ ] Release stops and appends a clip; filmstrip thumbnail appears shortly after
 - [ ] Self-timer counts down, starts hands-free recording, then tap stops
-- [ ] Very short taps do not create empty clips
-- [ ] Multiple holds create multiple clips; total duration updates
+- [ ] Very short taps do not create empty clips ("Hold a bit longer")
+- [ ] Multiple holds create multiple clips; total duration in the top bar updates
+- [ ] Backspace button deletes the last clip; toast offers Undo
 
-## Timeline editing
-- [ ] Select a clip (border highlight)
-- [ ] Delete removes clip from timeline
-- [ ] Undo restores the last deleted clip
-- [ ] Move left/right reorders
-- [ ] Duplicate inserts a copy after the selection
-- [ ] Trim in/out updates effective duration and preview
+## Editor
+- [ ] Scissors button opens the editor; stage shows the selected clip
+- [ ] Timeline tiles are wider for longer clips and show real thumbnails
+- [ ] Tap selects; long-press (or horizontal drag) lifts a tile to reorder
+- [ ] Trim opens the expanded strip; dragging handles seeks the stage preview
+- [ ] Done persists the trim; tile width and total duration update
+- [ ] Duplicate inserts a copy after the selection; Delete offers Undo
+- [ ] Tapping the stage plays just the selected clip within its trim range
+
+## Preview playback
+- [ ] Play button previews the whole cut in order, honoring trims, with audio
+- [ ] Tap right/left edge skips to next/previous clip; tap middle stops
+- [ ] Segmented progress bar tracks clips
+
+## OK / export
+- [ ] OK starts the export immediately ("Exporting your video…" + progress)
+- [ ] Export completes; sheet shows format + size ("MP4 · x MB" expected on Android)
+- [ ] Share opens the system share sheet (fresh tap, no silent failure)
+- [ ] Save stores the file locally
+- [ ] Exported video: clips in order, trims applied, audio in sync across clips, smooth frame rate
+- [ ] Export failure path offers "Save clips instead"
+- [ ] Network tab shows no upload of clip binaries
 
 ## Persistence / offline
 - [ ] Hard refresh restores projects and clip media
 - [ ] Airplane mode after first visit still loads the app shell (PWA/service worker)
 - [ ] Offline, existing projects open and clips play from IndexedDB
 
-## OK / share
-- [ ] Big OK button opens share/export
-- [ ] Export produces a local WebM (or falls back with an error message)
-- [ ] Network tab shows no upload of clip binaries
-- [ ] “Files” downloads individual clips
-- [ ] Web Share sheet appears on supporting mobile browsers; otherwise download
-
 ## Projects
 - [ ] Create up to 6 projects; 7th is blocked with clear UX
-- [ ] Rename / delete from home
+- [ ] Slot order is stable (does not shuffle after opening projects)
+- [ ] Slots show poster art from the first clip
+- [ ] ⋯ menu: Open / Rename / Delete (styled confirm, no browser dialog)
 - [ ] Deleting a project frees its stored clips
