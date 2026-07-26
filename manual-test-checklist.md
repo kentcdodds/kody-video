@@ -9,6 +9,8 @@ Run locally with HTTPS or `localhost` (`npm run dev`). Camera/mic require a secu
 - [ ] Allow → live rear-camera preview (or fallback)
 - [ ] Flip camera works when multiple cameras exist
 - [ ] Torch toggle appears on devices with a flash; zoom chips appear when supported
+- [ ] Backgrounding the app releases camera/mic (green dot goes out); returning restarts the preview
+- [ ] Backgrounding mid-recording still saves the take
 - [ ] Light/dark follows system `prefers-color-scheme`
 
 ## Hold-to-record

@@ -93,6 +93,8 @@ export function waitForCondition(check: () => boolean, timeoutMs: number): Promi
   if (check()) return Promise.resolve()
   return new Promise((resolve, reject) => {
     const started = performance.now()
+    // Timer-based polling, not rAF: this must keep running in hidden tabs so
+    // a take can finish saving after the app is backgrounded mid-recording.
     const tick = () => {
       if (check()) {
         resolve()
@@ -102,7 +104,7 @@ export function waitForCondition(check: () => boolean, timeoutMs: number): Promi
         reject(new Error('Timed out preparing clip media'))
         return
       }
-      requestAnimationFrame(tick)
+      window.setTimeout(tick, 50)
     }
     tick()
   })
