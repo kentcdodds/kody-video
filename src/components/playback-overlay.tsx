@@ -25,6 +25,9 @@ export function PlaybackOverlay({ clips, onClose }: PlaybackOverlayProps) {
   const videoRef = useRef<HTMLVideoElement | null>(null)
   const urlStateRef = useRef<{ url: string | null; blob: Blob | null }>({ url: null, blob: null })
   const advancedForRef = useRef(-1)
+  /** Index whose media has actually loaded — gates stale timeupdate/ended
+   * events from the previous clip that fire before the new source is ready. */
+  const loadedIndexRef = useRef(-1)
 
   const segment = segments[index] ?? null
 
@@ -121,9 +124,16 @@ export function PlaybackOverlay({ clips, onClose }: PlaybackOverlayProps) {
         className="playback-video"
         playsInline
         preload="auto"
-        onLoadedMetadata={(event) => startPlayback(event.currentTarget)}
-        onEnded={advance}
+        onLoadedMetadata={(event) => {
+          loadedIndexRef.current = index
+          startPlayback(event.currentTarget)
+        }}
+        onEnded={() => {
+          if (loadedIndexRef.current !== index) return
+          advance()
+        }}
         onTimeUpdate={(event) => {
+          if (loadedIndexRef.current !== index) return
           const video = event.currentTarget
           const elapsed = video.currentTime - startSec
           setSegmentProgress(segmentMs > 0 ? Math.min(1, (elapsed * 1000) / segmentMs) : 0)
