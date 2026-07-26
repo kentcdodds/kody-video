@@ -176,8 +176,9 @@
   overflow: hidden;
   position: relative;
   padding: 0;
-  /* Horizontal swipes must scroll the strip; reorder is long-press only. */
-  touch-action: pan-x;
+  /* The strip drives its own scrolling from pointer events (native pan was
+   * unreliable on real Android hardware); reorder is long-press only. */
+  touch-action: none;
   transition: transform 140ms ease, box-shadow 140ms ease, border-color 140ms ease,
     opacity 140ms ease;
 }
