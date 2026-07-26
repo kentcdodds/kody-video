@@ -15,6 +15,7 @@ Run locally with HTTPS or `localhost` (`npm run dev`). Camera/mic require a secu
 - [ ] Press/hold anywhere on the preview starts recording (REC pill + elapsed)
 - [ ] Camera preview stays smooth while recording (no visible frame drops)
 - [ ] Dragging up/down during a hold zooms in/out (zoom-capable devices)
+- [ ] Releasing the hold eases zoom back to the pre-take level (chip choice or 1×)
 - [ ] Release stops and appends a clip; filmstrip thumbnail appears shortly after
 - [ ] Self-timer counts down, starts hands-free recording, then tap stops
 - [ ] Very short taps do not create empty clips ("Hold a bit longer")
