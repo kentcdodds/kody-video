@@ -71,6 +71,7 @@ export function ProjectPage() {
   const recorderRef = useRef(new HoldRecorder())
   const pointerIdRef = useRef<number | null>(null)
   const beginInFlightRef = useRef(false)
+  const sheetRef = useRef<Sheet>('none')
   const recordRafRef = useRef(0)
   const toastTimerRef = useRef(0)
   const countdownTimerRef = useRef(0)
@@ -85,6 +86,7 @@ export function ProjectPage() {
   const [recordMs, setRecordMs] = useState(0)
   const [countdown, setCountdown] = useState<number | null>(null)
   const [sheet, setSheet] = useState<Sheet>('none')
+  sheetRef.current = sheet
   const [playing, setPlaying] = useState(false)
   const [toast, setToast] = useState<ToastState | null>(null)
   const [exportProgress, setExportProgress] = useState<number | null>(null)
@@ -145,12 +147,12 @@ export function ProjectPage() {
         recording ||
         recorderRef.current.isRecording ||
         playing ||
-        sheet !== 'none' ||
+        sheetRef.current !== 'none' ||
         countdown !== null
       ) {
         return false
       }
-      if (!camera.stream || !camera.isReady) {
+      if (!camera.getStream() || !camera.isReady) {
         showToast('Camera not ready')
         return false
       }
@@ -168,8 +170,13 @@ export function ProjectPage() {
           camera.releaseMic()
           return false
         }
+        // Re-check after the mic await — a sheet may have opened meanwhile.
+        if (sheetRef.current !== 'none') {
+          camera.releaseMic()
+          return false
+        }
 
-        const stream = camera.stream
+        const stream = camera.getStream()
         if (!stream?.getAudioTracks().some((track) => track.readyState === 'live')) {
           throw new Error('Microphone unavailable')
         }
@@ -204,13 +211,12 @@ export function ProjectPage() {
     },
     [
       camera.enableMic,
+      camera.getStream,
       camera.isReady,
       camera.releaseMic,
-      camera.stream,
       countdown,
       playing,
       recording,
-      sheet,
       showToast,
     ],
   )
@@ -257,12 +263,15 @@ export function ProjectPage() {
   )
 
   const startSelfTimer = useCallback(() => {
-    if (recording || playing || sheet !== 'none' || countdown !== null) return
-    if (!camera.stream || !camera.isReady) {
+    if (recording || playing || countdown !== null) return
+    if (!camera.getStream() || !camera.isReady) {
       showToast('Camera not ready')
       return
     }
 
+    // Close any sheet first so hold/begin guards and UI stay consistent.
+    sheetRef.current = 'none'
+    setSheet('none')
     let next = 3
     setCountdown(next)
     const tick = () => {
@@ -282,16 +291,7 @@ export function ProjectPage() {
       countdownTimerRef.current = window.setTimeout(tick, 1000)
     }
     countdownTimerRef.current = window.setTimeout(tick, 1000)
-  }, [
-    beginRecord,
-    camera.isReady,
-    camera.stream,
-    countdown,
-    playing,
-    recording,
-    sheet,
-    showToast,
-  ])
+  }, [beginRecord, camera.getStream, camera.isReady, countdown, playing, recording, showToast])
 
   const deleteLastClip = useCallback(() => {
     const lastClip = data.clips.at(-1)
