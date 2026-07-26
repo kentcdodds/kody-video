@@ -248,8 +248,14 @@ export interface ClipThumbsInput {
 
 export async function updateClipThumbs(clipId: ClipId, input: ClipThumbsInput): Promise<void> {
   const db = await getDb()
-  const clip = await db.get('clips', clipId)
-  if (!clip) return
+  // Read + merge + write in one transaction so a concurrent trim/delete can
+  // never be clobbered by a stale snapshot of the clip record.
+  const tx = db.transaction('clips', 'readwrite')
+  const clip = await tx.store.get(clipId)
+  if (!clip) {
+    await tx.done
+    return
+  }
   const updated: ClipRecord = {
     ...clip,
     thumbs: input.thumbs,
@@ -258,7 +264,8 @@ export async function updateClipThumbs(clipId: ClipId, input: ClipThumbsInput): 
     width: clip.width ?? input.videoWidth,
     height: clip.height ?? input.videoHeight,
   }
-  await db.put('clips', updated)
+  await tx.store.put(updated)
+  await tx.done
 }
 
 export async function updateClipTrim(

@@ -90,6 +90,7 @@ export function RecordScreen({
   const beginInFlightRef = useRef(false)
   const countdownTimerRef = useRef(0)
   const wakeLockRef = useRef<WakeLockSentinel | null>(null)
+  const wakeLockGenRef = useRef(0)
   const lockedRef = useRef(interactionLocked)
   lockedRef.current = interactionLocked
 
@@ -115,15 +116,22 @@ export function RecordScreen({
   }, [])
 
   const acquireWakeLock = useCallback(() => {
+    const generation = wakeLockGenRef.current
     void navigator.wakeLock
       ?.request('screen')
       .then((sentinel) => {
+        if (wakeLockGenRef.current !== generation) {
+          // Released before the sentinel arrived (very short take).
+          void sentinel.release().catch(() => undefined)
+          return
+        }
         wakeLockRef.current = sentinel
       })
       .catch(() => undefined)
   }, [])
 
   const releaseWakeLock = useCallback(() => {
+    wakeLockGenRef.current += 1
     void wakeLockRef.current?.release().catch(() => undefined)
     wakeLockRef.current = null
   }, [])

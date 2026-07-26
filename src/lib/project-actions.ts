@@ -75,8 +75,13 @@ export async function loadProjectPage(projectId: ProjectId): Promise<ProjectLoad
       }
     }
     await setLastOpenedProjectId(projectId)
-    // Backfill filmstrip thumbnails for clips recorded before they existed.
-    const hydrated = await Promise.all(clips.map((clip) => ensureClipThumbs(clip)))
+    // Backfill filmstrip thumbnails for clips that lack them. Serially —
+    // Android caps concurrent video decoders hard, and this normally touches
+    // at most the clip that was just recorded.
+    const hydrated: ClipRecord[] = []
+    for (const clip of clips) {
+      hydrated.push(await ensureClipThumbs(clip))
+    }
     return {
       project,
       clips: hydrated,

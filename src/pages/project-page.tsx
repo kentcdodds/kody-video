@@ -13,7 +13,6 @@ import { PlaybackOverlay } from '../components/playback-overlay'
 import { RecordScreen, type ToastAction } from '../components/record-screen'
 import { useCamera } from '../hooks/use-camera'
 import { exportProject, type ExportResult } from '../lib/export'
-import { supportsWebCodecsExport } from '../lib/export/encode-webcodecs'
 import {
   canShareFile,
   downloadBlob,
@@ -85,18 +84,17 @@ export function ProjectPage() {
     const runId = exportRunRef.current + 1
     exportRunRef.current = runId
 
-    // The realtime fallback needs an AudioContext unlocked by this tap;
-    // the WebCodecs engine does not need a live audio graph at all.
+    // Unlock an AudioContext from this tap: the realtime engine needs it for
+    // audio mixing, including when WebCodecs fails mid-export and we fall
+    // back after the tap's activation has expired. WebCodecs ignores it.
     let audioContext: AudioContext | undefined
-    if (!supportsWebCodecsExport()) {
-      try {
-        audioContext = new AudioContext()
-        if (audioContext.state === 'suspended') {
-          void audioContext.resume().catch(() => undefined)
-        }
-      } catch {
-        audioContext = undefined
+    try {
+      audioContext = new AudioContext()
+      if (audioContext.state === 'suspended') {
+        void audioContext.resume().catch(() => undefined)
       }
+    } catch {
+      audioContext = undefined
     }
 
     setExportState({ status: 'exporting', progress: 0, result: null, error: null, notice: null })
@@ -124,6 +122,12 @@ export function ProjectPage() {
           error: err instanceof Error ? err.message : 'Export failed.',
           notice: null,
         })
+      } finally {
+        // The realtime engine closes the context it used; when WebCodecs
+        // handled the export, release the unused tap-unlocked context.
+        if (audioContext && audioContext.state !== 'closed') {
+          void audioContext.close().catch(() => undefined)
+        }
       }
     })()
   }, [clips])

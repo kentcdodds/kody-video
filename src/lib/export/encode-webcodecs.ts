@@ -31,8 +31,7 @@ export function supportsWebCodecsExport(): boolean {
 interface CodecChoice {
   container: 'mp4' | 'webm'
   videoCodec: string
-  /** Null means video-only output (no supported audio encoder). */
-  audioCodec: string | null
+  audioCodec: string
 }
 
 async function isVideoConfigSupported(config: VideoEncoderConfig): Promise<boolean> {
@@ -79,26 +78,27 @@ function audioEncoderConfig(codec: string): AudioEncoderConfig {
 
 /**
  * Prefer MP4 (H.264 + AAC) because Android share targets accept it
- * universally; fall back to WebM (VP9/VP8 + Opus).
+ * universally; fall back to WebM (VP9/VP8 + Opus). A working audio encoder
+ * is required — clips carry mic audio, so a silent WebCodecs export would be
+ * strictly worse than the realtime fallback engine, which can mix audio.
  */
 async function pickCodecs(width: number, height: number): Promise<CodecChoice | null> {
   const avc = 'avc1.640028'
   const aac = 'mp4a.40.2'
   const opus = 'opus'
 
-  if (await isVideoConfigSupported(videoEncoderConfig(avc, width, height))) {
-    if (await isAudioConfigSupported(audioEncoderConfig(aac))) {
-      return { container: 'mp4', videoCodec: avc, audioCodec: aac }
-    }
+  if (
+    (await isVideoConfigSupported(videoEncoderConfig(avc, width, height))) &&
+    (await isAudioConfigSupported(audioEncoderConfig(aac)))
+  ) {
+    return { container: 'mp4', videoCodec: avc, audioCodec: aac }
   }
-  for (const vp of ['vp09.00.31.08', 'vp8']) {
-    if (await isVideoConfigSupported(videoEncoderConfig(vp, width, height))) {
-      const audioOk = await isAudioConfigSupported(audioEncoderConfig(opus))
-      return { container: 'webm', videoCodec: vp, audioCodec: audioOk ? opus : null }
+  if (await isAudioConfigSupported(audioEncoderConfig(opus))) {
+    for (const vp of ['vp09.00.31.08', 'vp8']) {
+      if (await isVideoConfigSupported(videoEncoderConfig(vp, width, height))) {
+        return { container: 'webm', videoCodec: vp, audioCodec: opus }
+      }
     }
-  }
-  if (await isVideoConfigSupported(videoEncoderConfig(avc, width, height))) {
-    return { container: 'mp4', videoCodec: avc, audioCodec: null }
   }
   return null
 }
@@ -140,8 +140,6 @@ export async function exportWithWebCodecs(
   const ctx = canvas.getContext('2d', { alpha: false })
   if (!ctx) throw new Error('Canvas not available')
 
-  const withAudio = choice.audioCodec !== null
-
   let muxer: MuxerLike
   let takeBuffer: () => ArrayBuffer
   if (choice.container === 'mp4') {
@@ -149,9 +147,7 @@ export async function exportWithWebCodecs(
     const mp4 = new Mp4Muxer({
       target,
       video: { codec: 'avc', width, height },
-      audio: withAudio
-        ? { codec: 'aac', numberOfChannels: AUDIO_CHANNELS, sampleRate: AUDIO_SAMPLE_RATE }
-        : undefined,
+      audio: { codec: 'aac', numberOfChannels: AUDIO_CHANNELS, sampleRate: AUDIO_SAMPLE_RATE },
       fastStart: 'in-memory',
     })
     muxer = mp4
@@ -166,9 +162,7 @@ export async function exportWithWebCodecs(
         height,
         frameRate: FPS,
       },
-      audio: withAudio
-        ? { codec: 'A_OPUS', numberOfChannels: AUDIO_CHANNELS, sampleRate: AUDIO_SAMPLE_RATE }
-        : undefined,
+      audio: { codec: 'A_OPUS', numberOfChannels: AUDIO_CHANNELS, sampleRate: AUDIO_SAMPLE_RATE },
     })
     muxer = webm
     takeBuffer = () => target.buffer
@@ -193,20 +187,17 @@ export async function exportWithWebCodecs(
   })
   videoEncoder.configure(videoEncoderConfig(choice.videoCodec, width, height))
 
-  let audioEncoder: AudioEncoder | null = null
-  if (withAudio && choice.audioCodec) {
-    audioEncoder = new AudioEncoder({
-      output: (chunk, meta) => {
-        try {
-          muxer.addAudioChunk(chunk, meta)
-        } catch (err) {
-          failWith(err)
-        }
-      },
-      error: failWith,
-    })
-    audioEncoder.configure(audioEncoderConfig(choice.audioCodec))
-  }
+  const audioEncoder = new AudioEncoder({
+    output: (chunk, meta) => {
+      try {
+        muxer.addAudioChunk(chunk, meta)
+      } catch (err) {
+        failWith(err)
+      }
+    },
+    error: failWith,
+  })
+  audioEncoder.configure(audioEncoderConfig(choice.audioCodec))
 
   const state = {
     lastVideoTsUs: -1,
@@ -225,16 +216,14 @@ export async function exportWithWebCodecs(
         if (!clamped) continue
         const segmentMs = clamped.endMs - clamped.startMs
 
-        if (audioEncoder) {
-          const buffer = await decodeClipAudio(segment.clip.blob, AUDIO_SAMPLE_RATE)
-          encodeSegmentAudio({
-            audioEncoder,
-            buffer,
-            startMs: clamped.startMs,
-            segmentMs,
-            outputOffsetUs: state.outputOffsetUs,
-          })
-        }
+        const buffer = await decodeClipAudio(segment.clip.blob, AUDIO_SAMPLE_RATE)
+        encodeSegmentAudio({
+          audioEncoder,
+          buffer,
+          startMs: clamped.startMs,
+          segmentMs,
+          outputOffsetUs: state.outputOffsetUs,
+        })
         if (encoderError) throw encoderError
 
         await pumpSegmentVideo({
@@ -267,7 +256,7 @@ export async function exportWithWebCodecs(
     }
 
     await videoEncoder.flush()
-    if (audioEncoder) await audioEncoder.flush()
+    await audioEncoder.flush()
     if (encoderError) throw encoderError
     muxer.finalize()
   } finally {
@@ -277,7 +266,7 @@ export async function exportWithWebCodecs(
       // already closed
     }
     try {
-      if (audioEncoder && audioEncoder.state !== 'closed') audioEncoder.close()
+      if (audioEncoder.state !== 'closed') audioEncoder.close()
     } catch {
       // already closed
     }
@@ -345,93 +334,95 @@ async function pumpSegmentVideo({
 
   await video.play()
 
-  await new Promise<void>((resolve, reject) => {
-    let finished = false
-    let lastProgressAt = performance.now()
-    let lastMediaTime = startSec
-    let rafId = 0
-    let watchdogId = 0
+  try {
+    await new Promise<void>((resolve, reject) => {
+      let finished = false
+      let lastProgressAt = performance.now()
+      let lastMediaTime = startSec
+      let rafId = 0
+      let watchdogId = 0
 
-    const finish = () => {
-      if (finished) return
-      finished = true
-      window.clearInterval(watchdogId)
-      if (rafId) cancelAnimationFrame(rafId)
-      video.pause()
-      resolve()
-    }
-    const abort = (err: Error) => {
-      if (finished) return
-      finished = true
-      window.clearInterval(watchdogId)
-      if (rafId) cancelAnimationFrame(rafId)
-      video.pause()
-      reject(err)
-    }
-
-    const handleFrame = (mediaTimeSec: number) => {
-      if (finished) return
-      if (hasError()) {
-        abort(new Error('Export encoder failed'))
-        return
-      }
-      if (mediaTimeSec > lastMediaTime + 0.001) {
-        lastMediaTime = mediaTimeSec
-        lastProgressAt = performance.now()
-      }
-      if (video.ended || mediaTimeSec >= endSec - 0.005) {
-        finish()
-        return
-      }
-      if (mediaTimeSec > startSec) {
-        encodeFrameAt(mediaTimeSec)
-        onElapsedMs((mediaTimeSec - startSec) * 1000)
-      }
-
-      // Backpressure: pause the source while the encoder catches up so slow
-      // devices never drop frames from the output.
-      if (videoEncoder.encodeQueueSize > 8) {
+      const finish = () => {
+        if (finished) return
+        finished = true
+        window.clearInterval(watchdogId)
+        if (rafId) cancelAnimationFrame(rafId)
         video.pause()
-        const waitDrain = () => {
-          if (finished) return
-          if (videoEncoder.encodeQueueSize <= 2) {
-            void video.play().catch(() => abort(new Error('Clip playback failed during export')))
-            scheduleNext()
-            return
-          }
-          window.setTimeout(waitDrain, 40)
+        resolve()
+      }
+      const abort = (err: Error) => {
+        if (finished) return
+        finished = true
+        window.clearInterval(watchdogId)
+        if (rafId) cancelAnimationFrame(rafId)
+        video.pause()
+        reject(err)
+      }
+
+      const handleFrame = (mediaTimeSec: number) => {
+        if (finished) return
+        if (hasError()) {
+          abort(new Error('Export encoder failed'))
+          return
         }
-        waitDrain()
-        return
+        if (mediaTimeSec > lastMediaTime + 0.001) {
+          lastMediaTime = mediaTimeSec
+          lastProgressAt = performance.now()
+        }
+        if (video.ended || mediaTimeSec >= endSec - 0.005) {
+          finish()
+          return
+        }
+        if (mediaTimeSec > startSec) {
+          encodeFrameAt(mediaTimeSec)
+          onElapsedMs((mediaTimeSec - startSec) * 1000)
+        }
+
+        // Backpressure: pause the source while the encoder catches up so slow
+        // devices never drop frames from the output.
+        if (videoEncoder.encodeQueueSize > 8) {
+          video.pause()
+          const waitDrain = () => {
+            if (finished) return
+            if (videoEncoder.encodeQueueSize <= 2) {
+              void video.play().catch(() => abort(new Error('Clip playback failed during export')))
+              scheduleNext()
+              return
+            }
+            window.setTimeout(waitDrain, 40)
+          }
+          waitDrain()
+          return
+        }
+        scheduleNext()
       }
+
+      const scheduleNext = () => {
+        if (finished) return
+        if (supportsRvfc) {
+          video.requestVideoFrameCallback((_now, metadata) => {
+            handleFrame(metadata.mediaTime)
+          })
+        } else {
+          rafId = requestAnimationFrame(() => {
+            handleFrame(video.currentTime)
+          })
+        }
+      }
+
+      video.onended = finish
+      video.onerror = () => abort(new Error('A clip failed to play during export'))
+      watchdogId = window.setInterval(() => {
+        if (performance.now() - lastProgressAt > 10_000) {
+          abort(new Error('Clip playback stalled during export'))
+        }
+      }, 1000)
       scheduleNext()
-    }
-
-    const scheduleNext = () => {
-      if (finished) return
-      if (supportsRvfc) {
-        video.requestVideoFrameCallback((_now, metadata) => {
-          handleFrame(metadata.mediaTime)
-        })
-      } else {
-        rafId = requestAnimationFrame(() => {
-          handleFrame(video.currentTime)
-        })
-      }
-    }
-
-    video.onended = finish
-    video.onerror = () => abort(new Error('A clip failed to play during export'))
-    watchdogId = window.setInterval(() => {
-      if (performance.now() - lastProgressAt > 10_000) {
-        abort(new Error('Clip playback stalled during export'))
-      }
-    }, 1000)
-    scheduleNext()
-  })
-
-  video.onended = null
-  video.onerror = null
+    })
+  } finally {
+    video.onended = null
+    video.onerror = null
+  }
 }
 
 interface SegmentAudioArgs {

@@ -78,6 +78,16 @@ export function useCamera(): UseCameraResult {
   const [torchAvailable, setTorchAvailable] = useState(false)
   const [torchOn, setTorchOn] = useState(false)
 
+  const zoomRangeRef = useRef<CameraZoomRange | null>(null)
+  const zoomSyncTimerRef = useRef(0)
+
+  const applyZoomState = useCallback((next: CameraZoomRange | null) => {
+    window.clearTimeout(zoomSyncTimerRef.current)
+    zoomSyncTimerRef.current = 0
+    zoomRangeRef.current = next
+    setZoomState(next)
+  }, [])
+
   const attachToVideo = useCallback((next: MediaStream) => {
     const video = videoElRef.current
     if (!video) return
@@ -85,35 +95,38 @@ export function useCamera(): UseCameraResult {
     void video.play().catch(() => undefined)
   }, [])
 
-  const readTrackCapabilities = useCallback((next: MediaStream) => {
-    const track = next.getVideoTracks()[0]
-    if (!track || typeof track.getCapabilities !== 'function') {
-      setZoomState(null)
-      setTorchAvailable(false)
-      setTorchOn(false)
-      return
-    }
-    try {
-      const caps = track.getCapabilities() as ExtendedCapabilities
-      if (caps.zoom && typeof caps.zoom.min === 'number' && typeof caps.zoom.max === 'number') {
-        const settings = track.getSettings() as ExtendedSettings
-        setZoomState({
-          min: caps.zoom.min,
-          max: caps.zoom.max,
-          step: caps.zoom.step && caps.zoom.step > 0 ? caps.zoom.step : 0.1,
-          value: typeof settings.zoom === 'number' ? settings.zoom : caps.zoom.min,
-        })
-      } else {
-        setZoomState(null)
+  const readTrackCapabilities = useCallback(
+    (next: MediaStream) => {
+      const track = next.getVideoTracks()[0]
+      if (!track || typeof track.getCapabilities !== 'function') {
+        applyZoomState(null)
+        setTorchAvailable(false)
+        setTorchOn(false)
+        return
       }
-      setTorchAvailable(caps.torch === true)
-      setTorchOn(false)
-    } catch {
-      setZoomState(null)
-      setTorchAvailable(false)
-      setTorchOn(false)
-    }
-  }, [])
+      try {
+        const caps = track.getCapabilities() as ExtendedCapabilities
+        if (caps.zoom && typeof caps.zoom.min === 'number' && typeof caps.zoom.max === 'number') {
+          const settings = track.getSettings() as ExtendedSettings
+          applyZoomState({
+            min: caps.zoom.min,
+            max: caps.zoom.max,
+            step: caps.zoom.step && caps.zoom.step > 0 ? caps.zoom.step : 0.1,
+            value: typeof settings.zoom === 'number' ? settings.zoom : caps.zoom.min,
+          })
+        } else {
+          applyZoomState(null)
+        }
+        setTorchAvailable(caps.torch === true)
+        setTorchOn(false)
+      } catch {
+        applyZoomState(null)
+        setTorchAvailable(false)
+        setTorchOn(false)
+      }
+    },
+    [applyZoomState],
+  )
 
   const replaceStream = useCallback(
     (next: MediaStream) => {
@@ -181,15 +194,21 @@ export function useCamera(): UseCameraResult {
 
   const setZoom = useCallback((value: number) => {
     const track = streamRef.current?.getVideoTracks()[0]
-    if (!track) return
-    setZoomState((current) => {
-      if (!current) return current
-      const clamped = Math.min(current.max, Math.max(current.min, value))
-      void track
-        .applyConstraints({ advanced: [{ zoom: clamped } as MediaTrackConstraintSet] })
-        .catch(() => undefined)
-      return { ...current, value: clamped }
-    })
+    const range = zoomRangeRef.current
+    if (!track || !range) return
+    const clamped = Math.min(range.max, Math.max(range.min, value))
+    zoomRangeRef.current = { ...range, value: clamped }
+    void track
+      .applyConstraints({ advanced: [{ zoom: clamped } as MediaTrackConstraintSet] })
+      .catch(() => undefined)
+    // Constraints apply immediately; React state syncs on a trailing timer so
+    // drag-to-zoom during a recording doesn't re-render the page per move.
+    if (!zoomSyncTimerRef.current) {
+      zoomSyncTimerRef.current = window.setTimeout(() => {
+        zoomSyncTimerRef.current = 0
+        if (zoomRangeRef.current) setZoomState(zoomRangeRef.current)
+      }, 150)
+    }
   }, [])
 
   const setTorch = useCallback(async (on: boolean) => {
@@ -265,13 +284,13 @@ export function useCamera(): UseCameraResult {
     streamRef.current = null
     setStream(null)
     setIsReady(false)
-    setZoomState(null)
+    applyZoomState(null)
     setTorchAvailable(false)
     setTorchOn(false)
     if (videoElRef.current) {
       videoElRef.current.srcObject = null
     }
-  }, [])
+  }, [applyZoomState])
 
   const videoRef = useCallback<RefCallback<HTMLVideoElement>>(
     (element) => {
