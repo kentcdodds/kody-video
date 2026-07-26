@@ -104,6 +104,8 @@ export function RecordScreen({
   /** Zoom the user chose deliberately (chips) — what a take restores to. */
   const zoomBaselineRef = useRef<number | null>(null)
   const zoomRestoreRafRef = useRef(0)
+  /** True while the snap-back ramp is still easing toward the baseline. */
+  const zoomRestoreActiveRef = useRef(false)
   const stageRef = useRef<HTMLDivElement | null>(null)
 
   const [recording, setRecording] = useState(false)
@@ -135,12 +137,15 @@ export function RecordScreen({
     if (Math.abs(from - to) < 0.01) return
     const started = performance.now()
     const durationMs = 220
+    zoomRestoreActiveRef.current = true
     const tick = () => {
       const t = Math.min(1, (performance.now() - started) / durationMs)
       const eased = 1 - (1 - t) * (1 - t)
       camera.setZoom(from + (to - from) * eased)
       if (t < 1) {
         zoomRestoreRafRef.current = requestAnimationFrame(tick)
+      } else {
+        zoomRestoreActiveRef.current = false
       }
     }
     zoomRestoreRafRef.current = requestAnimationFrame(tick)
@@ -363,12 +368,21 @@ export function RecordScreen({
             void endRecord()
             return
           }
+          // A second finger landing during an active hold must not reset the
+          // drag-zoom state or start another take.
+          if (pointerIdRef.current !== null) return
           // A new hold interrupts any snap-back still easing; the take starts
           // from the user's deliberate baseline zoom, not a mid-ramp value.
           cancelAnimationFrame(zoomRestoreRafRef.current)
           dragZoomMovedRef.current = false
           dragZoomPressYRef.current = event.clientY
           dragZoomStartValueRef.current = zoomBaselineRef.current ?? camera.zoom?.value ?? 1
+          if (zoomRestoreActiveRef.current) {
+            // Finish the interrupted ramp instantly so a motionless hold
+            // still records from the baseline, not a mid-ramp zoom.
+            zoomRestoreActiveRef.current = false
+            camera.setZoom(dragZoomStartValueRef.current)
+          }
           dragZoomStageHeightRef.current = event.currentTarget.clientHeight
           event.currentTarget.setPointerCapture(event.pointerId)
           void beginRecord(event.pointerId, 'hold')
@@ -394,14 +408,21 @@ export function RecordScreen({
         }}
         onPointerUp={(event) => {
           if (recordingMode !== 'hands-free') {
+            // Only the pointer that owns the hold may end the take and start
+            // the snap-back — a stray second finger lifting must not zoom
+            // out mid-recording.
+            const ownsHold =
+              pointerIdRef.current === null || pointerIdRef.current === event.pointerId
             void endRecord(event.pointerId)
-            restoreZoomAfterHold()
+            if (ownsHold) restoreZoomAfterHold()
           }
         }}
         onPointerCancel={(event) => {
           if (recordingMode !== 'hands-free') {
+            const ownsHold =
+              pointerIdRef.current === null || pointerIdRef.current === event.pointerId
             void endRecord(event.pointerId)
-            restoreZoomAfterHold()
+            if (ownsHold) restoreZoomAfterHold()
           }
         }}
         onContextMenu={(event) => event.preventDefault()}
