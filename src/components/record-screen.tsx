@@ -351,9 +351,20 @@ export function RecordScreen({
         void endRecord()
       }
       camera.stop()
-    } else if (!camera.getStream()) {
-      void camera.start()
+      return
     }
+    // Coming back to the foreground: restart the camera unconditionally.
+    // Screen-off freezes the camera track at the OS level, and on some
+    // Android paths no `hidden` event ever fires — a surviving stream would
+    // keep previewing (and recording!) a single stale frame forever. If a
+    // take was somehow still running on that frozen stream, save it first.
+    void (async () => {
+      if (recorderRef.current.isRecording || recording) {
+        await endRecord()
+      }
+      camera.stop()
+      await camera.start()
+    })()
   }
 
   const onVisibilityChange = useCallback(() => {
