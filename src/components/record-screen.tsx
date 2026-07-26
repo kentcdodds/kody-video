@@ -88,6 +88,7 @@ export function RecordScreen({
   const recorderRef = useRef(new HoldRecorder())
   const pointerIdRef = useRef<number | null>(null)
   const beginInFlightRef = useRef(false)
+  const endInFlightRef = useRef(false)
   const countdownTimerRef = useRef(0)
   const wakeLockRef = useRef<WakeLockSentinel | null>(null)
   const wakeLockGenRef = useRef(0)
@@ -247,12 +248,17 @@ export function RecordScreen({
       ) {
         return
       }
+      // One end per take: stop() resolves asynchronously (duration is
+      // measured), so a second caller (e.g. hide + return in quick
+      // succession) must not re-enter and double-save the clip.
+      if (endInFlightRef.current) return
       if (!recorderRef.current.isRecording && !recording) {
         // Pointer released while mic grant was still in flight.
         pointerIdRef.current = null
         camera.releaseMic()
         return
       }
+      endInFlightRef.current = true
       pointerIdRef.current = null
       setRecording(false)
       setRecordingMode(null)
@@ -267,6 +273,7 @@ export function RecordScreen({
       } catch (err) {
         showToast(err instanceof Error ? err.message : 'Save failed')
       } finally {
+        endInFlightRef.current = false
         // stop() resolves only after the blob's duration is measured, so a
         // quick next hold may already be recording (or acquiring the mic) by
         // now — never strip the mic or wake lock from that newer session.
@@ -363,7 +370,11 @@ export function RecordScreen({
         await endRecord()
       }
       camera.stop()
+      // The app may have been hidden again while the take was finishing —
+      // never reopen the camera (and relight the privacy dot) in background.
+      if (document.hidden) return
       await camera.start()
+      if (document.hidden) camera.stop()
     })()
   }
 
