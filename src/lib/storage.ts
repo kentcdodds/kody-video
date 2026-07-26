@@ -195,7 +195,7 @@ export async function getClipMetasForProject(projectId: ProjectId): Promise<Clip
 }
 
 function toMeta(clip: ClipRecord): ClipMeta {
-  const { blob: _blob, ...meta } = clip
+  const { blob: _blob, thumbs: _thumbs, ...meta } = clip
   return meta
 }
 
@@ -236,6 +236,36 @@ export async function addClip(input: AddClipInput): Promise<ClipRecord> {
   })
   await tx.done
   return clip
+}
+
+export interface ClipThumbsInput {
+  thumbs: Blob[]
+  thumbWidth: number
+  thumbHeight: number
+  videoWidth?: number
+  videoHeight?: number
+}
+
+export async function updateClipThumbs(clipId: ClipId, input: ClipThumbsInput): Promise<void> {
+  const db = await getDb()
+  // Read + merge + write in one transaction so a concurrent trim/delete can
+  // never be clobbered by a stale snapshot of the clip record.
+  const tx = db.transaction('clips', 'readwrite')
+  const clip = await tx.store.get(clipId)
+  if (!clip) {
+    await tx.done
+    return
+  }
+  const updated: ClipRecord = {
+    ...clip,
+    thumbs: input.thumbs,
+    thumbWidth: input.thumbWidth,
+    thumbHeight: input.thumbHeight,
+    width: clip.width ?? input.videoWidth,
+    height: clip.height ?? input.videoHeight,
+  }
+  await tx.store.put(updated)
+  await tx.done
 }
 
 export async function updateClipTrim(

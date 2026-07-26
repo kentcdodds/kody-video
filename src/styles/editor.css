@@ -1,0 +1,444 @@
+/* Editor screen — scaled-down player above a filmstrip timeline (OK Video style). */
+
+.editor-screen {
+  --editor-tile-h: 72px;
+  --editor-accent-glow: 0 0 0 3px var(--accent-soft);
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  background: var(--camera-chrome);
+  overflow: hidden;
+}
+
+.editor-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: calc(8px + var(--safe-top)) 12px 6px;
+  flex: 0 0 auto;
+}
+
+.editor-meta {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 1px;
+  min-width: 0;
+}
+
+.editor-meta strong {
+  font-family: var(--font-display);
+  font-size: 1.02rem;
+  max-width: 46vw;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.editor-meta small {
+  color: var(--ink-muted);
+  font-variant-numeric: tabular-nums;
+  font-size: 0.78rem;
+}
+
+.editor-stage {
+  flex: 1 1 auto;
+  min-height: 0;
+  margin: 2px 14px 0;
+  border-radius: 18px;
+  border: 1px solid var(--line);
+  box-shadow: var(--shadow);
+  overflow: hidden;
+  background: var(--stage-bg);
+  animation: editor-stage-in 280ms cubic-bezier(0.22, 1, 0.36, 1) both;
+  transform-origin: center top;
+}
+
+.editor-screen.is-trimming .editor-stage {
+  flex: 0.9 1 auto;
+}
+
+@keyframes editor-stage-in {
+  from {
+    opacity: 0.72;
+    transform: scale(1.04);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+.editor-clip-preview-wrap {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  min-height: 120px;
+}
+
+.editor-clip-preview {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  display: block;
+  background: #000;
+}
+
+.editor-preview-affordance {
+  position: absolute;
+  right: 10px;
+  bottom: 10px;
+  width: 40px;
+  height: 40px;
+  min-height: 40px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  color: #fff;
+  background: rgba(0, 0, 0, 0.55);
+  border: 1px solid rgba(255, 255, 255, 0.28);
+  backdrop-filter: blur(6px);
+  pointer-events: auto;
+}
+
+.editor-empty-preview {
+  width: 100%;
+  height: 100%;
+  min-height: 120px;
+  display: grid;
+  place-items: center;
+  color: var(--ink-muted);
+  padding: 16px;
+  text-align: center;
+}
+
+.editor-panel {
+  flex: 0 0 auto;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 8px 12px calc(10px + var(--safe-bottom));
+}
+
+.timeline {
+  display: flex;
+  align-items: center;
+  gap: 0;
+  overflow-x: auto;
+  overflow-y: hidden;
+  padding: 6px 2px 4px;
+  min-height: calc(var(--editor-tile-h) + 12px);
+  scrollbar-width: none;
+  touch-action: pan-x;
+}
+
+.timeline::-webkit-scrollbar {
+  display: none;
+}
+
+.timeline-empty {
+  margin: 14px 8px;
+  font-size: 0.9rem;
+}
+
+.timeline-slot {
+  display: flex;
+  align-items: center;
+  flex: 0 0 auto;
+  gap: 0;
+  padding-right: 8px;
+}
+
+.timeline-drop-indicator {
+  width: 3px;
+  height: calc(var(--editor-tile-h) - 8px);
+  margin-right: 6px;
+  border-radius: 999px;
+  background: var(--accent);
+  box-shadow: 0 0 10px var(--accent-soft);
+  flex: 0 0 auto;
+}
+
+.timeline-drop-trailing {
+  margin-right: 0;
+  margin-left: 2px;
+}
+
+.clip-thumb {
+  flex: 0 0 auto;
+  height: var(--editor-tile-h);
+  border-radius: 14px;
+  border: 2px solid transparent;
+  background: var(--bg-soft);
+  overflow: hidden;
+  position: relative;
+  padding: 0;
+  touch-action: none;
+  transition: transform 140ms ease, box-shadow 140ms ease, border-color 140ms ease;
+}
+
+.clip-thumb.selected {
+  border-color: var(--accent);
+  box-shadow: var(--editor-accent-glow);
+}
+
+.clip-thumb.lifting {
+  transform: scale(1.06);
+  box-shadow: 0 10px 24px rgba(0, 0, 0, 0.45);
+  z-index: 2;
+  opacity: 0.92;
+}
+
+.clip-filmstrip {
+  display: flex;
+  width: 100%;
+  height: 100%;
+  gap: 0;
+}
+
+.clip-filmstrip-frame {
+  flex: 1 1 0;
+  min-width: 0;
+  height: 100%;
+  object-fit: cover;
+  pointer-events: none;
+}
+
+.clip-filmstrip-placeholder {
+  flex: 1;
+  width: 100%;
+  height: 100%;
+  background:
+    linear-gradient(135deg, color-mix(in srgb, var(--bg-elevated) 70%, #000), var(--bg-soft));
+}
+
+.clip-thumb .clip-dur {
+  position: absolute;
+  right: 4px;
+  bottom: 4px;
+  font-size: 0.65rem;
+  color: #fff;
+  background: rgba(0, 0, 0, 0.55);
+  padding: 2px 5px;
+  border-radius: 999px;
+  font-variant-numeric: tabular-nums;
+  pointer-events: none;
+}
+
+/* In-timeline trim mode */
+.trim-strip {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-height: calc(var(--editor-tile-h) + 52px);
+  animation: editor-trim-in 200ms ease both;
+}
+
+@keyframes editor-trim-in {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.trim-strip-meta {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  min-height: 20px;
+}
+
+.trim-kept-label {
+  font-variant-numeric: tabular-nums;
+  font-size: 0.86rem;
+  font-weight: 600;
+  color: var(--ink);
+}
+
+.trim-error {
+  font-size: 0.78rem;
+  color: var(--danger-ink);
+}
+
+.trim-strip-track {
+  position: relative;
+  height: var(--editor-tile-h);
+  border-radius: 14px;
+  overflow: visible;
+  background: var(--bg-soft);
+  border: 1px solid var(--line);
+  touch-action: none;
+}
+
+.trim-strip-filmstrip {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  border-radius: 14px;
+  overflow: hidden;
+}
+
+.trim-strip-frame {
+  flex: 1 1 0;
+  min-width: 0;
+  height: 100%;
+  object-fit: cover;
+  pointer-events: none;
+}
+
+.trim-dim {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  background: rgba(0, 0, 0, 0.55);
+  pointer-events: none;
+  z-index: 1;
+}
+
+.trim-dim-left {
+  left: 0;
+  border-radius: 14px 0 0 14px;
+}
+
+.trim-dim-right {
+  right: 0;
+  border-radius: 0 14px 14px 0;
+}
+
+.trim-selection {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  border-top: 2px solid var(--accent);
+  border-bottom: 2px solid var(--accent);
+  pointer-events: none;
+  z-index: 2;
+}
+
+.trim-handle {
+  position: absolute;
+  top: -4px;
+  bottom: -4px;
+  width: 22px;
+  min-height: var(--tap);
+  margin: 0;
+  padding: 0;
+  transform: translateX(-50%);
+  border-radius: 8px;
+  background: var(--accent);
+  border: 2px solid color-mix(in srgb, var(--bg-elevated) 70%, #fff);
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.35);
+  z-index: 3;
+  cursor: ew-resize;
+  touch-action: none;
+}
+
+.trim-handle::after {
+  content: '';
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 3px;
+  height: 22px;
+  transform: translate(-50%, -50%);
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--ink-strong) 70%, transparent);
+}
+
+.trim-handle.active {
+  transform: translateX(-50%) scale(1.06);
+}
+
+.trim-strip-actions {
+  display: flex;
+  gap: 8px;
+}
+
+.trim-strip-actions .btn {
+  flex: 1;
+}
+
+/* Bottom clip action bar */
+.editor-actions {
+  display: flex;
+  align-items: stretch;
+  justify-content: space-between;
+  gap: 4px;
+  padding: 2px 0;
+}
+
+.editor-action {
+  flex: 1 1 0;
+  min-width: 0;
+  min-height: var(--tap);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 3px;
+  padding: 6px 2px;
+  border-radius: 14px;
+  color: var(--ink);
+  transition: transform 140ms ease, background 140ms ease, opacity 140ms ease;
+}
+
+.editor-action:active:not(:disabled) {
+  transform: scale(0.96);
+}
+
+.editor-action:disabled {
+  opacity: 0.38;
+  cursor: not-allowed;
+}
+
+.editor-action-icon {
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+}
+
+.editor-action-label {
+  font-size: 0.68rem;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+  line-height: 1;
+  color: var(--ink-muted);
+}
+
+.editor-action.prominent {
+  background: color-mix(in srgb, var(--accent) 18%, transparent);
+  color: var(--accent);
+}
+
+.editor-action.prominent .editor-action-label {
+  color: var(--accent);
+  font-weight: 700;
+}
+
+.editor-action.danger:not(:disabled) {
+  color: var(--danger);
+}
+
+.editor-action.danger:not(:disabled) .editor-action-label {
+  color: var(--danger-ink);
+}
+
+.editor-toolbar {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.editor-toolbar .btn {
+  flex: 1;
+}

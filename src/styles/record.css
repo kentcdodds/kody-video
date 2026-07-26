@@ -1,0 +1,392 @@
+/* Record screen — full-bleed camera with floating controls (OK Video style). */
+
+.record-screen {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  background: var(--stage-bg);
+  --record-chrome: rgba(16, 23, 26, 0.42);
+  --record-chrome-strong: rgba(16, 23, 26, 0.62);
+  --record-edge: rgba(243, 245, 244, 0.22);
+}
+
+.record-stage {
+  position: absolute;
+  inset: 0;
+  background:
+    radial-gradient(80% 60% at 50% 20%, var(--accent-soft), transparent 60%),
+    var(--stage-bg);
+  overflow: hidden;
+  touch-action: none;
+}
+
+.camera-video {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+  transform-origin: center;
+}
+
+.camera-video.mirror {
+  transform: scaleX(-1);
+}
+
+.record-top {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: 3;
+  display: grid;
+  grid-template-columns: minmax(44px, 1fr) minmax(0, auto) minmax(44px, 1fr);
+  align-items: center;
+  gap: 8px;
+  padding: calc(10px + var(--safe-top)) 12px 18px;
+  pointer-events: none;
+  background: linear-gradient(
+    180deg,
+    rgba(0, 0, 0, 0.55) 0%,
+    rgba(0, 0, 0, 0.22) 55%,
+    transparent 100%
+  );
+}
+
+.record-top > * {
+  pointer-events: auto;
+}
+
+.record-top > a.btn-icon {
+  justify-self: start;
+}
+
+.record-top-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  justify-self: end;
+}
+
+.record-top .btn-icon {
+  color: #fff;
+  background: var(--record-chrome);
+  border-color: var(--record-edge);
+  flex-shrink: 0;
+}
+
+.record-top .btn-icon.is-active {
+  color: var(--accent);
+  border-color: color-mix(in srgb, var(--accent) 55%, transparent);
+  background: color-mix(in srgb, var(--accent) 18%, rgba(16, 23, 26, 0.5));
+}
+
+.record-top .btn-icon:disabled {
+  opacity: 0.35;
+}
+
+.record-meta {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  min-width: 0;
+  color: #fff;
+  text-shadow: 0 1px 10px rgba(0, 0, 0, 0.65);
+  pointer-events: none;
+}
+
+.record-meta strong {
+  font-family: var(--font-display);
+  font-size: 0.95rem;
+  font-weight: 600;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  opacity: 0.92;
+}
+
+.record-total {
+  font-variant-numeric: tabular-nums;
+  font-size: 1.35rem;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  line-height: 1.1;
+  color: #fff;
+}
+
+.record-overlay {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: flex-start;
+  padding-top: calc(78px + var(--safe-top));
+  pointer-events: none;
+  z-index: 2;
+}
+
+.record-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 18px;
+  border-radius: 999px;
+  background: rgba(8, 12, 14, 0.72);
+  border: 1px solid color-mix(in srgb, var(--danger) 70%, transparent);
+  color: #fff;
+  font-variant-numeric: tabular-nums;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  backdrop-filter: blur(10px);
+  box-shadow: 0 8px 28px rgba(0, 0, 0, 0.35);
+  animation: pulse-record 1.1s ease-in-out infinite;
+}
+
+.record-pill-label {
+  font-size: 0.78rem;
+  opacity: 0.92;
+}
+
+.record-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: var(--danger);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--danger) 28%, transparent);
+}
+
+.record-elapsed {
+  font-variant-numeric: tabular-nums;
+  font-size: 1.05rem;
+  letter-spacing: 0;
+  min-width: 3.2ch;
+}
+
+.hold-hint {
+  position: absolute;
+  left: 50%;
+  bottom: 28%;
+  transform: translateX(-50%);
+  color: rgba(243, 247, 244, 0.82);
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  align-items: center;
+  font-size: 0.88rem;
+  letter-spacing: 0.02em;
+  text-shadow: 0 2px 14px rgba(0, 0, 0, 0.7);
+  animation: soft-glow 1.6s ease-in-out infinite alternate;
+  pointer-events: none;
+  z-index: 2;
+  text-align: center;
+  max-width: min(280px, 86vw);
+}
+
+.hold-hint strong {
+  font-family: var(--font-display);
+  font-size: 1.45rem;
+  line-height: 1;
+  font-weight: 650;
+}
+
+.hold-hint-subtle {
+  opacity: 0.42;
+  animation: none;
+  bottom: 30%;
+}
+
+.hold-hint-subtle strong {
+  font-size: 1.05rem;
+}
+
+.hold-hint-subtle span {
+  font-size: 0.78rem;
+}
+
+.countdown-overlay {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  background: rgba(8, 12, 14, 0.32);
+  pointer-events: none;
+  z-index: 2;
+}
+
+.countdown-number {
+  color: #fff;
+  font-family: var(--font-display);
+  font-size: clamp(6.5rem, 36vw, 10.5rem);
+  font-weight: 700;
+  line-height: 1;
+  text-shadow:
+    0 0 40px color-mix(in srgb, var(--accent) 45%, transparent),
+    0 12px 34px rgba(0, 0, 0, 0.55);
+}
+
+.permission-panel {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  background: linear-gradient(180deg, var(--overlay-scrim), var(--overlay-scrim-strong));
+  z-index: 4;
+  text-align: center;
+}
+
+.permission-panel h2 {
+  font-family: var(--font-display);
+  margin: 0 0 8px;
+  font-size: 1.8rem;
+}
+
+.permission-panel p {
+  margin: 0 0 18px;
+  color: var(--ink-muted);
+  line-height: 1.45;
+}
+
+.record-zoom {
+  position: absolute;
+  left: 50%;
+  bottom: calc(118px + var(--safe-bottom));
+  transform: translateX(-50%);
+  z-index: 3;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px;
+  border-radius: 999px;
+  background: rgba(8, 12, 14, 0.48);
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  backdrop-filter: blur(10px);
+  pointer-events: auto;
+}
+
+.zoom-chip {
+  min-width: 40px;
+  min-height: 36px;
+  padding: 0 10px;
+  border-radius: 999px;
+  color: rgba(255, 255, 255, 0.72);
+  font-size: 0.82rem;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.01em;
+  transition:
+    background 140ms ease,
+    color 140ms ease,
+    transform 140ms ease;
+}
+
+.zoom-chip.is-active {
+  background: rgba(255, 255, 255, 0.92);
+  color: #10171a;
+}
+
+.zoom-chip:active:not(:disabled) {
+  transform: scale(0.96);
+}
+
+.zoom-chip:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.record-dock {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 3;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 20px 14px calc(14px + var(--safe-bottom));
+  background: linear-gradient(
+    180deg,
+    transparent 0%,
+    rgba(0, 0, 0, 0.28) 35%,
+    rgba(0, 0, 0, 0.68) 100%
+  );
+  pointer-events: none;
+}
+
+.record-dock > * {
+  pointer-events: auto;
+}
+
+.record-tools {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  flex-wrap: nowrap;
+}
+
+.record-dock .btn-icon {
+  color: #fff;
+  background: var(--record-chrome);
+  border-color: var(--record-edge);
+  flex-shrink: 0;
+}
+
+.record-dock .btn-icon:disabled {
+  opacity: 0.32;
+}
+
+.record-dock .ok-button {
+  flex-shrink: 0;
+}
+
+.is-recording .record-tools,
+.is-recording .record-dock .ok-button,
+.is-recording .record-zoom {
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 180ms ease;
+}
+
+.is-recording .record-top-actions {
+  opacity: 0.35;
+  pointer-events: none;
+}
+
+/* Narrow phones: keep tools + OK on one row without overflow. */
+@media (max-width: 360px) {
+  .record-tools {
+    gap: 6px;
+  }
+
+  .record-dock {
+    padding-left: 10px;
+    padding-right: 10px;
+    gap: 8px;
+  }
+
+  .record-dock .ok-button {
+    width: 72px;
+    height: 72px;
+    min-width: 72px;
+    font-size: 1.35rem;
+    border-width: 3px;
+  }
+
+  .record-zoom {
+    bottom: calc(108px + var(--safe-bottom));
+  }
+
+  .record-total {
+    font-size: 1.2rem;
+  }
+
+  .hold-hint strong {
+    font-size: 1.25rem;
+  }
+}
