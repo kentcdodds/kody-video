@@ -97,6 +97,15 @@ export function RecordScreen({
   const dragZoomPressYRef = useRef(0)
   const dragZoomStartValueRef = useRef(0)
   const dragZoomStageHeightRef = useRef(0)
+  /** Whether the current hold actually changed zoom (gates the snap-back). */
+  const dragZoomMovedRef = useRef(false)
+  /** Last zoom value applied during the drag (ramp start for the snap-back). */
+  const dragZoomLastValueRef = useRef(0)
+  /** Zoom the user chose deliberately (chips) — what a take restores to. */
+  const zoomBaselineRef = useRef<number | null>(null)
+  const zoomRestoreRafRef = useRef(0)
+  /** True while the snap-back ramp is still easing toward the baseline. */
+  const zoomRestoreActiveRef = useRef(false)
   const stageRef = useRef<HTMLDivElement | null>(null)
 
   const [recording, setRecording] = useState(false)
@@ -114,6 +123,33 @@ export function RecordScreen({
     countdownTimerRef.current = 0
     setCountdown(null)
   }, [])
+
+  /**
+   * OK Video behavior: drag-to-zoom only lasts for the take. When the finger
+   * lifts, ease the lens back to the zoom the user had before recording.
+   */
+  const restoreZoomAfterHold = useCallback(() => {
+    if (!dragZoomMovedRef.current) return
+    dragZoomMovedRef.current = false
+    const from = dragZoomLastValueRef.current
+    const to = dragZoomStartValueRef.current
+    cancelAnimationFrame(zoomRestoreRafRef.current)
+    if (Math.abs(from - to) < 0.01) return
+    const started = performance.now()
+    const durationMs = 220
+    zoomRestoreActiveRef.current = true
+    const tick = () => {
+      const t = Math.min(1, (performance.now() - started) / durationMs)
+      const eased = 1 - (1 - t) * (1 - t)
+      camera.setZoom(from + (to - from) * eased)
+      if (t < 1) {
+        zoomRestoreRafRef.current = requestAnimationFrame(tick)
+      } else {
+        zoomRestoreActiveRef.current = false
+      }
+    }
+    zoomRestoreRafRef.current = requestAnimationFrame(tick)
+  }, [camera])
 
   const acquireWakeLock = useCallback(() => {
     const generation = wakeLockGenRef.current
@@ -295,6 +331,7 @@ export function RecordScreen({
 
   const cleanupOnUnmount = useCallback(() => {
     clearCountdown()
+    cancelAnimationFrame(zoomRestoreRafRef.current)
     recorderRef.current.cancel()
     releaseWakeLock()
   }, [clearCountdown, releaseWakeLock])
@@ -331,8 +368,21 @@ export function RecordScreen({
             void endRecord()
             return
           }
+          // A second finger landing during an active hold must not reset the
+          // drag-zoom state or start another take.
+          if (pointerIdRef.current !== null) return
+          // A new hold interrupts any snap-back still easing; the take starts
+          // from the user's deliberate baseline zoom, not a mid-ramp value.
+          cancelAnimationFrame(zoomRestoreRafRef.current)
+          dragZoomMovedRef.current = false
           dragZoomPressYRef.current = event.clientY
-          dragZoomStartValueRef.current = camera.zoom?.value ?? 1
+          dragZoomStartValueRef.current = zoomBaselineRef.current ?? camera.zoom?.value ?? 1
+          if (zoomRestoreActiveRef.current) {
+            // Finish the interrupted ramp instantly so a motionless hold
+            // still records from the baseline, not a mid-ramp zoom.
+            zoomRestoreActiveRef.current = false
+            camera.setZoom(dragZoomStartValueRef.current)
+          }
           dragZoomStageHeightRef.current = event.currentTarget.clientHeight
           event.currentTarget.setPointerCapture(event.pointerId)
           void beginRecord(event.pointerId, 'hold')
@@ -348,17 +398,31 @@ export function RecordScreen({
           // Full zoom range over ~60% of stage height; drag up = zoom in.
           const travel = stageHeight * 0.6
           const deltaY = dragZoomPressYRef.current - event.clientY
-          const next = dragZoomStartValueRef.current + (deltaY / travel) * range
+          const next = Math.min(
+            zoom.max,
+            Math.max(zoom.min, dragZoomStartValueRef.current + (deltaY / travel) * range),
+          )
+          dragZoomMovedRef.current = true
+          dragZoomLastValueRef.current = next
           camera.setZoom(next)
         }}
         onPointerUp={(event) => {
           if (recordingMode !== 'hands-free') {
+            // Only the pointer that owns the hold may end the take and start
+            // the snap-back — a stray second finger lifting must not zoom
+            // out mid-recording.
+            const ownsHold =
+              pointerIdRef.current === null || pointerIdRef.current === event.pointerId
             void endRecord(event.pointerId)
+            if (ownsHold) restoreZoomAfterHold()
           }
         }}
         onPointerCancel={(event) => {
           if (recordingMode !== 'hands-free') {
+            const ownsHold =
+              pointerIdRef.current === null || pointerIdRef.current === event.pointerId
             void endRecord(event.pointerId)
+            if (ownsHold) restoreZoomAfterHold()
           }
         }}
         onContextMenu={(event) => event.preventDefault()}
@@ -439,7 +503,14 @@ export function RecordScreen({
             className="btn-icon"
             aria-label="Flip camera"
             disabled={!camera.canFlip || recording || countdown !== null}
-            onClick={() => void camera.flip()}
+            onClick={() => {
+              // The baseline belongs to the previous lens; the new camera
+              // starts from its own default zoom.
+              cancelAnimationFrame(zoomRestoreRafRef.current)
+              zoomBaselineRef.current = null
+              dragZoomMovedRef.current = false
+              void camera.flip()
+            }}
           >
             <IconFlip />
           </button>
@@ -459,6 +530,8 @@ export function RecordScreen({
                 disabled={countdown !== null}
                 onClick={(event) => {
                   event.stopPropagation()
+                  cancelAnimationFrame(zoomRestoreRafRef.current)
+                  zoomBaselineRef.current = level
                   camera.setZoom(level)
                 }}
               >
