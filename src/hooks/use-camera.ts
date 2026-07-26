@@ -23,6 +23,8 @@ export interface UseCameraResult {
   stop: () => void
   enableMic: () => Promise<void>
   releaseMic: () => void
+  /** Latest live stream from the ref (safer than React state after awaits). */
+  getStream: () => MediaStream | null
 }
 
 /**
@@ -195,6 +197,8 @@ export function useCamera(): UseCameraResult {
     [attachToVideo, start, stop],
   )
 
+  const getStream = useCallback(() => streamRef.current, [])
+
   return {
     videoRef,
     stream,
@@ -208,6 +212,7 @@ export function useCamera(): UseCameraResult {
     stop,
     enableMic,
     releaseMic,
+    getStream,
   }
 }
 
