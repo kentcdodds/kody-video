@@ -101,7 +101,6 @@ export function measureBlobDuration(blob: Blob): Promise<number> {
     }
 
     video.onloadedmetadata = () => {
-      // Some browsers report Infinity until a seek.
       if (!Number.isFinite(video.duration) || video.duration === Infinity) {
         video.currentTime = Number.MAX_SAFE_INTEGER
         video.ontimeupdate = () => {
@@ -134,6 +133,10 @@ export async function canFlipCamera(): Promise<boolean> {
   }
 }
 
+function isMobileBrowser(): boolean {
+  return /Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent)
+}
+
 /**
  * Stitch clips into a single WebM using canvas captureStream + MediaRecorder.
  * Applies trim in/out by seeking each source clip.
@@ -147,27 +150,53 @@ export async function exportProjectAsWebm(
     throw new Error('Nothing to export')
   }
 
-  const width = 720
-  const height = 1280
+  // Portrait output matches phone capture; keep moderate for mobile encoders.
+  const width = isMobileBrowser() ? 540 : 720
+  const height = isMobileBrowser() ? 960 : 1280
   const canvas = document.createElement('canvas')
   canvas.width = width
   canvas.height = height
-  const ctx = canvas.getContext('2d')
+  const ctx = canvas.getContext('2d', { alpha: false })
   if (!ctx) throw new Error('Canvas not available')
 
+  // Warm the canvas so captureStream has a first frame on Chromium Android.
+  ctx.fillStyle = '#000'
+  ctx.fillRect(0, 0, width, height)
+
   const canvasStream = canvas.captureStream(30)
-  const audioContext = new AudioContext()
-  const dest = audioContext.createMediaStreamDestination()
+  if (canvasStream.getVideoTracks().length === 0) {
+    throw new Error('This browser cannot capture canvas video for export')
+  }
+
+  let audioContext: AudioContext | null = null
+  let dest: MediaStreamAudioDestinationNode | null = null
+  try {
+    audioContext = new AudioContext()
+    if (audioContext.state === 'suspended') {
+      await audioContext.resume().catch(() => undefined)
+    }
+    dest = audioContext.createMediaStreamDestination()
+  } catch {
+    // Video-only export if AudioContext is unavailable.
+  }
+
   const mixedStream = new MediaStream([
     ...canvasStream.getVideoTracks(),
-    ...dest.stream.getAudioTracks(),
+    ...(dest?.stream.getAudioTracks() ?? []),
   ])
 
-  const mimeType = pickRecorderMimeType() || 'video/webm'
-  const recorder = new MediaRecorder(mixedStream, {
-    mimeType: mimeType.includes('webm') ? mimeType : undefined,
-    videoBitsPerSecond: 2_500_000,
-  })
+  const mimeType = pickRecorderMimeType()
+  let recorder: MediaRecorder
+  try {
+    recorder = mimeType
+      ? new MediaRecorder(mixedStream, {
+          mimeType: mimeType.includes('webm') || mimeType.includes('mp4') ? mimeType : undefined,
+          videoBitsPerSecond: isMobileBrowser() ? 1_500_000 : 2_500_000,
+        })
+      : new MediaRecorder(mixedStream)
+  } catch {
+    recorder = new MediaRecorder(mixedStream)
+  }
 
   const chunks: BlobPart[] = []
   recorder.ondataavailable = (event) => {
@@ -181,13 +210,18 @@ export async function exportProjectAsWebm(
     recorder.onerror = () => reject(new Error('Export recording failed'))
   })
 
-  recorder.start(250)
+  recorder.start(200)
+
+  // Give the recorder a moment to latch onto the canvas track.
+  await wait(120)
 
   const totalMs = clips.reduce((sum, clip) => sum + effectiveDurationMs(clip), 0)
   let elapsed = 0
 
   try {
     for (const clip of clips) {
+      const clipMs = effectiveDurationMs(clip)
+      if (clipMs < 40) continue
       await paintClipToCanvas({
         clip,
         canvas,
@@ -198,24 +232,36 @@ export async function exportProjectAsWebm(
           if (totalMs > 0) onProgress?.((elapsed + clipElapsed) / totalMs)
         },
       })
-      elapsed += effectiveDurationMs(clip)
+      elapsed += clipMs
       onProgress?.(totalMs > 0 ? elapsed / totalMs : 1)
     }
+
+    // Hold the last frame briefly so the final GOP isn't truncated.
+    await wait(180)
   } finally {
     if (recorder.state !== 'inactive') recorder.stop()
     canvasStream.getTracks().forEach((t) => t.stop())
-    await audioContext.close().catch(() => undefined)
+    if (audioContext) {
+      await audioContext.close().catch(() => undefined)
+    }
   }
 
-  return stopped
+  const blob = await stopped
+  const minBytes = Math.max(8_000, Math.floor(totalMs * 4))
+  if (blob.size < minBytes) {
+    throw new Error(
+      `Export produced an unusable file (${Math.round(blob.size / 1024)}KB). Try “Files” instead.`,
+    )
+  }
+  return blob
 }
 
 interface PaintArgs {
   clip: ClipRecord
   canvas: HTMLCanvasElement
   ctx: CanvasRenderingContext2D
-  audioContext: AudioContext
-  dest: MediaStreamAudioDestinationNode
+  audioContext: AudioContext | null
+  dest: MediaStreamAudioDestinationNode | null
   onFrameProgress?: (clipElapsedMs: number) => void
 }
 
@@ -231,52 +277,82 @@ async function paintClipToCanvas({
   const video = document.createElement('video')
   video.src = url
   video.playsInline = true
-  video.muted = false
+  // Must be muted for autoplay policies on Android Chrome/Brave during export.
+  video.muted = true
   video.preload = 'auto'
+  video.setAttribute('playsinline', 'true')
+  video.setAttribute('webkit-playsinline', 'true')
 
-  await waitForEvent(video, 'loadeddata')
-
-  const startSec = clip.trimStartMs / 1000
-  const endSec = Math.min(clip.trimEndMs, clip.durationMs) / 1000
-  video.currentTime = startSec
-  await waitForEvent(video, 'seeked')
-
-  let sourceNode: MediaElementAudioSourceNode | null = null
   try {
-    sourceNode = audioContext.createMediaElementSource(video)
-    sourceNode.connect(dest)
-  } catch {
-    // Element may already be connected in rare cases; continue video-only.
-  }
+    await waitForEvent(video, 'loadeddata')
+    await waitForVideoDimensions(video)
 
-  await video.play()
+    const startSec = clip.trimStartMs / 1000
+    const endSec = Math.min(clip.trimEndMs, clip.durationMs) / 1000
+    if (!(endSec > startSec)) return
 
-  await new Promise<void>((resolve, reject) => {
-    let raf = 0
-    const draw = () => {
-      if (video.ended || video.currentTime >= endSec - 0.02) {
-        cancelAnimationFrame(raf)
-        video.pause()
-        resolve()
-        return
+    video.currentTime = startSec
+    await waitForEvent(video, 'seeked')
+
+    // Keep the element muted for Android autoplay policies. We still tap the
+    // MediaElementSource graph when available; some browsers deliver silent
+    // frames only, which is preferable to a failed stitch.
+    let sourceNode: MediaElementAudioSourceNode | null = null
+    if (audioContext && dest) {
+      try {
+        if (audioContext.state === 'suspended') {
+          await audioContext.resume().catch(() => undefined)
+        }
+        sourceNode = audioContext.createMediaElementSource(video)
+        sourceNode.connect(dest)
+      } catch {
+        sourceNode = null
+      }
+    }
+
+    await video.play()
+
+    await new Promise<void>((resolve, reject) => {
+      let raf = 0
+      let lastFrameAt = performance.now()
+      const draw = () => {
+        const now = performance.now()
+        if (video.ended || video.currentTime >= endSec - 0.04) {
+          cancelAnimationFrame(raf)
+          video.pause()
+          resolve()
+          return
+        }
+
+        // Stall watchdog: if playback never advances, abort this clip.
+        if (now - lastFrameAt > 8000) {
+          cancelAnimationFrame(raf)
+          video.pause()
+          reject(new Error('Clip playback stalled during export'))
+          return
+        }
+
+        if (video.videoWidth > 0) {
+          drawCover(ctx, video, canvas.width, canvas.height)
+          lastFrameAt = now
+        }
+        onFrameProgress?.(Math.max(0, (video.currentTime - startSec) * 1000))
+        raf = requestAnimationFrame(draw)
       }
 
-      drawCover(ctx, video, canvas.width, canvas.height)
-      onFrameProgress?.(Math.max(0, (video.currentTime - startSec) * 1000))
+      video.onerror = () => {
+        cancelAnimationFrame(raf)
+        reject(new Error('Failed while exporting a clip'))
+      }
       raf = requestAnimationFrame(draw)
-    }
+    })
 
-    video.onerror = () => {
-      cancelAnimationFrame(raf)
-      reject(new Error('Failed while exporting a clip'))
-    }
-    raf = requestAnimationFrame(draw)
-  })
-
-  sourceNode?.disconnect()
-  URL.revokeObjectURL(url)
-  video.removeAttribute('src')
-  video.load()
+    sourceNode?.disconnect()
+  } finally {
+    URL.revokeObjectURL(url)
+    video.removeAttribute('src')
+    video.load()
+  }
 }
 
 function drawCover(
@@ -316,6 +392,31 @@ function waitForEvent(target: HTMLMediaElement, event: string): Promise<void> {
   })
 }
 
+async function waitForVideoDimensions(video: HTMLVideoElement): Promise<void> {
+  if (video.videoWidth > 0 && video.videoHeight > 0) return
+  await new Promise<void>((resolve, reject) => {
+    const started = performance.now()
+    const tick = () => {
+      if (video.videoWidth > 0 && video.videoHeight > 0) {
+        resolve()
+        return
+      }
+      if (performance.now() - started > 4000) {
+        reject(new Error('Clip never produced video frames'))
+        return
+      }
+      requestAnimationFrame(tick)
+    }
+    tick()
+  })
+}
+
+function wait(ms: number): Promise<void> {
+  return new Promise((resolve) => {
+    window.setTimeout(resolve, ms)
+  })
+}
+
 export async function downloadBlob(blob: Blob, filename: string): Promise<void> {
   const url = URL.createObjectURL(blob)
   const anchor = document.createElement('a')
@@ -325,14 +426,18 @@ export async function downloadBlob(blob: Blob, filename: string): Promise<void> 
   document.body.appendChild(anchor)
   anchor.click()
   anchor.remove()
-  setTimeout(() => URL.revokeObjectURL(url), 1000)
+  // Android often needs the URL alive a bit longer than desktop.
+  setTimeout(() => URL.revokeObjectURL(url), 60_000)
 }
 
 export async function shareOrDownload(
   blob: Blob,
   filename: string,
 ): Promise<'shared' | 'downloaded' | 'cancelled'> {
-  const file = new File([blob], filename, { type: blob.type || 'video/webm' })
+  const type = blob.type || 'video/webm'
+  const file = new File([blob], filename, { type })
+
+  // On Android, Web Share with files is far more reliable than <a download>.
   if (navigator.canShare?.({ files: [file] })) {
     try {
       await navigator.share({
@@ -344,9 +449,23 @@ export async function shareOrDownload(
       if (error instanceof DOMException && error.name === 'AbortError') {
         return 'cancelled'
       }
-      // Fall through to download.
+      // Fall through to download attempt.
     }
   }
+
+  if (isMobileBrowser()) {
+    // Last-resort mobile path: open the blob URL so the browser can hand off to the viewer/share sheet.
+    const url = URL.createObjectURL(blob)
+    const opened = window.open(url, '_blank', 'noopener')
+    if (!opened) {
+      await downloadBlob(blob, filename)
+      setTimeout(() => URL.revokeObjectURL(url), 60_000)
+      return 'downloaded'
+    }
+    setTimeout(() => URL.revokeObjectURL(url), 60_000)
+    return 'downloaded'
+  }
+
   await downloadBlob(blob, filename)
   return 'downloaded'
 }
@@ -359,12 +478,25 @@ export function downloadClipsAsSeparateFiles(clips: ClipRecord[], projectName: s
   })
 }
 
+/** Share/download a single original clip — most reliable path on mobile. */
+export async function shareClipFile(
+  clip: ClipRecord,
+  projectName: string,
+  index: number,
+): Promise<'shared' | 'downloaded' | 'cancelled'> {
+  const ext = clip.mimeType.includes('mp4') ? 'mp4' : 'webm'
+  const filename = `${slugify(projectName)}-clip-${String(index + 1).padStart(2, '0')}.${ext}`
+  return shareOrDownload(clip.blob, filename)
+}
+
 function slugify(value: string): string {
-  return value
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, '-')
-    .replace(/(^-|-$)/g, '')
-    .slice(0, 40) || 'project'
+  return (
+    value
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, '-')
+      .replace(/(^-|-$)/g, '')
+      .slice(0, 40) || 'project'
+  )
 }
 
 export function projectFilename(projectName: string, ext = 'webm'): string {

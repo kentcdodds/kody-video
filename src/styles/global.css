@@ -17,7 +17,16 @@
   --radius: 18px;
   --safe-top: env(safe-area-inset-top, 0px);
   --safe-bottom: env(safe-area-inset-bottom, 0px);
+  /* Extra room for Android browser chrome (Brave/Chrome bottom URL bar). */
+  --browser-chrome: 72px;
+  --app-height: 100dvh;
   --tap: 44px;
+}
+
+@supports not (height: 100dvh) {
+  :root {
+    --app-height: 100vh;
+  }
 }
 
 * {
@@ -28,8 +37,8 @@ html,
 body,
 #root {
   margin: 0;
-  min-height: 100%;
-  height: 100%;
+  min-height: var(--app-height);
+  height: var(--app-height);
 }
 
 body {
@@ -67,7 +76,7 @@ a {
 }
 
 .app-shell {
-  height: 100%;
+  height: var(--app-height);
   max-width: 480px;
   margin: 0 auto;
   position: relative;
@@ -76,12 +85,15 @@ a {
 
 .screen {
   height: 100%;
+  max-height: var(--app-height);
   display: flex;
   flex-direction: column;
+  min-height: 0;
+  overflow: hidden;
   padding:
     calc(12px + var(--safe-top))
     16px
-    calc(16px + var(--safe-bottom));
+    calc(16px + var(--safe-bottom) + var(--browser-chrome));
   animation: rise-in 420ms cubic-bezier(0.22, 1, 0.36, 1) both;
 }
 
@@ -343,6 +355,14 @@ a {
 .camera-screen {
   padding: 0;
   background: #10171a;
+  overflow: hidden;
+}
+
+.camera-screen.editor-mode {
+  overflow-y: auto;
+  overflow-x: hidden;
+  overscroll-behavior-y: contain;
+  -webkit-overflow-scrolling: touch;
 }
 
 .camera-top {
@@ -392,11 +412,14 @@ a {
 }
 
 .editor-mode .camera-stage {
-  flex: 0 0 min(48vh, 430px);
-  margin: calc(62px + var(--safe-top)) 10px 0;
-  border-radius: 26px;
+  flex: 0 0 auto;
+  height: min(28svh, 220px);
+  min-height: 140px;
+  margin: calc(58px + var(--safe-top)) 12px 0;
+  border-radius: 22px;
   border: 1px solid var(--line);
   box-shadow: var(--shadow);
+  touch-action: pan-y;
 }
 
 .camera-video {
@@ -510,17 +533,18 @@ a {
   position: relative;
   z-index: 3;
   background: linear-gradient(180deg, rgba(16, 23, 26, 0), rgba(16, 23, 26, 0.95) 24%);
-  padding: 10px 12px calc(12px + var(--safe-bottom));
+  padding: 10px 12px calc(12px + var(--safe-bottom) + var(--browser-chrome));
   display: flex;
   flex-direction: column;
   gap: 10px;
+  flex-shrink: 0;
 }
 
 .editor-mode .camera-bottom {
-  flex: 1;
-  min-height: 0;
+  flex: 0 0 auto;
   background: transparent;
-  padding-top: 12px;
+  padding-top: 10px;
+  padding-bottom: calc(20px + var(--safe-bottom) + var(--browser-chrome));
 }
 
 .record-dock {
@@ -589,12 +613,11 @@ a {
 }
 
 .editor-panel {
-  min-height: 0;
-  flex: 1;
+  flex: 0 0 auto;
   display: flex;
   flex-direction: column;
   gap: 10px;
-  padding: 12px;
+  padding: 12px 12px 8px;
   border-radius: 28px 28px 0 0;
   background: linear-gradient(180deg, rgba(47, 62, 70, 0.92), rgba(23, 33, 38, 0.98));
   border: 1px solid var(--line);
@@ -694,13 +717,25 @@ a {
   right: 0;
   bottom: 0;
   z-index: 5;
+  max-height: min(78dvh, 640px);
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
   background: linear-gradient(180deg, #364850, #172126);
   border-top-left-radius: 22px;
   border-top-right-radius: 22px;
   border-top: 1px solid var(--line);
-  padding: 16px 16px calc(16px + var(--safe-bottom));
+  padding: 16px 16px calc(20px + var(--safe-bottom) + var(--browser-chrome));
   box-shadow: 0 -20px 50px rgba(0, 0, 0, 0.45);
   animation: rise-in 280ms ease both;
+}
+
+.sheet-message {
+  margin: 12px 0 0;
+  line-height: 1.4;
+}
+
+.sheet-message.is-error {
+  color: #ffd2cb;
 }
 
 .sheet h3 {
@@ -710,12 +745,14 @@ a {
 
 .sheet-actions {
   display: flex;
+  flex-wrap: wrap;
   gap: 8px;
   margin-top: 14px;
 }
 
 .sheet-actions .btn {
   flex: 1;
+  min-width: 96px;
 }
 
 .field {
@@ -769,12 +806,13 @@ a {
 .toast {
   position: absolute;
   left: 50%;
-  bottom: calc(110px + var(--safe-bottom));
+  bottom: calc(110px + var(--safe-bottom) + var(--browser-chrome));
   transform: translateX(-50%);
   z-index: 6;
   display: flex;
   align-items: center;
   gap: 10px;
+  max-width: calc(100% - 24px);
   background: rgba(16, 23, 26, 0.92);
   border: 1px solid var(--line);
   color: var(--ink);
@@ -783,6 +821,24 @@ a {
   font-size: 0.9rem;
   white-space: nowrap;
   animation: rise-in 220ms ease both;
+}
+
+.editor-clip-preview {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+  background: #000;
+}
+
+.editor-empty-preview {
+  width: 100%;
+  height: 100%;
+  display: grid;
+  place-items: center;
+  color: var(--ink-muted);
+  padding: 16px;
+  text-align: center;
 }
 
 .toast button {
@@ -796,7 +852,8 @@ a {
   z-index: 7;
   display: grid;
   place-items: end center;
-  padding: 20px 16px calc(20px + var(--safe-bottom));
+  overflow-y: auto;
+  padding: 20px 16px calc(20px + var(--safe-bottom) + var(--browser-chrome));
   background:
     radial-gradient(85% 60% at 50% 16%, rgba(68, 215, 168, 0.18), transparent 60%),
     rgba(16, 23, 26, 0.76);
@@ -874,7 +931,30 @@ a {
   border: 0;
 }
 
+@media (max-height: 760px) {
+  .ok-button {
+    width: 72px;
+    height: 72px;
+    min-width: 72px;
+    font-size: 1.35rem;
+  }
+
+  .record-actions {
+    grid-template-columns: repeat(3, minmax(0, 1fr)) auto;
+    gap: 6px;
+  }
+
+  .editor-mode .camera-stage {
+    height: min(24svh, 180px);
+    min-height: 120px;
+  }
+}
+
 @media (min-width: 720px) {
+  :root {
+    --browser-chrome: 0px;
+  }
+
   body {
     overflow: auto;
   }
@@ -882,7 +962,7 @@ a {
   .app-shell {
     margin-top: 24px;
     margin-bottom: 24px;
-    height: min(920px, calc(100vh - 48px));
+    height: min(920px, calc(100dvh - 48px));
     border-radius: 28px;
     border: 1px solid var(--line);
     box-shadow: var(--shadow);
