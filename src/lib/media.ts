@@ -268,7 +268,7 @@ export async function exportProjectAsWebm(
     for (const clip of clips) {
       const clipMs = effectiveDurationMs(clip)
       if (clipMs < 40) continue
-      await paintClipToCanvas({
+      const paintedMs = await paintClipToCanvas({
         clip,
         canvas,
         ctx,
@@ -278,8 +278,8 @@ export async function exportProjectAsWebm(
           if (totalMs > 0) onProgress?.((elapsed + clipElapsed) / totalMs)
         },
       })
-      elapsed += clipMs
-      onProgress?.(totalMs > 0 ? elapsed / totalMs : 1)
+      elapsed += paintedMs > 0 ? paintedMs : clipMs
+      onProgress?.(totalMs > 0 ? Math.min(1, elapsed / totalMs) : 1)
     }
 
     // Hold the last frame briefly so the final GOP isn't truncated.
@@ -311,6 +311,7 @@ interface PaintArgs {
   onFrameProgress?: (clipElapsedMs: number) => void
 }
 
+/** @returns painted segment duration in milliseconds */
 async function paintClipToCanvas({
   clip,
   canvas,
@@ -318,7 +319,7 @@ async function paintClipToCanvas({
   audioContext,
   dest,
   onFrameProgress,
-}: PaintArgs): Promise<void> {
+}: PaintArgs): Promise<number> {
   const url = URL.createObjectURL(clip.blob)
   const video = document.createElement('video')
   video.src = url
@@ -338,7 +339,7 @@ async function paintClipToCanvas({
 
     const startSec = clip.trimStartMs / 1000
     const trimEndSec = Math.min(clip.trimEndMs, clip.durationMs) / 1000
-    if (!(trimEndSec > startSec)) return
+    if (!(trimEndSec > startSec)) return 0
 
     // Prefer real media durations over wall-clock capture estimates so A/V
     // segment lengths stay aligned across clips.
@@ -365,7 +366,7 @@ async function paintClipToCanvas({
     }
 
     const segmentSec = endSec - startSec
-    if (!(segmentSec > 0.04)) return
+    if (!(segmentSec > 0.04)) return 0
 
     if (audioContext && dest && audioBuffer && audioAvailable > 0.05) {
       try {
@@ -445,6 +446,8 @@ async function paintClipToCanvas({
       }
       raf = requestAnimationFrame(draw)
     })
+
+    return Math.max(40, Math.round(segmentSec * 1000))
   } finally {
     try {
       bufferSource?.stop()

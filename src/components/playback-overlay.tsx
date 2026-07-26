@@ -12,7 +12,13 @@ export function PlaybackOverlay({ clips, onClose }: PlaybackOverlayProps) {
   const [index, setIndex] = useState(0)
   const endSecRef = useRef(0)
   const advancingRef = useRef(false)
+  const indexRef = useRef(index)
   const clip = clips[index]
+
+  if (indexRef.current !== index) {
+    indexRef.current = index
+    advancingRef.current = false
+  }
 
   if (!clip) {
     return null
@@ -30,9 +36,6 @@ export function PlaybackOverlay({ clips, onClose }: PlaybackOverlayProps) {
     }
     onClose()
   }
-
-  // Reset the guard whenever this clip instance mounts via key change.
-  advancingRef.current = false
 
   return (
     <div className="permission-panel" style={{ background: 'rgba(0,0,0,0.92)' }}>
