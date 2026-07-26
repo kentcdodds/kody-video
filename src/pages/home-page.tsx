@@ -40,11 +40,14 @@ export function HomePage() {
   }
 
   const slots = Array.from({ length: MAX_PROJECTS }, (_, index) => projects[index] ?? null)
+  const isEmpty = projects.length === 0
 
   return (
     <div className="screen">
       <div className="home-hero">
-        <BrandMark size={72} className="brand-mark" />
+        <div className="home-hero-art" aria-hidden="true">
+          <BrandMark size={168} className="brand-hero-art" variant="camera" />
+        </div>
         <p className="eyebrow">Kody · on-device</p>
         <h1 className="brand">
           Kody <span>Video</span>
@@ -55,6 +58,13 @@ export function HomePage() {
       </div>
 
       {error ? <div className="error-banner">{error}</div> : null}
+
+      {isEmpty ? (
+        <div className="home-empty-callout" aria-hidden="true">
+          <BrandMark size={88} variant="timeline" className="home-empty-art" />
+          <p>Kody keeps every clip on this phone until you share.</p>
+        </div>
+      ) : null}
 
       <section className="project-slots" aria-label="Kody Video projects">
         {slots.map((project, index) =>
