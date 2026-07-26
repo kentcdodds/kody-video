@@ -43,10 +43,7 @@ export function ToolsSheet({
           type="button"
           className="btn btn-secondary"
           disabled={recording || countdownActive}
-          onClick={() => {
-            onClose()
-            onTimer()
-          }}
+          onClick={onTimer}
         >
           Timer
         </button>
