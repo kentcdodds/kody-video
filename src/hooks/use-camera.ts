@@ -119,20 +119,43 @@ export function useCamera(): UseCameraResult {
   const enableMic = useCallback(async () => {
     if (micInFlightRef.current) {
       await micInFlightRef.current
+      if (!streamRef.current?.getAudioTracks().some((track) => track.readyState === 'live')) {
+        throw new Error('Microphone unavailable')
+      }
       return
     }
 
-    const run = (async () => {
+    const attachToCurrentStream = async (attempt = 0): Promise<void> => {
       const current = streamRef.current
-      if (!current) return
+      if (!current) {
+        throw new Error('Camera not ready')
+      }
       if (current.getAudioTracks().some((track) => track.readyState === 'live')) return
-      try {
-        const audioTrack = await openMicrophoneTrack()
-        if (streamRef.current !== current) {
-          audioTrack.stop()
-          return
+
+      const audioTrack = await openMicrophoneTrack()
+      const latest = streamRef.current
+      if (!latest) {
+        audioTrack.stop()
+        throw new Error('Camera not ready')
+      }
+      if (latest !== current) {
+        // Stream swapped (flip/restart) while the permission prompt was open — attach to the new one.
+        audioTrack.stop()
+        if (attempt >= 2) {
+          throw new Error('Camera changed while enabling microphone')
         }
-        current.addTrack(audioTrack)
+        await attachToCurrentStream(attempt + 1)
+        return
+      }
+      current.addTrack(audioTrack)
+    }
+
+    const run = (async () => {
+      try {
+        await attachToCurrentStream()
+        if (!streamRef.current?.getAudioTracks().some((track) => track.readyState === 'live')) {
+          throw new Error('Microphone unavailable')
+        }
       } catch (err) {
         throw new Error(permissionMessage(err))
       }

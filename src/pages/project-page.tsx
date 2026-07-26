@@ -70,6 +70,7 @@ export function ProjectPage() {
 
   const recorderRef = useRef(new HoldRecorder())
   const pointerIdRef = useRef<number | null>(null)
+  const beginInFlightRef = useRef(false)
   const recordRafRef = useRef(0)
   const toastTimerRef = useRef(0)
   const countdownTimerRef = useRef(0)
@@ -138,30 +139,48 @@ export function ProjectPage() {
   )
 
   const beginRecord = useCallback(
-    async (pointerId: number | null, nextRecordingMode: RecordingMode) => {
-      if (recording || playing || sheet !== 'none' || countdown !== null) return
+    async (pointerId: number | null, nextRecordingMode: RecordingMode): Promise<boolean> => {
+      if (
+        beginInFlightRef.current ||
+        recording ||
+        recorderRef.current.isRecording ||
+        playing ||
+        sheet !== 'none' ||
+        countdown !== null
+      ) {
+        return false
+      }
       if (!camera.stream || !camera.isReady) {
         showToast('Camera not ready')
-        return
+        return false
       }
+
+      beginInFlightRef.current = true
       pointerIdRef.current = pointerId
       try {
         // Grab the mic only for this take so Brave/Android voice-to-text stays free while idle.
         await camera.enableMic()
         if (pointerId !== null && pointerIdRef.current !== pointerId) {
           camera.releaseMic()
-          return
+          return false
         }
         if (nextRecordingMode === 'hold' && pointerId !== null && pointerIdRef.current === null) {
           camera.releaseMic()
-          return
+          return false
         }
-        const startedOk = recorderRef.current.start(camera.stream)
+
+        const stream = camera.stream
+        if (!stream?.getAudioTracks().some((track) => track.readyState === 'live')) {
+          throw new Error('Microphone unavailable')
+        }
+
+        const startedOk = recorderRef.current.start(stream)
         if (!startedOk) {
           pointerIdRef.current = null
-          camera.releaseMic()
+          // Never strip mic from an already-active recording owned by another start.
+          if (!recorderRef.current.isRecording) camera.releaseMic()
           showToast('Still finishing the last clip')
-          return
+          return false
         }
         setRecording(true)
         setRecordingMode(nextRecordingMode)
@@ -172,11 +191,15 @@ export function ProjectPage() {
           recordRafRef.current = requestAnimationFrame(tick)
         }
         recordRafRef.current = requestAnimationFrame(tick)
+        return true
       } catch (err) {
-        camera.releaseMic()
+        if (!recorderRef.current.isRecording) camera.releaseMic()
         showToast(err instanceof Error ? err.message : 'Could not start recording')
         pointerIdRef.current = null
         setRecordingMode(null)
+        return false
+      } finally {
+        beginInFlightRef.current = false
       }
     },
     [
@@ -247,8 +270,12 @@ export function ProjectPage() {
       if (next <= 0) {
         countdownTimerRef.current = 0
         setCountdown(null)
-        beginRecord(null, 'hands-free')
-        showToast('Hands-free recording. Tap preview to stop.')
+        void (async () => {
+          const started = await beginRecord(null, 'hands-free')
+          if (started) {
+            showToast('Hands-free recording. Tap preview to stop.')
+          }
+        })()
         return
       }
       setCountdown(next)
@@ -339,7 +366,7 @@ export function ProjectPage() {
           type="button"
           className="btn-icon"
           aria-label="Flip camera"
-          disabled={!camera.canFlip || recording}
+          disabled={!camera.canFlip || recording || countdown !== null}
           onClick={() => void camera.flip()}
         >
           ↻
