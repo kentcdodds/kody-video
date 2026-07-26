@@ -170,18 +170,18 @@ export function Timeline({ projectId, clips, selectedClipId, onSelect, refresh }
     if (!state.scrolling && Math.hypot(dx, dy) < MOVE_CANCEL_PX) return
 
     // The finger moved before the long press fired: this is a scroll, not a
-    // reorder. Cancel the pending lift for the rest of the gesture.
+    // reorder — and no longer a tap either, so release must not select.
     if (state.longPressTimer) {
       clearTimeout(state.longPressTimer)
       state.longPressTimer = null
     }
+    state.scrolling = true
     if (state.pointerType === 'touch') {
       // touch-action: pan-x lets the browser scroll the strip natively (with
       // momentum); it will send pointercancel when it takes over.
       return
     }
     // Mouse/pen have no native pan — scroll the strip manually.
-    state.scrolling = true
     const track = trackRef.current
     if (track) track.scrollLeft = state.startScrollLeft - dx
   }
