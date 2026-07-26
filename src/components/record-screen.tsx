@@ -336,15 +336,42 @@ export function RecordScreen({
     releaseWakeLock()
   }, [clearCountdown, releaseWakeLock])
 
+  // Release the camera whenever the app leaves the foreground — Android keeps
+  // the privacy indicator (green dot) lit as long as any track is live. An
+  // in-progress take is finished and saved first; the preview restarts when
+  // the app becomes visible again.
+  const visibilityActionRef = useRef<() => void>(() => undefined)
+  visibilityActionRef.current = () => {
+    if (document.hidden) {
+      clearCountdown()
+      if (recorderRef.current.isRecording || recording) {
+        // MediaRecorder.stop() runs synchronously inside endRecord, so the
+        // encoder has flushed by the time the tracks are stopped below; the
+        // save itself continues in the background.
+        void endRecord()
+      }
+      camera.stop()
+    } else if (!camera.getStream()) {
+      void camera.start()
+    }
+  }
+
+  const onVisibilityChange = useCallback(() => {
+    visibilityActionRef.current()
+  }, [])
+
   const attachCameraVideo = camera.videoRef
   const bindCameraVideo = useCallback(
     (element: HTMLVideoElement | null) => {
       if (!element) {
+        document.removeEventListener('visibilitychange', onVisibilityChange)
         cleanupOnUnmount()
+      } else {
+        document.addEventListener('visibilitychange', onVisibilityChange)
       }
       attachCameraVideo(element)
     },
-    [attachCameraVideo, cleanupOnUnmount],
+    [attachCameraVideo, cleanupOnUnmount, onVisibilityChange],
   )
 
   const needsPermission =
