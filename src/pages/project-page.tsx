@@ -7,7 +7,7 @@ import {
   useRevalidator,
   type LoaderFunctionArgs,
 } from 'react-router-dom'
-import { BlobVideo } from '../components/blob-video'
+import { EditorClipPreview } from '../components/editor-clip-preview'
 import { EditorToolsSheet } from '../components/editor-tools-sheet'
 import { ExportSheet } from '../components/export-sheet'
 import { OnboardingOverlay } from '../components/onboarding-overlay'
@@ -413,18 +413,7 @@ export function ProjectPage() {
             autoPlay
           />
         ) : selected ? (
-          <BlobVideo
-            key={selected.id}
-            blob={selected.blob}
-            className="editor-clip-preview"
-            muted
-            playsInline
-            preload="metadata"
-            onLoadedData={(event) => {
-              const video = event.currentTarget
-              video.currentTime = selected.trimStartMs / 1000
-            }}
-          />
+          <EditorClipPreview clip={selected} />
         ) : (
           <div className="editor-empty-preview">Select a clip in the timeline</div>
         )}

@@ -24,17 +24,25 @@ export function PlaybackOverlay({ clips, onClose }: PlaybackOverlayProps) {
     <div className="permission-panel" style={{ background: 'rgba(0,0,0,0.92)' }}>
       <div style={{ width: '100%', maxWidth: 360 }}>
         <BlobVideo
-          key={clip.id}
+          key={`${clip.id}:${index}:${clip.blob.size}`}
           blob={clip.blob}
           className="camera-video"
           style={{ height: '55vh', borderRadius: 18, background: '#000' }}
           playsInline
           controls={false}
+          preload="auto"
           onLoadedData={(event) => {
             event.currentTarget.currentTime = startSec
           }}
           onSeeked={(event) => {
             void event.currentTarget.play().catch(() => undefined)
+          }}
+          onEnded={() => {
+            if (index < clips.length - 1) {
+              setIndex((current) => current + 1)
+              return
+            }
+            onClose()
           }}
           onTimeUpdate={(event) => {
             const video = event.currentTarget

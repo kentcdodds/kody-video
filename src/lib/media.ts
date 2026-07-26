@@ -337,8 +337,13 @@ async function paintClipToCanvas({
     await waitForVideoDimensions(video)
 
     const startSec = clip.trimStartMs / 1000
-    const endSec = Math.min(clip.trimEndMs, clip.durationMs) / 1000
-    if (!(endSec > startSec)) return
+    const trimEndSec = Math.min(clip.trimEndMs, clip.durationMs) / 1000
+    if (!(trimEndSec > startSec)) return
+
+    // Prefer real media durations over wall-clock capture estimates so A/V
+    // segment lengths stay aligned across clips.
+    const videoMediaEnd = Number.isFinite(video.duration) ? video.duration : trimEndSec
+    let endSec = Math.min(trimEndSec, videoMediaEnd)
 
     video.currentTime = startSec
     await waitForEvent(video, 'seeked')
@@ -346,7 +351,23 @@ async function paintClipToCanvas({
     const audioBuffer =
       audioContext && dest ? await decodeClipAudio(audioContext, clip.blob) : null
 
-    if (audioContext && dest && audioBuffer) {
+    const audioOffset = audioBuffer
+      ? Math.min(Math.max(0, startSec), Math.max(0, audioBuffer.duration - 0.01))
+      : 0
+    const audioAvailable = audioBuffer
+      ? Math.max(0, audioBuffer.duration - audioOffset)
+      : 0
+
+    if (audioBuffer && audioAvailable > 0.05) {
+      // Keep each stitch segment to the shorter of video/audio so the next
+      // clip's soundtrack cannot start while the previous picture is still up.
+      endSec = Math.min(endSec, startSec + audioAvailable)
+    }
+
+    const segmentSec = endSec - startSec
+    if (!(segmentSec > 0.04)) return
+
+    if (audioContext && dest && audioBuffer && audioAvailable > 0.02) {
       try {
         if (audioContext.state === 'suspended') {
           await audioContext.resume().catch(() => undefined)
@@ -360,32 +381,43 @@ async function paintClipToCanvas({
     }
 
     await video.play()
+    // Wait until the video clock actually advances so BufferSource doesn't
+    // lead the picture by the play()/decoder startup gap.
+    await waitForPlaybackStart(video, startSec)
 
-    if (bufferSource && audioContext && audioBuffer) {
-      const offset = Math.min(Math.max(0, startSec), Math.max(0, audioBuffer.duration - 0.01))
-      const duration = Math.min(
-        Math.max(0, endSec - startSec),
-        Math.max(0, audioBuffer.duration - offset),
-      )
-      if (duration > 0.02) {
-        bufferSource.start(audioContext.currentTime, offset, duration)
-      }
+    const videoLeadSec = Math.max(0, video.currentTime - startSec)
+    const audioPlayOffset = audioOffset + videoLeadSec
+    const audioPlayDuration = Math.max(0, Math.min(segmentSec - videoLeadSec, audioAvailable - videoLeadSec))
+    const audioStartedAt = audioContext?.currentTime ?? null
+    if (bufferSource && audioContext && audioStartedAt !== null && audioPlayDuration > 0.02) {
+      // Skip the audio that already elapsed on the video clock during startup.
+      bufferSource.start(audioStartedAt, audioPlayOffset, audioPlayDuration)
     }
 
     await new Promise<void>((resolve, reject) => {
       let raf = 0
       let lastFrameAt = performance.now()
+      let lastVideoTime = video.currentTime
+
+      const finish = () => {
+        cancelAnimationFrame(raf)
+        video.pause()
+        resolve()
+      }
+
       const draw = () => {
         const now = performance.now()
-        if (video.ended || video.currentTime >= endSec - 0.04) {
-          cancelAnimationFrame(raf)
-          video.pause()
-          resolve()
+        const videoElapsed = Math.max(0, video.currentTime - startSec)
+
+        if (video.ended || video.currentTime >= endSec - 0.04 || videoElapsed >= segmentSec - 0.03) {
+          finish()
           return
         }
 
-        // Stall watchdog: if playback never advances, abort this clip.
-        if (now - lastFrameAt > 8000) {
+        if (video.currentTime > lastVideoTime + 0.001) {
+          lastVideoTime = video.currentTime
+          lastFrameAt = now
+        } else if (now - lastFrameAt > 8000) {
           cancelAnimationFrame(raf)
           video.pause()
           reject(new Error('Clip playback stalled during export'))
@@ -394,9 +426,8 @@ async function paintClipToCanvas({
 
         if (video.videoWidth > 0) {
           drawCover(ctx, video, canvas.width, canvas.height)
-          lastFrameAt = now
         }
-        onFrameProgress?.(Math.max(0, (video.currentTime - startSec) * 1000))
+        onFrameProgress?.(Math.min(segmentSec, videoElapsed) * 1000)
         raf = requestAnimationFrame(draw)
       }
 
@@ -417,6 +448,21 @@ async function paintClipToCanvas({
     video.removeAttribute('src')
     video.load()
   }
+}
+
+async function waitForPlaybackStart(video: HTMLVideoElement, startSec: number): Promise<void> {
+  if (video.currentTime > startSec + 0.01) return
+  const deadline = performance.now() + 1500
+  await new Promise<void>((resolve) => {
+    const tick = () => {
+      if (video.currentTime > startSec + 0.01 || video.ended || performance.now() > deadline) {
+        resolve()
+        return
+      }
+      requestAnimationFrame(tick)
+    }
+    tick()
+  })
 }
 
 async function decodeClipAudio(

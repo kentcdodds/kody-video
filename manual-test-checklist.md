@@ -6,6 +6,9 @@ Run locally with HTTPS or `localhost` (`npm run dev`). Camera/mic require a secu
 - [ ] First open prompts for camera; microphone is requested when you start recording
 - [ ] Idle preview does not block Android voice-to-text in Brave/Chrome
 - [ ] Exported stitched video includes microphone audio from recorded clips
+- [ ] Export audio stays lined up with each clip (no early soundtrack / cross-clip drift)
+- [ ] Editor stage preview updates when tapping different timeline clips
+- [ ] Light/dark follows system `prefers-color-scheme`
 - [ ] Record dock shows Tools + OK (Editor/Timer/Delete live in the Tools sheet)
 - [ ] Deny → clear denied panel with retry guidance
 - [ ] Allow → live rear-camera preview (or fallback)

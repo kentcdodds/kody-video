@@ -5,15 +5,18 @@ type BlobVideoProps = Omit<VideoHTMLAttributes<HTMLVideoElement>, 'src'> & {
   blob: Blob
 }
 
-/** Video element bound to a Blob via ref callback (revokes URL on unmount). */
+/** Video element bound to a Blob via ref callback (revokes URL on unmount/blob change). */
 export function BlobVideo({ blob, ...props }: BlobVideoProps) {
-  const urlRef = useRef<string | null>(null)
+  const stateRef = useRef<{ current: string | null; blob: Blob | null }>({
+    current: null,
+    blob: null,
+  })
 
   return (
     <video
       {...props}
       ref={(element) => {
-        bindBlobUrl(element, blob, urlRef)
+        bindBlobUrl(element, blob, stateRef.current)
       }}
     />
   )

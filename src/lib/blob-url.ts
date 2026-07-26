@@ -1,21 +1,27 @@
-/** Create an object URL and revoke it when the owning element unmounts. */
+/** Create an object URL and revoke it when the owning element unmounts or the blob changes. */
 export function bindBlobUrl(
   element: HTMLMediaElement | null,
   blob: Blob,
-  currentUrl: { current: string | null },
+  state: { current: string | null; blob: Blob | null },
 ): void {
   if (!element) {
-    if (currentUrl.current) {
-      URL.revokeObjectURL(currentUrl.current)
-      currentUrl.current = null
+    if (state.current) {
+      URL.revokeObjectURL(state.current)
     }
+    state.current = null
+    state.blob = null
     return
   }
 
-  if (!currentUrl.current) {
-    currentUrl.current = URL.createObjectURL(blob)
+  if (state.blob !== blob || !state.current) {
+    if (state.current) {
+      URL.revokeObjectURL(state.current)
+    }
+    state.current = URL.createObjectURL(blob)
+    state.blob = blob
   }
-  if (element.src !== currentUrl.current) {
-    element.src = currentUrl.current
+
+  if (element.src !== state.current) {
+    element.src = state.current
   }
 }
