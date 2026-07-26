@@ -176,8 +176,10 @@
   overflow: hidden;
   position: relative;
   padding: 0;
-  touch-action: none;
-  transition: transform 140ms ease, box-shadow 140ms ease, border-color 140ms ease;
+  /* Horizontal swipes must scroll the strip; reorder is long-press only. */
+  touch-action: pan-x;
+  transition: transform 140ms ease, box-shadow 140ms ease, border-color 140ms ease,
+    opacity 140ms ease;
 }
 
 .clip-thumb.selected {
@@ -185,11 +187,18 @@
   box-shadow: var(--editor-accent-glow);
 }
 
+/* Unmistakable "picked up" state after the long press. */
 .clip-thumb.lifting {
-  transform: scale(1.06);
-  box-shadow: 0 10px 24px rgba(0, 0, 0, 0.45);
+  transform: scale(1.12) rotate(1.5deg);
+  border-color: var(--accent);
+  box-shadow: 0 14px 30px rgba(0, 0, 0, 0.5), var(--editor-accent-glow);
   z-index: 2;
-  opacity: 0.92;
+}
+
+/* Dim the rest of the strip so the lifted clip reads instantly. */
+.timeline.is-dragging .clip-thumb:not(.lifting) {
+  opacity: 0.45;
+  transform: scale(0.96);
 }
 
 .clip-filmstrip {

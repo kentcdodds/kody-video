@@ -12,8 +12,13 @@ import { TimelineThumbImage } from './timeline-thumb-image'
 const PX_PER_SECOND = 26
 const MIN_TILE_WIDTH = 56
 const MAX_TILE_WIDTH = 200
-const LONG_PRESS_MS = 250
-const DRAG_THRESHOLD_PX = 8
+/** Reorder only starts after a deliberate press-and-hold — plain horizontal
+ * swipes must scroll the strip, never grab a clip. */
+const LONG_PRESS_MS = 400
+/** Movement beyond this before the long press cancels the pending lift. */
+const MOVE_CANCEL_PX = 8
+const EDGE_SCROLL_ZONE_PX = 44
+const EDGE_SCROLL_STEP_PX = 12
 
 interface TimelineProps {
   projectId: ProjectId
@@ -33,15 +38,19 @@ export function Timeline({ projectId, clips, selectedClipId, onSelect, refresh }
   const [gapIndex, setGapIndex] = useState<number | null>(null)
   const trackRef = useRef<HTMLDivElement | null>(null)
   const tileRefs = useRef(new Map<ClipId, HTMLButtonElement>())
+  const touchBlockerRef = useRef<((event: TouchEvent) => void) | null>(null)
   const dragRef = useRef<{
     clipId: ClipId
     startX: number
     startY: number
+    startScrollLeft: number
     fromIndex: number
     pointerId: number
+    pointerType: string
     longPressTimer: ReturnType<typeof setTimeout> | null
     lifted: boolean
-    moved: boolean
+    /** Mouse/pen gesture turned into a manual drag-to-scroll. */
+    scrolling: boolean
     gapIndex: number
   } | null>(null)
 
@@ -59,9 +68,28 @@ export function Timeline({ projectId, clips, selectedClipId, onSelect, refresh }
     )
   }
 
+  /** While a clip is lifted, stop native panning from hijacking the drag.
+   * (React registers touch listeners as passive, so this must be native.) */
+  const addPanBlocker = () => {
+    const track = trackRef.current
+    if (!track || touchBlockerRef.current) return
+    const blocker = (event: TouchEvent) => event.preventDefault()
+    touchBlockerRef.current = blocker
+    track.addEventListener('touchmove', blocker, { passive: false })
+  }
+
+  const removePanBlocker = () => {
+    const track = trackRef.current
+    if (track && touchBlockerRef.current) {
+      track.removeEventListener('touchmove', touchBlockerRef.current)
+    }
+    touchBlockerRef.current = null
+  }
+
   const clearDrag = () => {
     const state = dragRef.current
     if (state?.longPressTimer) clearTimeout(state.longPressTimer)
+    removePanBlocker()
     dragRef.current = null
     setDraggingId(null)
     setGapIndex(null)
@@ -81,11 +109,13 @@ export function Timeline({ projectId, clips, selectedClipId, onSelect, refresh }
 
   const beginLift = (clipId: ClipId) => {
     const state = dragRef.current
-    if (!state || state.clipId !== clipId) return
+    if (!state || state.clipId !== clipId || state.lifted || state.scrolling) return
     state.lifted = true
     state.gapIndex = state.fromIndex
     setDraggingId(clipId)
     setGapIndex(state.fromIndex)
+    addPanBlocker()
+    navigator.vibrate?.(20)
   }
 
   const onPointerDown = (
@@ -94,18 +124,35 @@ export function Timeline({ projectId, clips, selectedClipId, onSelect, refresh }
     index: number,
   ) => {
     if (event.button !== 0) return
+    // A previous session that never reached finishPointer (e.g. its tile
+    // unmounted mid-drag) must not leak into this gesture.
+    if (dragRef.current) clearDrag()
     event.currentTarget.setPointerCapture(event.pointerId)
 
     dragRef.current = {
       clipId: clip.id,
       startX: event.clientX,
       startY: event.clientY,
+      startScrollLeft: trackRef.current?.scrollLeft ?? 0,
       fromIndex: index,
       pointerId: event.pointerId,
+      pointerType: event.pointerType,
       longPressTimer: setTimeout(() => beginLift(clip.id), LONG_PRESS_MS),
       lifted: false,
-      moved: false,
+      scrolling: false,
       gapIndex: index,
+    }
+  }
+
+  /** Keep a lifted clip draggable to offscreen targets. */
+  const edgeAutoScroll = (clientX: number) => {
+    const track = trackRef.current
+    if (!track) return
+    const rect = track.getBoundingClientRect()
+    if (clientX < rect.left + EDGE_SCROLL_ZONE_PX) {
+      track.scrollLeft -= EDGE_SCROLL_STEP_PX
+    } else if (clientX > rect.right - EDGE_SCROLL_ZONE_PX) {
+      track.scrollLeft += EDGE_SCROLL_STEP_PX
     }
   }
 
@@ -113,33 +160,33 @@ export function Timeline({ projectId, clips, selectedClipId, onSelect, refresh }
     const state = dragRef.current
     if (!state || state.pointerId !== event.pointerId) return
 
-    const dx = event.clientX - state.startX
-    const dy = event.clientY - state.startY
-    const distance = Math.hypot(dx, dy)
-
-    if (!state.lifted) {
-      if (distance < DRAG_THRESHOLD_PX) return
-      if (Math.abs(dx) >= Math.abs(dy)) {
-        if (state.longPressTimer) clearTimeout(state.longPressTimer)
-        state.longPressTimer = null
-        beginLift(state.clipId)
-      } else {
-        if (state.longPressTimer) clearTimeout(state.longPressTimer)
-        state.longPressTimer = null
-        try {
-          event.currentTarget.releasePointerCapture(event.pointerId)
-        } catch {
-          /* already released */
-        }
-        clearDrag()
-        return
-      }
+    if (state.lifted) {
+      const nextGap = gapFromX(event.clientX)
+      state.gapIndex = nextGap
+      setGapIndex(nextGap)
+      edgeAutoScroll(event.clientX)
+      return
     }
 
-    state.moved = true
-    const nextGap = gapFromX(event.clientX)
-    state.gapIndex = nextGap
-    setGapIndex(nextGap)
+    const dx = event.clientX - state.startX
+    const dy = event.clientY - state.startY
+    if (!state.scrolling && Math.hypot(dx, dy) < MOVE_CANCEL_PX) return
+
+    // The finger moved before the long press fired: this is a scroll, not a
+    // reorder — and no longer a tap either, so release must not select.
+    if (state.longPressTimer) {
+      clearTimeout(state.longPressTimer)
+      state.longPressTimer = null
+    }
+    state.scrolling = true
+    if (state.pointerType === 'touch') {
+      // touch-action: pan-x lets the browser scroll the strip natively (with
+      // momentum); it will send pointercancel when it takes over.
+      return
+    }
+    // Mouse/pen have no native pan — scroll the strip manually.
+    const track = trackRef.current
+    if (track) track.scrollLeft = state.startScrollLeft - dx
   }
 
   const finishPointer = (event: ReactPointerEvent<HTMLButtonElement>, cancelled: boolean) => {
@@ -152,11 +199,11 @@ export function Timeline({ projectId, clips, selectedClipId, onSelect, refresh }
       /* already released */
     }
 
-    const { clipId, fromIndex, lifted, moved, gapIndex: gap } = state
+    const { clipId, fromIndex, lifted, scrolling, gapIndex: gap } = state
     clearDrag()
 
-    if (cancelled) return
-    if (!lifted || !moved) {
+    if (cancelled || scrolling) return
+    if (!lifted) {
       selectClip(clipId)
       return
     }
@@ -175,7 +222,12 @@ export function Timeline({ projectId, clips, selectedClipId, onSelect, refresh }
   }
 
   return (
-    <div className="timeline" role="listbox" aria-label="Clip timeline" ref={trackRef}>
+    <div
+      className={`timeline${draggingId !== null ? ' is-dragging' : ''}`}
+      role="listbox"
+      aria-label="Clip timeline"
+      ref={trackRef}
+    >
       {clips.map((clip, index) => {
         const selected = clip.id === selectedClipId
         const width = tileWidthForClip(clip)
@@ -202,8 +254,15 @@ export function Timeline({ projectId, clips, selectedClipId, onSelect, refresh }
                 e.preventDefault()
               }}
               ref={(el) => {
-                if (el) tileRefs.current.set(clip.id, el)
-                else tileRefs.current.delete(clip.id)
+                if (el) {
+                  tileRefs.current.set(clip.id, el)
+                } else {
+                  tileRefs.current.delete(clip.id)
+                  // The dragged tile disappeared (clip deleted/reordered by a
+                  // revalidation) — end the session so the pan blocker and
+                  // is-dragging dimming can't stick around.
+                  if (dragRef.current?.clipId === clip.id) clearDrag()
+                }
               }}
             >
               <div className="clip-filmstrip">
