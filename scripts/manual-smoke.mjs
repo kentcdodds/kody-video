@@ -101,38 +101,48 @@ try {
   if (await stage.count()) pass('camera stage present')
   else fail('camera stage present')
 
-  // Self-timer control
-  const timer = page.getByRole('button', { name: /timer|self[- ]?timer/i })
-  if (await timer.count()) pass('self-timer control present')
-  else fail('self-timer control present')
-
-  // Editor mode
-  const editorBtn = page.getByRole('button', { name: /^editor$/i }).first()
-  if (await editorBtn.count()) {
-    await editorBtn.click()
-    const okBtn = page.getByRole('button', { name: /^ok$/i }).first()
-    const trimBtn = page.getByRole('button', { name: /^trim$/i }).first()
-    const deleteBtn = page.getByRole('button', { name: /^delete$/i }).first()
-    if (await okBtn.count()) pass('editor mode + OK CTA')
-    else fail('editor mode + OK CTA', 'OK button missing')
-
-    // On short mobile viewports, editor actions must remain reachable via scroll.
-    await page.setViewportSize({ width: 390, height: 640 })
-    const screen = page.locator('.camera-screen')
-    const before = await screen.evaluate((el) => el.scrollTop)
-    await screen.evaluate((el) => {
-      el.scrollTop = el.scrollHeight
-    })
-    const after = await screen.evaluate((el) => el.scrollTop)
-    const deleteBox = await deleteBtn.boundingBox()
-    const trimVisible = await trimBtn.isVisible()
-    if (trimVisible && (after >= before || (deleteBox && deleteBox.y > 0))) {
-      pass('editor scroll reaches actions', `scroll ${before}->${after}`)
+  // Tools sheet holds timer/editor to free the record dock on small phones.
+  const toolsBtn = page.getByRole('button', { name: /^tools$/i }).first()
+  if (await toolsBtn.count()) {
+    await toolsBtn.click()
+    const toolsDialog = page.getByRole('dialog', { name: /recording tools/i })
+    const timer = toolsDialog.getByRole('button', { name: /timer|self[- ]?timer/i })
+    if ((await toolsDialog.count()) && (await timer.count())) {
+      pass('tools sheet + self-timer', 'opened from record dock')
     } else {
-      fail('editor scroll reaches actions', `scroll ${before}->${after}, trim=${trimVisible}`)
+      fail('tools sheet + self-timer', 'dialog or timer missing')
     }
-    await page.setViewportSize({ width: 390, height: 844 })
+
+    const editorBtn = toolsDialog.getByRole('button', { name: /^editor$/i }).first()
+    if (await editorBtn.count()) {
+      await editorBtn.click()
+      const okBtn = page.getByRole('button', { name: /^ok$/i }).first()
+      const trimBtn = page.getByRole('button', { name: /^trim$/i }).first()
+      const deleteBtn = page.getByRole('button', { name: /^delete$/i }).first()
+      if (await okBtn.count()) pass('editor mode + OK CTA')
+      else fail('editor mode + OK CTA', 'OK button missing')
+
+      // On short mobile viewports, editor actions must remain reachable via scroll.
+      await page.setViewportSize({ width: 390, height: 640 })
+      const screen = page.locator('.camera-screen')
+      const before = await screen.evaluate((el) => el.scrollTop)
+      await screen.evaluate((el) => {
+        el.scrollTop = el.scrollHeight
+      })
+      const after = await screen.evaluate((el) => el.scrollTop)
+      const deleteBox = await deleteBtn.boundingBox()
+      const trimVisible = await trimBtn.isVisible()
+      if (trimVisible && (after >= before || (deleteBox && deleteBox.y > 0))) {
+        pass('editor scroll reaches actions', `scroll ${before}->${after}`)
+      } else {
+        fail('editor scroll reaches actions', `scroll ${before}->${after}, trim=${trimVisible}`)
+      }
+      await page.setViewportSize({ width: 390, height: 844 })
+    } else {
+      fail('editor mode toggle')
+    }
   } else {
+    fail('tools sheet + self-timer', 'Tools button missing')
     fail('editor mode toggle')
   }
 

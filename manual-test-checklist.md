@@ -3,7 +3,10 @@
 Run locally with HTTPS or `localhost` (`npm run dev`). Camera/mic require a secure context.
 
 ## Permissions
-- [ ] First open prompts for camera + microphone
+- [ ] First open prompts for camera; microphone is requested when you start recording
+- [ ] Idle preview does not block Android voice-to-text in Brave/Chrome
+- [ ] Exported stitched video includes microphone audio from recorded clips
+- [ ] Record dock shows Tools + OK (Editor/Timer/Delete live in the Tools sheet)
 - [ ] Deny → clear denied panel with retry guidance
 - [ ] Allow → live rear-camera preview (or fallback)
 - [ ] Flip camera works when multiple cameras exist

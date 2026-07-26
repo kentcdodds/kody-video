@@ -40,7 +40,16 @@ export async function queryCameraPermission(): Promise<CameraPermissionState> {
   return { status: 'unknown' }
 }
 
-export async function openCameraStream(facing: FacingMode): Promise<MediaStream> {
+export interface OpenCameraOptions {
+  /** Preview should stay video-only so Android voice-to-text can use the mic. */
+  audio?: boolean
+}
+
+export async function openCameraStream(
+  facing: FacingMode,
+  options: OpenCameraOptions = {},
+): Promise<MediaStream> {
+  const withAudio = options.audio === true
   const videoConstraints: MediaTrackConstraints = {
     facingMode: { ideal: facing },
     width: { ideal: 1280 },
@@ -49,18 +58,35 @@ export async function openCameraStream(facing: FacingMode): Promise<MediaStream>
 
   try {
     return await navigator.mediaDevices.getUserMedia({
-      audio: true,
+      audio: withAudio,
       video: videoConstraints,
     })
   } catch (error) {
     if (isOverconstrained(error)) {
       return navigator.mediaDevices.getUserMedia({
-        audio: true,
+        audio: withAudio,
         video: true,
       })
     }
     throw error
   }
+}
+
+/** Grab a mic track only for the duration of a recording. */
+export async function openMicrophoneTrack(): Promise<MediaStreamTrack> {
+  const mic = await navigator.mediaDevices.getUserMedia({
+    audio: {
+      echoCancellation: true,
+      noiseSuppression: true,
+    },
+    video: false,
+  })
+  const track = mic.getAudioTracks()[0]
+  if (!track) {
+    mic.getTracks().forEach((t) => t.stop())
+    throw new Error('No microphone track available')
+  }
+  return track
 }
 
 function isOverconstrained(error: unknown): boolean {
@@ -69,6 +95,13 @@ function isOverconstrained(error: unknown): boolean {
 
 export function stopStream(stream: MediaStream | null | undefined): void {
   stream?.getTracks().forEach((track) => track.stop())
+}
+
+export function stopAudioTracks(stream: MediaStream | null | undefined): void {
+  stream?.getAudioTracks().forEach((track) => {
+    stream.removeTrack(track)
+    track.stop()
+  })
 }
 
 export function pickRecorderMimeType(): string {
@@ -137,14 +170,23 @@ function isMobileBrowser(): boolean {
   return /Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent)
 }
 
+export interface ExportWebmOptions {
+  /**
+   * Prefer creating/resuming this from the Make-video click so Android unlocks audio.
+   * Export closes the context when finished.
+   */
+  audioContext?: AudioContext
+}
+
 /**
  * Stitch clips into a single WebM using canvas captureStream + MediaRecorder.
  * Applies trim in/out by seeking each source clip.
- * Tradeoff: re-encodes video; quality depends on browser encoder; audio may be limited.
+ * Audio is mixed from decodeAudioData → BufferSource (muted video frames for autoplay).
  */
 export async function exportProjectAsWebm(
   clips: ClipRecord[],
   onProgress?: (ratio: number) => void,
+  options: ExportWebmOptions = {},
 ): Promise<Blob> {
   if (clips.length === 0) {
     throw new Error('Nothing to export')
@@ -168,16 +210,20 @@ export async function exportProjectAsWebm(
     throw new Error('This browser cannot capture canvas video for export')
   }
 
-  let audioContext: AudioContext | null = null
+  let audioContext: AudioContext | null = options.audioContext ?? null
   let dest: MediaStreamAudioDestinationNode | null = null
   try {
-    audioContext = new AudioContext()
+    if (!audioContext) {
+      audioContext = new AudioContext()
+    }
     if (audioContext.state === 'suspended') {
       await audioContext.resume().catch(() => undefined)
     }
     dest = audioContext.createMediaStreamDestination()
   } catch {
     // Video-only export if AudioContext is unavailable.
+    audioContext = null
+    dest = null
   }
 
   const mixedStream = new MediaStream([
@@ -278,10 +324,13 @@ async function paintClipToCanvas({
   video.src = url
   video.playsInline = true
   // Must be muted for autoplay policies on Android Chrome/Brave during export.
+  // Audio is mixed separately from a decoded AudioBuffer so the stitch keeps sound.
   video.muted = true
   video.preload = 'auto'
   video.setAttribute('playsinline', 'true')
   video.setAttribute('webkit-playsinline', 'true')
+
+  let bufferSource: AudioBufferSourceNode | null = null
 
   try {
     await waitForEvent(video, 'loadeddata')
@@ -294,23 +343,34 @@ async function paintClipToCanvas({
     video.currentTime = startSec
     await waitForEvent(video, 'seeked')
 
-    // Keep the element muted for Android autoplay policies. We still tap the
-    // MediaElementSource graph when available; some browsers deliver silent
-    // frames only, which is preferable to a failed stitch.
-    let sourceNode: MediaElementAudioSourceNode | null = null
-    if (audioContext && dest) {
+    const audioBuffer =
+      audioContext && dest ? await decodeClipAudio(audioContext, clip.blob) : null
+
+    if (audioContext && dest && audioBuffer) {
       try {
         if (audioContext.state === 'suspended') {
           await audioContext.resume().catch(() => undefined)
         }
-        sourceNode = audioContext.createMediaElementSource(video)
-        sourceNode.connect(dest)
+        bufferSource = audioContext.createBufferSource()
+        bufferSource.buffer = audioBuffer
+        bufferSource.connect(dest)
       } catch {
-        sourceNode = null
+        bufferSource = null
       }
     }
 
     await video.play()
+
+    if (bufferSource && audioContext && audioBuffer) {
+      const offset = Math.min(Math.max(0, startSec), Math.max(0, audioBuffer.duration - 0.01))
+      const duration = Math.min(
+        Math.max(0, endSec - startSec),
+        Math.max(0, audioBuffer.duration - offset),
+      )
+      if (duration > 0.02) {
+        bufferSource.start(audioContext.currentTime, offset, duration)
+      }
+    }
 
     await new Promise<void>((resolve, reject) => {
       let raf = 0
@@ -346,12 +406,29 @@ async function paintClipToCanvas({
       }
       raf = requestAnimationFrame(draw)
     })
-
-    sourceNode?.disconnect()
   } finally {
+    try {
+      bufferSource?.stop()
+    } catch {
+      // already ended
+    }
+    bufferSource?.disconnect()
     URL.revokeObjectURL(url)
     video.removeAttribute('src')
     video.load()
+  }
+}
+
+async function decodeClipAudio(
+  audioContext: AudioContext,
+  blob: Blob,
+): Promise<AudioBuffer | null> {
+  try {
+    const bytes = await blob.arrayBuffer()
+    // decodeAudioData may detach the buffer; copy so callers can reuse the blob.
+    return await audioContext.decodeAudioData(bytes.slice(0))
+  } catch {
+    return null
   }
 }
 
