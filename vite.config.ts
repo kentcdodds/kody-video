@@ -9,12 +9,12 @@ export default defineConfig({
       registerType: 'autoUpdate',
       includeAssets: ['favicon.svg'],
       manifest: {
-        name: 'Go Video Go',
-        short_name: 'GVG',
+        name: 'Kody Video',
+        short_name: 'Kody',
         description:
-          'Hold to record highlight clips. Privacy-first — videos stay on your device until you share.',
-        theme_color: '#0b1f1a',
-        background_color: '#0b1f1a',
+          'Hold anywhere to record clips. Kody Video keeps projects private on your device until you share.',
+        theme_color: '#2F3E46',
+        background_color: '#2F3E46',
         display: 'standalone',
         orientation: 'portrait',
         start_url: '/',

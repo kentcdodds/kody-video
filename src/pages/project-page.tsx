@@ -36,7 +36,13 @@ type Sheet = 'none' | 'trim' | 'export'
 export async function projectLoader({ params }: LoaderFunctionArgs): Promise<ProjectLoaderData> {
   const projectId = params.projectId
   if (!projectId) {
-    return { project: null, clips: [], canUndo: false, error: 'Project not found' }
+    return {
+      project: null,
+      clips: [],
+      canUndo: false,
+      onboardingDismissed: true,
+      error: 'Project not found',
+    }
   }
   return loadProjectPage(projectId)
 }

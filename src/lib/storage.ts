@@ -32,7 +32,7 @@ interface ClipsDB extends DBSchema {
   }
 }
 
-const DB_NAME = 'go-video-go'
+export const DB_NAME = 'kody-video'
 const DB_VERSION = 1
 
 let dbPromise: Promise<IDBPDatabase<ClipsDB>> | null = null
@@ -73,20 +73,29 @@ export async function __resetDbForTests(): Promise<void> {
 export async function getSettings(): Promise<AppMeta> {
   const db = await getDb()
   const existing = await db.get('meta', 'settings')
-  if (existing) return existing
   const defaults: AppMeta = {
     key: 'settings',
     maxProjects: MAX_PROJECTS,
     lastOpenedProjectId: null,
+    onboardingDismissed: false,
   }
-  await db.put('meta', defaults)
-  return defaults
+  const settings = existing ? { ...defaults, ...existing } : defaults
+  if (!existing || existing.onboardingDismissed === undefined) {
+    await db.put('meta', settings)
+  }
+  return settings
 }
 
 export async function setLastOpenedProjectId(projectId: ProjectId | null): Promise<void> {
   const db = await getDb()
   const settings = await getSettings()
   await db.put('meta', { ...settings, lastOpenedProjectId: projectId })
+}
+
+export async function setOnboardingDismissed(onboardingDismissed: boolean): Promise<void> {
+  const db = await getDb()
+  const settings = await getSettings()
+  await db.put('meta', { ...settings, onboardingDismissed })
 }
 
 export async function listProjects(): Promise<Project[]> {

@@ -5,6 +5,7 @@ import {
   duplicateClip,
   getClipsForProject,
   getProject,
+  getSettings,
   getUndoSnapshot,
   listProjects,
   moveClip,
@@ -29,6 +30,7 @@ export interface ProjectLoaderData {
   project: Project | null
   clips: ClipRecord[]
   canUndo: boolean
+  onboardingDismissed: boolean
   error: string | null
 }
 
@@ -49,21 +51,29 @@ export async function loadHomeProjects(): Promise<ProjectSummary[]> {
 
 export async function loadProjectPage(projectId: ProjectId): Promise<ProjectLoaderData> {
   try {
-    const [project, clips, undo] = await Promise.all([
+    const [project, clips, undo, settings] = await Promise.all([
       getProject(projectId),
       getClipsForProject(projectId),
       getUndoSnapshot(projectId),
+      getSettings(),
     ])
     if (!project) {
-      return { project: null, clips: [], canUndo: false, error: 'Project not found' }
+      return {
+        project: null,
+        clips: [],
+        canUndo: false,
+        onboardingDismissed: settings.onboardingDismissed,
+        error: 'Project not found',
+      }
     }
     await setLastOpenedProjectId(projectId)
-    return { project, clips, canUndo: !!undo, error: null }
+    return { project, clips, canUndo: !!undo, onboardingDismissed: settings.onboardingDismissed, error: null }
   } catch (err) {
     return {
       project: null,
       clips: [],
       canUndo: false,
+      onboardingDismissed: true,
       error: err instanceof Error ? err.message : 'Failed to load project',
     }
   }

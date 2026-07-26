@@ -28,7 +28,7 @@ export function HomePage() {
     <div className="screen">
       <div className="home-hero">
         <BrandMark size={64} className="brand-mark" />
-        <p className="eyebrow">GVG · on-device</p>
+        <p className="eyebrow">Kody · on-device</p>
         <h1 className="brand">
           Go Video <span>Go</span>
         </h1>

@@ -1,8 +1,8 @@
-# Go Video Go (GVG)
+# Kody Video
 
 Mobile-first web clips camera: **hold anywhere on the preview to record**, arrange clips on a timeline, then export/share — all **on-device**.
 
-Inspired by the “tap-and-hold highlights” idea popularized by apps like OK Video — **Go Video Go is an independent project** with its own name, mark, and implementation. Not affiliated; no proprietary assets or trademarks are used.
+Kody Video is inspired by the OK Video interaction model: camera-first capture, quick clip cleanup, and one big OK/share moment. It is an independent project with its own name, mark, and implementation; it is not affiliated with OK Video and does not use OK Video trademarks or assets. The koala mascot is credited to the KCD community / [kentcdodds.com/kody](https://kentcdodds.com/kody).
 
 ## Quick start
 
@@ -29,7 +29,7 @@ For a phone on the same network, use your machine’s LAN URL over HTTPS, or tun
 - Timeline: select, delete, undo delete, reorder (left/right), duplicate, trim in/out
 - Sequential project preview playback
 - Up to **6** local projects (create / open / rename / delete)
-- Export: stitch clips to a single WebM (canvas `captureStream` + `MediaRecorder`), then Web Share API or download
+- Big OK/share CTA: stitch clips to a single WebM (canvas `captureStream` + `MediaRecorder`), then Web Share API or download
 - Fallback: download clips as separate files
 - Installable PWA (manifest + Workbox service worker for app shell)
 - **No accounts, no uploads, no analytics**
@@ -65,7 +65,7 @@ src/
 | undo     | Last deleted clip per project (for Undo)      |
 | meta     | Settings (`maxProjects`, last opened id)      |
 
-Database name: `go-video-go`. Blobs never leave the device unless the user explicitly shares/downloads.
+Database name: `kody-video`. Blobs never leave the device unless the user explicitly shares/downloads.
 
 ### Offline / PWA
 

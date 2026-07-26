@@ -35,6 +35,7 @@ export interface AppMeta {
   key: 'settings'
   maxProjects: number
   lastOpenedProjectId: ProjectId | null
+  onboardingDismissed: boolean
 }
 
 export const MAX_PROJECTS = 6

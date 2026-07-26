@@ -1,4 +1,4 @@
-# Manual camera checklist (Chrome / Android) — Go Video Go
+# Manual camera checklist (Chrome / Android) — Kody Video
 
 Run locally with HTTPS or `localhost` (`npm run dev`). Camera/mic require a secure context.
 
@@ -11,6 +11,7 @@ Run locally with HTTPS or `localhost` (`npm run dev`). Camera/mic require a secu
 ## Hold-to-record
 - [ ] Press/hold anywhere on the preview starts recording (red pulse + elapsed)
 - [ ] Release stops and appends a clip to the timeline
+- [ ] Self-timer counts down, starts hands-free recording, then tap stops
 - [ ] Very short taps do not create empty clips
 - [ ] Multiple holds create multiple clips; total duration updates
 
@@ -27,8 +28,9 @@ Run locally with HTTPS or `localhost` (`npm run dev`). Camera/mic require a secu
 - [ ] Airplane mode after first visit still loads the app shell (PWA/service worker)
 - [ ] Offline, existing projects open and clips play from IndexedDB
 
-## Export / share
-- [ ] Share → Export produces a local WebM (or falls back with an error message)
+## OK / share
+- [ ] Big OK button opens share/export
+- [ ] Export produces a local WebM (or falls back with an error message)
 - [ ] Network tab shows no upload of clip binaries
 - [ ] “Files” downloads individual clips
 - [ ] Web Share sheet appears on supporting mobile browsers; otherwise download
