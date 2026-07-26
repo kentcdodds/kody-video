@@ -1,4 +1,4 @@
-import { useRef, useState } from 'react'
+import { useLayoutEffect, useRef, useState } from 'react'
 import { BlobVideo } from './blob-video'
 import { effectiveDurationMs, type ClipRecord } from '../lib/types'
 
@@ -7,25 +7,30 @@ interface PlaybackOverlayProps {
   onClose: () => void
 }
 
-/** Sequential preview driven by media element events (no useEffect). */
+/** Sequential preview driven by media element events. */
 export function PlaybackOverlay({ clips, onClose }: PlaybackOverlayProps) {
   const [index, setIndex] = useState(0)
   const endSecRef = useRef(0)
   const advancingRef = useRef(false)
-  const indexRef = useRef(index)
   const clip = clips[index]
 
-  if (indexRef.current !== index) {
-    indexRef.current = index
+  useLayoutEffect(() => {
     advancingRef.current = false
-  }
+  }, [index])
+
+  useLayoutEffect(() => {
+    if (!clip) {
+      endSecRef.current = 0
+      return
+    }
+    endSecRef.current = Math.min(clip.trimEndMs, clip.durationMs) / 1000
+  }, [clip])
 
   if (!clip) {
     return null
   }
 
   const startSec = clip.trimStartMs / 1000
-  endSecRef.current = Math.min(clip.trimEndMs, clip.durationMs) / 1000
 
   const advance = () => {
     if (advancingRef.current) return

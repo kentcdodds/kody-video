@@ -408,7 +408,9 @@ async function paintClipToCanvas({
     const audioPlayOffset = audioOffset + videoLeadSec
     const audioPlayDuration = Math.max(0, Math.min(segmentSec - videoLeadSec, audioAvailable - videoLeadSec))
     const audioStartedAt = audioContext?.currentTime ?? null
-    if (bufferSource && audioContext && audioStartedAt !== null && audioPlayDuration > 0.02) {
+    // Schedule any remaining audio after startup lead, including short floor
+    // segments where videoLeadSec can leave only a few milliseconds.
+    if (bufferSource && audioContext && audioStartedAt !== null && audioPlayDuration > 0) {
       // Skip the audio that already elapsed on the video clock during startup.
       bufferSource.start(audioStartedAt, audioPlayOffset, audioPlayDuration)
     }
