@@ -15,13 +15,15 @@ export class HoldRecorder {
   private chunks: BlobPart[] = []
   private startedAt = 0
   private mimeType = ''
+  private stopping = false
 
   get isRecording(): boolean {
     return this.recorder?.state === 'recording'
   }
 
-  start(stream: MediaStream): void {
-    if (this.isRecording) return
+  /** @returns true when a new recording actually started */
+  start(stream: MediaStream): boolean {
+    if (this.isRecording || this.stopping) return false
 
     this.mimeType = pickRecorderMimeType()
     this.chunks = []
@@ -40,15 +42,18 @@ export class HoldRecorder {
     }
     this.recorder = recorder
     recorder.start(100)
+    return true
   }
 
   stop(): Promise<RecordingResult | null> {
     const recorder = this.recorder
     if (!recorder || recorder.state === 'inactive') {
       this.recorder = null
+      this.stopping = false
       return Promise.resolve(null)
     }
 
+    this.stopping = true
     const durationMs = Math.max(0, Math.round(performance.now() - this.startedAt))
 
     return new Promise((resolve, reject) => {
@@ -56,6 +61,7 @@ export class HoldRecorder {
         const blob = new Blob(this.chunks, { type: this.mimeType })
         this.recorder = null
         this.chunks = []
+        this.stopping = false
         if (blob.size === 0 || durationMs < 120) {
           resolve(null)
           return
@@ -68,6 +74,7 @@ export class HoldRecorder {
       }
       recorder.onerror = () => {
         this.recorder = null
+        this.stopping = false
         reject(new Error('Recording failed'))
       }
       recorder.stop()
@@ -76,7 +83,10 @@ export class HoldRecorder {
 
   cancel(): void {
     const recorder = this.recorder
-    if (!recorder) return
+    if (!recorder) {
+      this.stopping = false
+      return
+    }
     recorder.ondataavailable = null
     if (recorder.state !== 'inactive') {
       try {
@@ -87,5 +97,6 @@ export class HoldRecorder {
     }
     this.recorder = null
     this.chunks = []
+    this.stopping = false
   }
 }

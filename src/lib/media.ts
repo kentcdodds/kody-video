@@ -328,7 +328,10 @@ export async function downloadBlob(blob: Blob, filename: string): Promise<void> 
   setTimeout(() => URL.revokeObjectURL(url), 1000)
 }
 
-export async function shareOrDownload(blob: Blob, filename: string): Promise<'shared' | 'downloaded'> {
+export async function shareOrDownload(
+  blob: Blob,
+  filename: string,
+): Promise<'shared' | 'downloaded' | 'cancelled'> {
   const file = new File([blob], filename, { type: blob.type || 'video/webm' })
   if (navigator.canShare?.({ files: [file] })) {
     try {
@@ -339,7 +342,7 @@ export async function shareOrDownload(blob: Blob, filename: string): Promise<'sh
       return 'shared'
     } catch (error) {
       if (error instanceof DOMException && error.name === 'AbortError') {
-        return 'downloaded'
+        return 'cancelled'
       }
       // Fall through to download.
     }

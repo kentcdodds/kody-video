@@ -118,6 +118,20 @@ export function ProjectPage() {
     recordRafRef.current = 0
   }, [])
 
+  const attachCameraVideo = camera.videoRef
+  const bindCameraVideo = useCallback(
+    (element: HTMLVideoElement | null) => {
+      if (!element) {
+        clearCountdown()
+        stopRecordTicker()
+        recorderRef.current.cancel()
+        window.clearTimeout(toastTimerRef.current)
+      }
+      attachCameraVideo(element)
+    },
+    [attachCameraVideo, clearCountdown, stopRecordTicker],
+  )
+
   const beginRecord = useCallback(
     (pointerId: number | null, nextRecordingMode: RecordingMode) => {
       if (recording || playing || sheet !== 'none' || countdown !== null) return
@@ -127,7 +141,12 @@ export function ProjectPage() {
       }
       pointerIdRef.current = pointerId
       try {
-        recorderRef.current.start(camera.stream)
+        const startedOk = recorderRef.current.start(camera.stream)
+        if (!startedOk) {
+          pointerIdRef.current = null
+          showToast('Still finishing the last clip')
+          return
+        }
         setRecording(true)
         setRecordingMode(nextRecordingMode)
         setRecordMs(0)
@@ -238,6 +257,11 @@ export function ProjectPage() {
     })()
   }, [data.clips, projectId, refresh, showToast])
 
+  const needsPermission =
+    camera.permission.status === 'denied' ||
+    camera.permission.status === 'unsupported' ||
+    (!!camera.error && !camera.isReady)
+
   if (!projectId) {
     navigate('/')
     return null
@@ -255,25 +279,6 @@ export function ProjectPage() {
       </div>
     )
   }
-
-  const needsPermission =
-    camera.permission.status === 'denied' ||
-    camera.permission.status === 'unsupported' ||
-    (!!camera.error && !camera.isReady)
-
-  const attachCameraVideo = camera.videoRef
-  const bindCameraVideo = useCallback(
-    (element: HTMLVideoElement | null) => {
-      if (!element) {
-        clearCountdown()
-        stopRecordTicker()
-        recorderRef.current.cancel()
-        window.clearTimeout(toastTimerRef.current)
-      }
-      attachCameraVideo(element)
-    },
-    [attachCameraVideo, clearCountdown, stopRecordTicker],
-  )
 
   return (
     <div className={`screen camera-screen ${mode}-mode${recording ? ' is-recording' : ''}`}>
@@ -606,12 +611,22 @@ export function ProjectPage() {
               try {
                 const blob = await exportProjectAsWebm(data.clips, setExportProgress)
                 const filename = projectFilename(data.project!.name)
-                const mode = await shareOrDownload(blob, filename)
-                setExportMessage(
-                  mode === 'shared'
-                    ? 'Shared from this device.'
-                    : 'Downloaded. Nothing was uploaded.',
-                )
+                const shareMode = await shareOrDownload(blob, filename)
+                switch (shareMode) {
+                  case 'shared':
+                    setExportMessage('Shared from this device.')
+                    break
+                  case 'downloaded':
+                    setExportMessage('Downloaded. Nothing was uploaded.')
+                    break
+                  case 'cancelled':
+                    setExportMessage('Share canceled — export stayed on this device.')
+                    break
+                  default: {
+                    const _exhaustive: never = shareMode
+                    setExportMessage(`Unexpected share result: ${_exhaustive}`)
+                  }
+                }
               } catch (err) {
                 setExportMessage(
                   err instanceof Error
