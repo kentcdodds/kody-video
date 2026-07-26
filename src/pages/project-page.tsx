@@ -8,6 +8,7 @@ import {
   type LoaderFunctionArgs,
 } from 'react-router-dom'
 import { ExportSheet } from '../components/export-sheet'
+import { OnboardingOverlay } from '../components/onboarding-overlay'
 import { PlaybackOverlay } from '../components/playback-overlay'
 import { Timeline } from '../components/timeline'
 import { TrimSheet } from '../components/trim-sheet'
@@ -29,6 +30,7 @@ import {
   shareOrDownload,
 } from '../lib/media'
 import { HoldRecorder } from '../lib/recorder'
+import { setOnboardingDismissed } from '../lib/storage'
 import { effectiveDurationMs, formatDuration, type ClipId } from '../lib/types'
 
 type Sheet = 'none' | 'trim' | 'export'
@@ -72,6 +74,7 @@ export function ProjectPage() {
     () => data.clips.at(-1)?.id ?? null,
   )
   const [mode, setMode] = useState<ProjectMode>('record')
+  const [onboardingOpen, setOnboardingOpen] = useState(() => !data.onboardingDismissed)
   const [recording, setRecording] = useState(false)
   const [recordingMode, setRecordingMode] = useState<RecordingMode | null>(null)
   const [recordMs, setRecordMs] = useState(0)
@@ -619,6 +622,18 @@ export function ProjectPage() {
                 setExportBusy(false)
                 setExportProgress(null)
               }
+            })()
+          }}
+        />
+      ) : null}
+
+      {onboardingOpen ? (
+        <OnboardingOverlay
+          onDismiss={() => {
+            void (async () => {
+              await setOnboardingDismissed(true)
+              setOnboardingOpen(false)
+              refresh()
             })()
           }}
         />

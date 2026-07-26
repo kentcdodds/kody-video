@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it } from 'vitest'
 import {
+  DB_NAME,
   __resetDbForTests,
   addClip,
   createProject,
@@ -8,10 +9,12 @@ import {
   duplicateClip,
   getClip,
   getClipsForProject,
+  getSettings,
   getUndoSnapshot,
   listProjects,
   moveClip,
   renameProject,
+  setOnboardingDismissed,
   undoDeleteLastClip,
   updateClipTrim,
 } from './storage'
@@ -24,6 +27,15 @@ function fakeBlob(label: string): Blob {
 describe('storage layer', () => {
   beforeEach(async () => {
     await __resetDbForTests()
+  })
+
+  it('uses Kody Video storage settings', async () => {
+    expect(DB_NAME).toBe('kody-video')
+    expect((await getSettings()).onboardingDismissed).toBe(false)
+
+    await setOnboardingDismissed(true)
+
+    expect((await getSettings()).onboardingDismissed).toBe(true)
   })
 
   it('creates and lists projects newest-first', async () => {

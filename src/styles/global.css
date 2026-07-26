@@ -790,6 +790,79 @@ a {
   font-weight: 700;
 }
 
+.onboarding-overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 7;
+  display: grid;
+  place-items: end center;
+  padding: 20px 16px calc(20px + var(--safe-bottom));
+  background:
+    radial-gradient(85% 60% at 50% 16%, rgba(68, 215, 168, 0.18), transparent 60%),
+    rgba(16, 23, 26, 0.76);
+  backdrop-filter: blur(12px);
+}
+
+.onboarding-card {
+  width: min(100%, 390px);
+  border-radius: 30px;
+  border: 1px solid var(--line);
+  background: linear-gradient(180deg, rgba(54, 72, 80, 0.98), rgba(23, 33, 38, 0.98));
+  box-shadow: var(--shadow);
+  padding: 20px;
+}
+
+.onboarding-card .brand-mark {
+  margin-bottom: 12px;
+}
+
+.onboarding-card h2 {
+  margin: 0;
+  font-family: var(--font-display);
+  font-size: 2rem;
+  letter-spacing: -0.04em;
+}
+
+.onboarding-card ol {
+  list-style: none;
+  margin: 18px 0;
+  padding: 0;
+  display: grid;
+  gap: 12px;
+}
+
+.onboarding-card li {
+  display: grid;
+  grid-template-columns: 34px 1fr;
+  gap: 10px;
+  align-items: start;
+}
+
+.onboarding-card li > span {
+  width: 34px;
+  height: 34px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  background: var(--accent);
+  color: #10171a;
+  font-weight: 800;
+}
+
+.onboarding-card strong {
+  display: block;
+}
+
+.onboarding-card p {
+  margin: 3px 0 0;
+  color: var(--ink-muted);
+  line-height: 1.35;
+}
+
+.onboarding-card .btn {
+  width: 100%;
+}
+
 .visually-hidden {
   position: absolute;
   width: 1px;
