@@ -11,11 +11,11 @@ const steps = [
   },
   {
     title: 'Preview the take',
-    body: 'Open Editor to scrub clips, trim rough edges, and check the sequence.',
+    body: 'Open Tools → Editor to scrub clips, trim rough edges, and check the sequence.',
   },
   {
     title: 'Delete fast',
-    body: 'Use Delete last after a bad take. The snackbar gives you Undo.',
+    body: 'Open Tools → Delete last after a bad take. The snackbar gives you Undo.',
   },
   {
     title: 'Tap OK',
