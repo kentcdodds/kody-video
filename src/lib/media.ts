@@ -261,13 +261,20 @@ export async function exportProjectAsWebm(
   // Give the recorder a moment to latch onto the canvas track.
   await wait(120)
 
-  const totalMs = clips.reduce((sum, clip) => sum + effectiveDurationMs(clip), 0)
-  let elapsed = 0
+  const exportable = clips.filter((clip) => effectiveDurationMs(clip) >= 40)
+  if (exportable.length === 0) {
+    throw new Error('Nothing to export')
+  }
+
+  let paintedTotalMs = 0
 
   try {
-    for (const clip of clips) {
-      const clipMs = effectiveDurationMs(clip)
-      if (clipMs < 40) continue
+    for (let i = 0; i < exportable.length; i += 1) {
+      const clip = exportable[i]
+      const remainingGuessMs = exportable
+        .slice(i + 1)
+        .reduce((sum, item) => sum + effectiveDurationMs(item), 0)
+
       const paintedMs = await paintClipToCanvas({
         clip,
         canvas,
@@ -275,15 +282,21 @@ export async function exportProjectAsWebm(
         audioContext,
         dest,
         onFrameProgress: (clipElapsed) => {
-          if (totalMs > 0) onProgress?.((elapsed + clipElapsed) / totalMs)
+          const denom = paintedTotalMs + clipElapsed + remainingGuessMs
+          if (denom > 0) onProgress?.((paintedTotalMs + clipElapsed) / denom)
         },
       })
-      elapsed += paintedMs > 0 ? paintedMs : clipMs
-      onProgress?.(totalMs > 0 ? Math.min(1, elapsed / totalMs) : 1)
+      if (paintedMs <= 0) {
+        throw new Error('A clip produced no exportable video frames')
+      }
+      paintedTotalMs += paintedMs
+      const denom = paintedTotalMs + remainingGuessMs
+      onProgress?.(denom > 0 ? paintedTotalMs / denom : 1)
     }
 
     // Hold the last frame briefly so the final GOP isn't truncated.
     await wait(180)
+    onProgress?.(1)
   } finally {
     if (recorder.state !== 'inactive') recorder.stop()
     canvasStream.getTracks().forEach((t) => t.stop())
@@ -293,7 +306,7 @@ export async function exportProjectAsWebm(
   }
 
   const blob = await stopped
-  const minBytes = Math.max(8_000, Math.floor(totalMs * 4))
+  const minBytes = Math.max(8_000, Math.floor(Math.max(paintedTotalMs, 1_000) * 4))
   if (blob.size < minBytes) {
     throw new Error(
       `Export produced an unusable file (${Math.round(blob.size / 1024)}KB). Try “Files” instead.`,
