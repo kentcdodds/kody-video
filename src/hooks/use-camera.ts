@@ -2,7 +2,9 @@ import { useCallback, useRef, useState, type RefCallback } from 'react'
 import {
   canFlipCamera,
   openCameraStream,
+  openMicrophoneTrack,
   queryCameraPermission,
+  stopAudioTracks,
   stopStream,
   type CameraPermissionState,
   type FacingMode,
@@ -19,19 +21,22 @@ export interface UseCameraResult {
   start: () => Promise<void>
   flip: () => Promise<void>
   stop: () => void
+  enableMic: () => Promise<void>
+  releaseMic: () => void
 }
 
 /**
  * Camera lifecycle is event/ref-driven (no useEffect):
  * - Video ref callback attaches/detaches the stream and starts capture when mounted.
- * - Flip/retry run from user events.
- * - Unmounting the video element stops tracks.
+ * - Preview is video-only so Android OS voice-to-text can keep the mic.
+ * - enableMic/releaseMic attach a mic track only while recording.
  */
 export function useCamera(): UseCameraResult {
   const streamRef = useRef<MediaStream | null>(null)
   const videoElRef = useRef<HTMLVideoElement | null>(null)
   const facingRef = useRef<FacingMode>('environment')
   const startInFlightRef = useRef<Promise<void> | null>(null)
+  const micInFlightRef = useRef<Promise<void> | null>(null)
 
   const [stream, setStream] = useState<MediaStream | null>(null)
   const [facing, setFacing] = useState<FacingMode>('environment')
@@ -74,7 +79,7 @@ export function useCamera(): UseCameraResult {
       }
 
       try {
-        const next = await openCameraStream(facingRef.current)
+        const next = await openCameraStream(facingRef.current, { audio: false })
         setPermission({ status: 'granted' })
         replaceStream(next)
         setCanFlip(await canFlipCamera())
@@ -100,12 +105,46 @@ export function useCamera(): UseCameraResult {
     setFacing(nextFacing)
     setError(null)
     try {
-      const next = await openCameraStream(nextFacing)
+      const next = await openCameraStream(nextFacing, { audio: false })
       replaceStream(next)
     } catch (err) {
       setError(permissionMessage(err))
     }
   }, [replaceStream])
+
+  const releaseMic = useCallback(() => {
+    stopAudioTracks(streamRef.current)
+  }, [])
+
+  const enableMic = useCallback(async () => {
+    if (micInFlightRef.current) {
+      await micInFlightRef.current
+      return
+    }
+
+    const run = (async () => {
+      const current = streamRef.current
+      if (!current) return
+      if (current.getAudioTracks().some((track) => track.readyState === 'live')) return
+      try {
+        const audioTrack = await openMicrophoneTrack()
+        if (streamRef.current !== current) {
+          audioTrack.stop()
+          return
+        }
+        current.addTrack(audioTrack)
+      } catch (err) {
+        throw new Error(permissionMessage(err))
+      }
+    })()
+
+    micInFlightRef.current = run
+    try {
+      await run
+    } finally {
+      micInFlightRef.current = null
+    }
+  }, [])
 
   const stop = useCallback(() => {
     stopStream(streamRef.current)
@@ -144,6 +183,8 @@ export function useCamera(): UseCameraResult {
     start,
     flip,
     stop,
+    enableMic,
+    releaseMic,
   }
 }
 
@@ -158,7 +199,7 @@ function permissionMessage(err: unknown): string {
         return 'No camera was found on this device.'
       case 'NotReadableError':
       case 'TrackStartError':
-        return 'Camera is in use by another app. Close it and retry.'
+        return 'Camera or mic is in use by another app. Close it and retry.'
       case 'SecurityError':
         return 'Camera requires a secure context (HTTPS or localhost).'
       default:

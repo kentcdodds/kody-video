@@ -635,14 +635,28 @@ a {
 
 .record-actions {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr)) auto;
-  gap: 8px;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 12px;
   align-items: center;
 }
 
 .record-actions .btn {
   min-width: 0;
-  padding: 0 12px;
+  min-height: 52px;
+  padding: 0 16px;
+}
+
+.tools-sheet-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-top: 14px;
+}
+
+.tools-sheet-list .btn {
+  width: 100%;
+  min-height: 48px;
+  justify-content: center;
 }
 
 .ok-button {
@@ -1003,8 +1017,8 @@ a {
   }
 
   .record-actions {
-    grid-template-columns: repeat(3, minmax(0, 1fr)) auto;
-    gap: 6px;
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 10px;
   }
 
   .editor-mode .camera-stage {

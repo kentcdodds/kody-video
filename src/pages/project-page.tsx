@@ -8,10 +8,12 @@ import {
   type LoaderFunctionArgs,
 } from 'react-router-dom'
 import { BlobVideo } from '../components/blob-video'
+import { EditorToolsSheet } from '../components/editor-tools-sheet'
 import { ExportSheet } from '../components/export-sheet'
 import { OnboardingOverlay } from '../components/onboarding-overlay'
 import { PlaybackOverlay } from '../components/playback-overlay'
 import { Timeline } from '../components/timeline'
+import { ToolsSheet } from '../components/tools-sheet'
 import { TrimSheet } from '../components/trim-sheet'
 import { useCamera } from '../hooks/use-camera'
 import {
@@ -35,7 +37,7 @@ import { HoldRecorder } from '../lib/recorder'
 import { setOnboardingDismissed } from '../lib/storage'
 import { effectiveDurationMs, formatDuration, type ClipId } from '../lib/types'
 
-type Sheet = 'none' | 'trim' | 'export'
+type Sheet = 'none' | 'trim' | 'export' | 'tools' | 'editor-tools'
 type ProjectMode = 'record' | 'editor'
 type RecordingMode = 'hold' | 'hands-free'
 
@@ -136,7 +138,7 @@ export function ProjectPage() {
   )
 
   const beginRecord = useCallback(
-    (pointerId: number | null, nextRecordingMode: RecordingMode) => {
+    async (pointerId: number | null, nextRecordingMode: RecordingMode) => {
       if (recording || playing || sheet !== 'none' || countdown !== null) return
       if (!camera.stream || !camera.isReady) {
         showToast('Camera not ready')
@@ -144,9 +146,20 @@ export function ProjectPage() {
       }
       pointerIdRef.current = pointerId
       try {
+        // Grab the mic only for this take so Brave/Android voice-to-text stays free while idle.
+        await camera.enableMic()
+        if (pointerId !== null && pointerIdRef.current !== pointerId) {
+          camera.releaseMic()
+          return
+        }
+        if (nextRecordingMode === 'hold' && pointerId !== null && pointerIdRef.current === null) {
+          camera.releaseMic()
+          return
+        }
         const startedOk = recorderRef.current.start(camera.stream)
         if (!startedOk) {
           pointerIdRef.current = null
+          camera.releaseMic()
           showToast('Still finishing the last clip')
           return
         }
@@ -159,13 +172,24 @@ export function ProjectPage() {
           recordRafRef.current = requestAnimationFrame(tick)
         }
         recordRafRef.current = requestAnimationFrame(tick)
-      } catch {
-        showToast('Could not start recording')
+      } catch (err) {
+        camera.releaseMic()
+        showToast(err instanceof Error ? err.message : 'Could not start recording')
         pointerIdRef.current = null
         setRecordingMode(null)
       }
     },
-    [camera.isReady, camera.stream, countdown, playing, recording, sheet, showToast],
+    [
+      camera.enableMic,
+      camera.isReady,
+      camera.releaseMic,
+      camera.stream,
+      countdown,
+      playing,
+      recording,
+      sheet,
+      showToast,
+    ],
   )
 
   const endRecord = useCallback(
@@ -177,7 +201,12 @@ export function ProjectPage() {
       ) {
         return
       }
-      if (!recorderRef.current.isRecording && !recording) return
+      if (!recorderRef.current.isRecording && !recording) {
+        // Pointer released while mic grant was still in flight.
+        pointerIdRef.current = null
+        camera.releaseMic()
+        return
+      }
       pointerIdRef.current = null
       stopRecordTicker()
       setRecording(false)
@@ -197,9 +226,11 @@ export function ProjectPage() {
         }
       } catch (err) {
         showToast(err instanceof Error ? err.message : 'Save failed')
+      } finally {
+        camera.releaseMic()
       }
     },
-    [mode, projectId, recording, refresh, showToast, stopRecordTicker],
+    [camera.releaseMic, mode, projectId, recording, refresh, showToast, stopRecordTicker],
   )
 
   const startSelfTimer = useCallback(() => {
@@ -294,6 +325,7 @@ export function ProjectPage() {
             clearCountdown()
             stopRecordTicker()
             recorderRef.current.cancel()
+            camera.releaseMic()
             window.clearTimeout(toastTimerRef.current)
           }}
         >
@@ -399,7 +431,7 @@ export function ProjectPage() {
               <p>
                 {camera.error ??
                   camera.permission.message ??
-                  'Allow camera and microphone to record clips on this device.'}
+                  'Allow camera to preview. Microphone is requested only while you record.'}
               </p>
               <button type="button" className="btn btn-primary" onClick={() => void camera.start()}>
                 Try again
@@ -427,25 +459,9 @@ export function ProjectPage() {
                 type="button"
                 className="btn btn-secondary"
                 disabled={recording}
-                onClick={() => setMode('editor')}
+                onClick={() => setSheet('tools')}
               >
-                Editor
-              </button>
-              <button
-                type="button"
-                className="btn btn-ghost"
-                disabled={recording || countdown !== null}
-                onClick={startSelfTimer}
-              >
-                Timer
-              </button>
-              <button
-                type="button"
-                className="btn btn-ghost"
-                disabled={data.clips.length === 0 || recording}
-                onClick={deleteLastClip}
-              >
-                Delete last
+                Tools
               </button>
               <button
                 type="button"
@@ -468,7 +484,14 @@ export function ProjectPage() {
                 <p className="eyebrow">Editor</p>
                 <strong>{selected ? `Clip ${data.clips.findIndex((c) => c.id === selected.id) + 1}` : 'No clip selected'}</strong>
               </div>
-              <button type="button" className="btn btn-secondary" onClick={() => setMode('record')}>
+              <button
+                type="button"
+                className="btn btn-secondary"
+                onClick={() => {
+                  camera.releaseMic()
+                  setMode('record')
+                }}
+              >
                 Camera
               </button>
             </div>
@@ -517,60 +540,10 @@ export function ProjectPage() {
               <button
                 type="button"
                 className="btn btn-ghost"
-                disabled={!resolvedSelectedId || recording}
-                onClick={() => {
-                  void (async () => {
-                    if (!resolvedSelectedId) return
-                    const copy = await duplicateSelectedClip(resolvedSelectedId)
-                    setSelectedClipId(copy.id)
-                    refresh()
-                  })()
-                }}
+                disabled={recording}
+                onClick={() => setSheet('editor-tools')}
               >
-                Duplicate
-              </button>
-              <button
-                type="button"
-                className="btn btn-ghost"
-                disabled={!resolvedSelectedId || recording}
-                onClick={() => {
-                  void (async () => {
-                    if (!resolvedSelectedId) return
-                    await moveSelectedClip(projectId, resolvedSelectedId, 'left')
-                    refresh()
-                  })()
-                }}
-              >
-                Move left
-              </button>
-              <button
-                type="button"
-                className="btn btn-ghost"
-                disabled={!resolvedSelectedId || recording}
-                onClick={() => {
-                  void (async () => {
-                    if (!resolvedSelectedId) return
-                    await moveSelectedClip(projectId, resolvedSelectedId, 'right')
-                    refresh()
-                  })()
-                }}
-              >
-                Move right
-              </button>
-              <button
-                type="button"
-                className="btn btn-ghost"
-                disabled={!data.canUndo || recording}
-                onClick={() => {
-                  void (async () => {
-                    const restored = await undoLastDelete(projectId)
-                    if (restored) setSelectedClipId(restored.id)
-                    refresh()
-                    showToast('Clip restored')
-                  })()
-                }}
-              >
-                Undo
+                More
               </button>
             </div>
 
@@ -600,6 +573,61 @@ export function ProjectPage() {
           </div>
         )}
       </div>
+
+      {sheet === 'tools' ? (
+        <ToolsSheet
+          canDeleteLast={data.clips.length > 0}
+          canFlip={camera.canFlip}
+          recording={recording}
+          countdownActive={countdown !== null}
+          onEditor={() => {
+            camera.releaseMic()
+            setMode('editor')
+          }}
+          onTimer={startSelfTimer}
+          onDeleteLast={deleteLastClip}
+          onFlip={() => void camera.flip()}
+          onClose={() => setSheet('none')}
+        />
+      ) : null}
+
+      {sheet === 'editor-tools' ? (
+        <EditorToolsSheet
+          canAct={!!resolvedSelectedId && !recording}
+          canUndo={data.canUndo && !recording}
+          onDuplicate={() => {
+            void (async () => {
+              if (!resolvedSelectedId) return
+              const copy = await duplicateSelectedClip(resolvedSelectedId)
+              setSelectedClipId(copy.id)
+              refresh()
+            })()
+          }}
+          onMoveLeft={() => {
+            void (async () => {
+              if (!resolvedSelectedId) return
+              await moveSelectedClip(projectId, resolvedSelectedId, 'left')
+              refresh()
+            })()
+          }}
+          onMoveRight={() => {
+            void (async () => {
+              if (!resolvedSelectedId) return
+              await moveSelectedClip(projectId, resolvedSelectedId, 'right')
+              refresh()
+            })()
+          }}
+          onUndo={() => {
+            void (async () => {
+              const restored = await undoLastDelete(projectId)
+              if (restored) setSelectedClipId(restored.id)
+              refresh()
+              showToast('Clip restored')
+            })()
+          }}
+          onClose={() => setSheet('none')}
+        />
+      ) : null}
 
       {sheet === 'trim' && selected ? (
         <TrimSheet
@@ -671,7 +699,19 @@ export function ProjectPage() {
               setExportMessageTone('info')
               setExportProgress(0)
               try {
-                const blob = await exportProjectAsWebm(data.clips, setExportProgress)
+                // Unlock AudioContext from this tap so stitched export can mix clip audio.
+                let audioContext: AudioContext | undefined
+                try {
+                  audioContext = new AudioContext()
+                  if (audioContext.state === 'suspended') {
+                    await audioContext.resume()
+                  }
+                } catch {
+                  audioContext = undefined
+                }
+                const blob = await exportProjectAsWebm(data.clips, setExportProgress, {
+                  audioContext,
+                })
                 const filename = projectFilename(data.project!.name)
                 const shareMode = await shareOrDownload(blob, filename)
                 switch (shareMode) {
