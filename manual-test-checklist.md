@@ -11,6 +11,7 @@ Run locally with HTTPS or `localhost` (`npm run dev`). Camera/mic require a secu
 - [ ] Torch toggle appears on devices with a flash; zoom chips appear when supported
 - [ ] Backgrounding the app releases camera/mic (green dot goes out); returning restarts the preview
 - [ ] Backgrounding mid-recording still saves the take
+- [ ] Screen off → on while on the camera view: preview is live again, not frozen; recording works
 - [ ] Light/dark follows system `prefers-color-scheme`
 
 ## Hold-to-record
