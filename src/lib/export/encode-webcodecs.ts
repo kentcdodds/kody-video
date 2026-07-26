@@ -384,6 +384,9 @@ async function pumpSegmentVideo({
           video.pause()
           const waitDrain = () => {
             if (finished) return
+            // Draining the encoder queue is progress: keep the stall watchdog
+            // fed even when the paused video's media time isn't advancing.
+            lastProgressAt = performance.now()
             if (videoEncoder.encodeQueueSize <= 2) {
               void video.play().catch(() => abort(new Error('Clip playback failed during export')))
               scheduleNext()

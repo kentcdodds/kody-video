@@ -66,31 +66,38 @@ function canvasToBlob(canvas: HTMLCanvasElement): Promise<Blob | null> {
   })
 }
 
-const inFlight = new Set<string>()
+const inFlight = new Map<string, Promise<ClipRecord>>()
 
 /**
  * Generate and persist thumbnails for a clip that does not have them yet
  * (new recordings and clips saved before thumbnails existed).
+ * Concurrent callers share the same in-flight generation.
  * Best-effort: failures leave the clip untouched.
  */
-export async function ensureClipThumbs(clip: ClipRecord): Promise<ClipRecord> {
-  if (clip.thumbs && clip.thumbs.length > 0) return clip
-  if (inFlight.has(clip.id)) return clip
-  inFlight.add(clip.id)
-  try {
-    const generated = await generateClipThumbs(clip.blob)
-    await updateClipThumbs(clip.id, generated)
-    return {
-      ...clip,
-      thumbs: generated.thumbs,
-      thumbWidth: generated.thumbWidth,
-      thumbHeight: generated.thumbHeight,
-      width: clip.width ?? generated.videoWidth,
-      height: clip.height ?? generated.videoHeight,
+export function ensureClipThumbs(clip: ClipRecord): Promise<ClipRecord> {
+  if (clip.thumbs && clip.thumbs.length > 0) return Promise.resolve(clip)
+  const existing = inFlight.get(clip.id)
+  if (existing) return existing
+
+  const run = (async () => {
+    try {
+      const generated = await generateClipThumbs(clip.blob)
+      await updateClipThumbs(clip.id, generated)
+      return {
+        ...clip,
+        thumbs: generated.thumbs,
+        thumbWidth: generated.thumbWidth,
+        thumbHeight: generated.thumbHeight,
+        width: clip.width ?? generated.videoWidth,
+        height: clip.height ?? generated.videoHeight,
+      }
+    } catch {
+      return clip
+    } finally {
+      inFlight.delete(clip.id)
     }
-  } catch {
-    return clip
-  } finally {
-    inFlight.delete(clip.id)
-  }
+  })()
+
+  inFlight.set(clip.id, run)
+  return run
 }

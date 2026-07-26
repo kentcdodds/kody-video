@@ -1,4 +1,4 @@
-import { useCallback, useRef, useState } from 'react'
+import { useCallback, useMemo, useRef, useState } from 'react'
 import { planExport } from '../lib/export'
 import type { ClipRecord } from '../lib/types'
 
@@ -13,7 +13,10 @@ interface PlaybackOverlayProps {
  * for previous/next clip, tap the middle to stop.
  */
 export function PlaybackOverlay({ clips, onClose }: PlaybackOverlayProps) {
-  const plan = planExport(clips)
+  // Memoized so segment identity is stable across progress re-renders —
+  // otherwise the video ref callback re-binds (revoking and reassigning the
+  // blob URL) on every tick and playback restarts.
+  const plan = useMemo(() => planExport(clips), [clips])
   const segments = plan.segments
 
   const [index, setIndex] = useState(0)
