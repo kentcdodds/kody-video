@@ -231,8 +231,13 @@ export function RecordScreen({
       } catch (err) {
         showToast(err instanceof Error ? err.message : 'Save failed')
       } finally {
-        camera.releaseMic()
-        releaseWakeLock()
+        // stop() resolves only after the blob's duration is measured, so a
+        // quick next hold may already be recording (or acquiring the mic) by
+        // now — never strip the mic or wake lock from that newer session.
+        if (!recorderRef.current.isRecording && !beginInFlightRef.current) {
+          camera.releaseMic()
+          releaseWakeLock()
+        }
       }
     },
     [camera, project.id, recording, refresh, releaseWakeLock, showToast],
