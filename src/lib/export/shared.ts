@@ -179,25 +179,47 @@ export function loadWatermarkImage(): Promise<HTMLImageElement | null> {
   })
 }
 
-/** Stamp the Kody Video mark in the bottom-right corner of a frame. */
+/** The domain shown next to the watermark mark. */
+export function watermarkDomain(): string {
+  const host = typeof location !== 'undefined' ? location.hostname : ''
+  // Dev servers and IPs shouldn't end up stamped on anyone's video.
+  if (!host || host === 'localhost' || /^[\d.]+$/.test(host)) {
+    return 'kody-video.pages.dev'
+  }
+  return host
+}
+
+/** Stamp the Kody Video mark + domain in the bottom-right corner of a frame. */
 export function drawWatermark(
   ctx: CanvasRenderingContext2D,
   image: HTMLImageElement,
   width: number,
   height: number,
 ): void {
-  const size = Math.round(Math.min(width, height) * 0.12)
-  const margin = Math.round(size * 0.3)
+  const size = Math.round(Math.min(width, height) * 0.11)
+  const margin = Math.round(size * 0.35)
   const x = width - size - margin
   const y = height - size - margin
   const radius = Math.round(size * 0.22)
 
   ctx.save()
-  ctx.globalAlpha = 0.78
+  ctx.globalAlpha = 0.5
+
+  ctx.save()
   ctx.beginPath()
   ctx.roundRect(x, y, size, size, radius)
   ctx.clip()
   ctx.drawImage(image, x, y, size, size)
+  ctx.restore()
+
+  ctx.font = `600 ${Math.max(10, Math.round(size * 0.38))}px 'DM Sans', system-ui, sans-serif`
+  ctx.textAlign = 'right'
+  ctx.textBaseline = 'middle'
+  ctx.fillStyle = '#fff'
+  ctx.shadowColor = 'rgba(0, 0, 0, 0.6)'
+  ctx.shadowBlur = Math.round(size * 0.12)
+  ctx.fillText(watermarkDomain(), x - Math.round(size * 0.22), y + Math.round(size / 2))
+
   ctx.restore()
 }
 

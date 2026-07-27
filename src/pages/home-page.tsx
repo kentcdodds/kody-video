@@ -6,16 +6,21 @@ import { ConfirmSheet } from '../components/confirm-sheet'
 import { HomeOptionsSheet } from '../components/home-options-sheet'
 import { IconMore, IconPlus } from '../components/icons'
 import { RenameSheet } from '../components/rename-sheet'
-import { loadHomeProjects, type ProjectSummary } from '../lib/project-actions'
+import { loadHomePage, type HomeLoaderData, type ProjectSummary } from '../lib/project-actions'
 import { createProject, deleteProject, renameProject } from '../lib/storage'
+import {
+  formatBytes,
+  formatStoragePercent,
+  storageSeverity,
+} from '../lib/storage-space'
 import { MAX_PROJECTS, formatDuration } from '../lib/types'
 
-export async function homeLoader(): Promise<ProjectSummary[]> {
-  return loadHomeProjects()
+export async function homeLoader(): Promise<HomeLoaderData> {
+  return loadHomePage()
 }
 
 export function HomePage() {
-  const projects = useLoaderData() as ProjectSummary[]
+  const { projects, storage } = useLoaderData() as HomeLoaderData
   const revalidator = useRevalidator()
   const navigate = useNavigate()
   const [error, setError] = useState<string | null>(null)
@@ -47,6 +52,8 @@ export function HomePage() {
 
   const slots = Array.from({ length: MAX_PROJECTS }, (_, index) => projects[index] ?? null)
   const atCap = projects.length >= MAX_PROJECTS
+  const severity = storage ? storageSeverity(storage.ratio) : 'ok'
+  const oldestProject = projects[0] ?? null
 
   return (
     <div className="screen home-screen">
@@ -61,6 +68,24 @@ export function HomePage() {
       </div>
 
       {error ? <div className="error-banner">{error}</div> : null}
+
+      {storage && severity !== 'ok' ? (
+        <div
+          className={`storage-banner${severity === 'critical' ? ' is-critical' : ''}`}
+          role="alert"
+        >
+          <strong>
+            Device storage {formatStoragePercent(storage.ratio)} full
+            {severity === 'critical' ? ' — recordings may start failing' : ''}
+          </strong>
+          <span>
+            {formatBytes(storage.usedBytes)} of {formatBytes(storage.quotaBytes)} used.
+            {oldestProject
+              ? ` Free space fast: delete an old project (⋯ on “${oldestProject.name}”, then Delete).`
+              : ' Free space by clearing other site data or files on this device.'}
+          </span>
+        </div>
+      ) : null}
 
       <section className="project-slots" aria-label="Kody Video projects">
         {slots.map((project, index) =>
@@ -115,7 +140,9 @@ export function HomePage() {
       </section>
 
       <p className="home-privacy">
-        Clips stay on this phone until you share. <Link to="/about">About</Link>
+        Clips stay on this phone until you share.
+        {storage ? ` ${formatBytes(storage.usedBytes)} of ${formatBytes(storage.quotaBytes)} used.` : ''}{' '}
+        <Link to="/about">About</Link>
       </p>
 
       <div className="home-footer">

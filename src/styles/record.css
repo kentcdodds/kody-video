@@ -117,6 +117,23 @@
   color: #fff;
 }
 
+.storage-pill {
+  margin-top: 4px;
+  padding: 3px 10px;
+  border-radius: 999px;
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  color: #1a1206;
+  background: #e8b64c;
+  border: 1px solid rgba(0, 0, 0, 0.2);
+}
+
+.storage-pill.is-critical {
+  color: #fff;
+  background: var(--danger);
+}
+
 .record-overlay {
   position: absolute;
   inset: 0;

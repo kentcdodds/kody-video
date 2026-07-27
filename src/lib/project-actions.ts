@@ -13,6 +13,7 @@ import {
   undoDeleteLastClip,
   updateClipTrim,
 } from './storage'
+import { estimateStorageSpace, type StorageSpace } from './storage-space'
 import { ensureClipThumbs } from './thumbs'
 import {
   effectiveDurationMs,
@@ -36,7 +37,19 @@ export interface ProjectLoaderData {
   onboardingDismissed: boolean
   /** True when the one-time "Remove Watermark" purchase is unlocked. */
   watermarkRemoved: boolean
+  /** Device storage estimate (null when the API is unavailable). */
+  storage: StorageSpace | null
   error: string | null
+}
+
+export interface HomeLoaderData {
+  projects: ProjectSummary[]
+  storage: StorageSpace | null
+}
+
+export async function loadHomePage(): Promise<HomeLoaderData> {
+  const [projects, storage] = await Promise.all([loadHomeProjects(), estimateStorageSpace()])
+  return { projects, storage }
 }
 
 export async function loadHomeProjects(): Promise<ProjectSummary[]> {
@@ -61,11 +74,12 @@ export async function loadHomeProjects(): Promise<ProjectSummary[]> {
 
 export async function loadProjectPage(projectId: ProjectId): Promise<ProjectLoaderData> {
   try {
-    const [project, clips, undo, settings] = await Promise.all([
+    const [project, clips, undo, settings, storage] = await Promise.all([
       getProject(projectId),
       getClipsForProject(projectId),
       getUndoSnapshot(projectId),
       getSettings(),
+      estimateStorageSpace(),
     ])
     if (!project) {
       return {
@@ -74,6 +88,7 @@ export async function loadProjectPage(projectId: ProjectId): Promise<ProjectLoad
         canUndo: false,
         onboardingDismissed: settings.onboardingDismissed,
         watermarkRemoved: settings.watermarkRemoved === true,
+        storage,
         error: 'Project not found',
       }
     }
@@ -91,6 +106,7 @@ export async function loadProjectPage(projectId: ProjectId): Promise<ProjectLoad
       canUndo: !!undo,
       onboardingDismissed: settings.onboardingDismissed,
       watermarkRemoved: settings.watermarkRemoved === true,
+      storage,
       error: null,
     }
   } catch (err) {
@@ -100,6 +116,7 @@ export async function loadProjectPage(projectId: ProjectId): Promise<ProjectLoad
       canUndo: false,
       onboardingDismissed: true,
       watermarkRemoved: false,
+      storage: null,
       error: err instanceof Error ? err.message : 'Failed to load project',
     }
   }
