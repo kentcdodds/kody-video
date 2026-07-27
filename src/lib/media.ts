@@ -67,7 +67,16 @@ export async function openCameraStream(
         video: { ...baseConstraints, deviceId: { exact: options.deviceId } },
       })
     } catch {
-      // Fall through to the facing-mode request below.
+      // Some Android HALs choke on resolution hints for auxiliary lenses —
+      // retry the exact device bare before giving up on it.
+      try {
+        return await navigator.mediaDevices.getUserMedia({
+          audio: withAudio,
+          video: { deviceId: { exact: options.deviceId } },
+        })
+      } catch {
+        // Fall through to the facing-mode request below.
+      }
     }
   }
 
