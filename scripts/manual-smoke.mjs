@@ -293,6 +293,19 @@ try {
   await shot(page, '08-playback')
   await page.getByRole('button', { name: /stop preview/i }).click()
 
+  // --- About page: open-source + OK Video credits ---
+  await page.goto(BASE, { waitUntil: 'networkidle' })
+  await page.getByRole('link', { name: /^about$/i }).click()
+  await page.waitForURL(/\/about/, { timeout: 5000 })
+  await page.waitForSelector('.about-section', { timeout: 5000 }).catch(() => undefined)
+  const repoLink = await page
+    .locator('a[href="https://github.com/kentcdodds/kody-video"]')
+    .count()
+  const okVideoLink = await page.locator('a[href="https://okvideo.app"]').count()
+  if (repoLink > 0 && okVideoLink > 0) pass('about page links repo and OK Video')
+  else fail('about page links repo and OK Video', `repo=${repoLink} okvideo=${okVideoLink}`)
+  await shot(page, '11-about')
+
   // --- Persistence / offline / SPA fallback ---
   await page.goto(BASE, { waitUntil: 'networkidle' })
   const filled = await page.locator('.project-slot.filled').count()

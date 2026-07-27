@@ -288,6 +288,81 @@
   border-color: color-mix(in srgb, var(--danger) 36%, transparent);
 }
 
+.home-privacy a {
+  color: var(--accent);
+  font-weight: 600;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+/* About page */
+
+.about-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 4px;
+}
+
+.about-top strong {
+  font-family: var(--font-display);
+  font-size: 1.05rem;
+}
+
+.about-top-spacer {
+  width: var(--tap);
+}
+
+.about-body {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  padding-bottom: 16px;
+}
+
+.about-hero {
+  display: flex;
+  justify-content: center;
+  margin: 8px 0 6px;
+}
+
+.about-screen h1 {
+  font-family: var(--font-display);
+  font-size: 2rem;
+  letter-spacing: -0.03em;
+  text-align: center;
+  margin: 0 0 6px;
+}
+
+.about-screen h1 span {
+  color: var(--accent);
+}
+
+.about-section {
+  margin-top: 18px;
+}
+
+.about-section h2 {
+  font-family: var(--font-display);
+  font-size: 1.15rem;
+  margin: 0 0 6px;
+}
+
+.about-section p {
+  margin: 0;
+  color: var(--ink-muted);
+  line-height: 1.55;
+}
+
+.about-section a {
+  color: var(--accent);
+  font-weight: 600;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
 /* Onboarding */
 
 .onboarding-overlay {

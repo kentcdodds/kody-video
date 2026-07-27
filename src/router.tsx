@@ -1,4 +1,5 @@
 import { Navigate, createBrowserRouter } from 'react-router-dom'
+import { AboutPage } from './pages/about-page'
 import { HomePage, homeLoader } from './pages/home-page'
 import { ProjectPage, projectLoader } from './pages/project-page'
 import { UnlockedPage, unlockedLoader } from './pages/unlocked-page'
@@ -18,6 +19,10 @@ export const router = createBrowserRouter([
     path: '/unlocked',
     element: <UnlockedPage />,
     loader: unlockedLoader,
+  },
+  {
+    path: '/about',
+    element: <AboutPage />,
   },
   {
     path: '*',
