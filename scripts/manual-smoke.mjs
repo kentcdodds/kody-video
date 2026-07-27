@@ -176,14 +176,14 @@ try {
   await shot(page, '06-trim')
   await page.getByRole('button', { name: /^cancel$/i }).click()
 
-  // --- Export: OK → full-screen progress overlay → ready with Save ---
-  await page.getByRole('button', { name: /^ok$/i }).first().click()
+  // --- Export: Go → full-screen progress overlay → ready with Save ---
+  await page.getByRole('button', { name: /^go$/i }).first().click()
   const overlayShown = await page
     .waitForSelector('.export-overlay', { timeout: 4000 })
     .then(() => true)
     .catch(() => false)
-  if (overlayShown) pass('OK opens full-screen export overlay')
-  else fail('OK opens full-screen export overlay')
+  if (overlayShown) pass('Go opens full-screen export overlay')
+  else fail('Go opens full-screen export overlay')
 
   const previewPainted = await page
     .waitForFunction(
@@ -250,7 +250,7 @@ try {
   await page.waitForURL(BASE + '/', { timeout: 5000 }).catch(() => undefined)
   await page.locator('.project-slot.filled .slot-open').first().click()
   await page.waitForURL(/\/project\//, { timeout: 5000 })
-  await page.getByRole('button', { name: /^ok$/i }).first().click()
+  await page.getByRole('button', { name: /^go$/i }).first().click()
   const unlockedExport = await page
     .waitForFunction(
       () => {

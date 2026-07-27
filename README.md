@@ -1,6 +1,6 @@
 # Kody Video
 
-Mobile-first web clips camera: **hold anywhere on the preview to record**, arrange clips on a filmstrip timeline, then tap **OK** to export/share — all **on-device**.
+Mobile-first web clips camera: **hold anywhere on the preview to record**, arrange clips on a filmstrip timeline, then tap **Go** to export/share — all **on-device**.
 
 Kody Video is inspired by the OK Video interaction model: camera-first capture, quick clip cleanup, and one big OK/share moment. It is an independent project with its own name, mark, and implementation; it is not affiliated with OK Video and does not use OK Video trademarks or assets. The koala mascot is credited to the KCD community / [kentcdodds.com/kody](https://kentcdodds.com/kody). App artwork in `public/art/` was generated from that Kody reference (camera, timeline, share, app icon).
 
@@ -34,7 +34,7 @@ For a phone on the same network, use your machine’s LAN URL over HTTPS, or tun
 - Editor: filmstrip timeline (thumbnails, width ∝ duration), drag to reorder, duplicate, delete w/ undo, **in-timeline trim with drag handles**
 - Project preview playback: tap edges to skip clips, tap middle to stop
 - Up to **6** stable project slots (create / open / rename / delete, poster art from your clips)
-- Big OK CTA: on-device export to **one video file**, then Share (system sheet) or Save
+- Big Go CTA: on-device export to **one video file**, then Share (system sheet) or Save
 - Fallback: save clips as separate files
 - Project **backup/import**: one `.kodyvideo` file per project (clips, trims,
   location data) — a safety net, and the way to move a project between

@@ -47,8 +47,8 @@ Run locally with HTTPS or `localhost` (`npm run dev`). Camera/mic require a secu
 - [ ] Tap right/left edge skips to next/previous clip; tap middle stops
 - [ ] Segmented progress bar tracks clips
 
-## OK / export
-- [ ] OK starts the export immediately ("Exporting your video…" + progress)
+## Go / export
+- [ ] Go starts the export immediately ("Exporting your video…" + progress)
 - [ ] Export completes; sheet shows format + size ("MP4 · x MB" expected on Android)
 - [ ] Share opens the system share sheet (fresh tap, no silent failure)
 - [ ] Save stores the file locally

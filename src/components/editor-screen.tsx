@@ -313,11 +313,11 @@ export function EditorScreen({
           </button>
           <button
             type="button"
-            className="ok-button compact"
+            className="go-button compact"
             disabled={clips.length === 0}
             onClick={onOpenExport}
           >
-            OK
+            Go
           </button>
         </div>
 

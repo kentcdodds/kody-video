@@ -159,7 +159,7 @@ export function HomePage() {
         <h1 className="brand">
           Kody <span>Video</span>
         </h1>
-        <p className="lede">Hold to record. Tap OK to share.</p>
+        <p className="lede">Hold to record. Tap Go to share.</p>
       </div>
 
       {isLegacyOrigin() ? (

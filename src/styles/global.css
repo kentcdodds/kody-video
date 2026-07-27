@@ -257,7 +257,7 @@ a {
   line-height: 1.4;
 }
 
-.ok-button {
+.go-button {
   width: 84px;
   height: 84px;
   min-width: 84px;
@@ -275,11 +275,11 @@ a {
   transition: transform 160ms ease, opacity 160ms ease;
 }
 
-.ok-button:active {
+.go-button:active {
   transform: scale(0.95);
 }
 
-.ok-button.compact {
+.go-button.compact {
   width: 58px;
   height: 58px;
   min-width: 58px;
@@ -287,7 +287,7 @@ a {
   font-size: 1.05rem;
 }
 
-.ok-button:disabled {
+.go-button:disabled {
   opacity: 0.42;
   cursor: not-allowed;
 }

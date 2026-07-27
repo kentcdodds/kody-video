@@ -18,7 +18,7 @@ const steps = [
     body: 'Backspace deletes the last clip (with Undo). Scissors opens the editor to trim or reorder.',
   },
   {
-    title: 'Tap OK',
+    title: 'Tap Go',
     body: 'Exports one video on-device, then Share or Save. Nothing leaves this phone until you choose.',
   },
 ]

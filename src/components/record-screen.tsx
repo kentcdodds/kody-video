@@ -825,11 +825,11 @@ export function RecordScreen({
         </div>
         <button
           type="button"
-          className="ok-button"
+          className="go-button"
           disabled={clips.length === 0 || recording}
           onClick={onOpenExport}
         >
-          OK
+          Go
         </button>
       </div>
     </div>
