@@ -128,7 +128,10 @@ export function useCamera(): UseCameraResult {
   const [rearLensCount, setRearLensCount] = useState(0)
   const [rearLensIndex, setRearLensIndex] = useState(0)
   const rearLensesRef = useRef<string[]>([])
+  const rearLensIndexRef = useRef(0)
   const lensSwitchInFlightRef = useRef(false)
+  /** Bumped by stop(): async opens started before a stop must not adopt. */
+  const cameraEpochRef = useRef(0)
 
   const zoomRangeRef = useRef<CameraZoomRange | null>(null)
   const zoomSyncTimerRef = useRef(0)
@@ -205,6 +208,7 @@ export function useCamera(): UseCameraResult {
     setRearLensCount(lenses.length)
     const activeId = active.getVideoTracks()[0]?.getSettings().deviceId ?? ''
     const index = lenses.indexOf(activeId)
+    rearLensIndexRef.current = index >= 0 ? index : 0
     setRearLensIndex(index >= 0 ? index : 0)
   }, [])
 
@@ -277,16 +281,22 @@ export function useCamera(): UseCameraResult {
     try {
       const current = streamRef.current
       const activeId = current?.getVideoTracks()[0]?.getSettings().deviceId ?? ''
-      const activeIndex = lenses.indexOf(activeId)
+      const foundIndex = lenses.indexOf(activeId)
+      // When the open stream and the enumeration disagree (id rotation,
+      // fallback opens), advance from the lens the UI shows instead of
+      // silently jumping back to the first lens.
+      const activeIndex = foundIndex >= 0 ? foundIndex : rearLensIndexRef.current
       const nextId = lenses[(activeIndex + 1) % lenses.length]!
       // Android camera HALs are often exclusive across rear lenses: release
       // the current camera before opening the next one.
       stopStream(current)
       streamRef.current = null
       setIsReady(false)
-      // A flip may land while a lens open is in flight; its stream must win.
+      // A flip or a full stop (e.g. tab hidden) may land while a lens open
+      // is in flight — never adopt a stream into a stopped or flipped camera.
+      const epoch = cameraEpochRef.current
       const adopt = (opened: MediaStream): boolean => {
-        if (facingRef.current !== 'environment') {
+        if (facingRef.current !== 'environment' || cameraEpochRef.current !== epoch) {
           stopStream(opened)
           return false
         }
@@ -409,6 +419,7 @@ export function useCamera(): UseCameraResult {
   }, [])
 
   const stop = useCallback(() => {
+    cameraEpochRef.current += 1
     stopStream(streamRef.current)
     streamRef.current = null
     setStream(null)
