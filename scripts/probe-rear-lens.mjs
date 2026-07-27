@@ -6,9 +6,11 @@ import { setTimeout as sleep } from 'node:timers/promises'
 
 const PORT = 4185
 const BASE = `http://127.0.0.1:${PORT}`
+// Detached so the whole npm→vite process group can be killed at the end.
 const preview = spawn('npm', ['run', 'preview', '--', '--host', '127.0.0.1', '--port', String(PORT)], {
   cwd: process.cwd(),
   stdio: ['ignore', 'pipe', 'pipe'],
+  detached: true,
 })
 async function waitForServer(url) {
   for (let i = 0; i < 60; i++) {
@@ -122,6 +124,10 @@ try {
 } catch (err) {
   check('probe crashed', false, String(err))
 } finally {
-  preview.kill()
+  try {
+    process.kill(-preview.pid, 'SIGTERM')
+  } catch {
+    preview.kill()
+  }
 }
 process.exit(results.every(Boolean) ? 0 : 1)

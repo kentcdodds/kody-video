@@ -297,6 +297,7 @@ export function useCamera(): UseCameraResult {
       // the current camera before opening the next one.
       stopStream(current)
       streamRef.current = null
+      setStream(null)
       setIsReady(false)
       // A flip or a full stop (e.g. tab hidden) may land while a lens open
       // is in flight — never adopt a stream into a stopped or flipped camera.
