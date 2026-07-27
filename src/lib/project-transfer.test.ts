@@ -62,7 +62,19 @@ describe('project backup round trip', () => {
     expect(clips[0].trimStartMs).toBe(100)
     expect(clips[0].trimEndMs).toBe(1200)
     expect(clips[0].lat).toBe(40.2338)
+    expect(clips[0].createdAt).toBe(1700000000000)
     expect(await clips[0].blob.text()).toBe('MEDIA')
+  })
+
+  it('rolls back the project when an import fails midway', async () => {
+    const backup = serializeProject(fakeProject('Broken'), [fakeClip('clip_a', 'MEDIA')])
+    const parsed = await parseProjectBackup(backup)
+    // Corrupt one clip so addClip's trim restore blows up deterministically.
+    parsed.clips[0].trimStartMs = Number.NaN
+
+    await expect(importProjectBackup(parsed)).rejects.toThrow()
+    const projects = await listProjects()
+    expect(projects.map((p) => p.name)).not.toContain('Broken')
   })
 
   it('rejects non-backup files', async () => {

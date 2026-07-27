@@ -1,4 +1,4 @@
-import { addClip, createProject, updateClipTrim } from './storage'
+import { addClip, createProject, deleteProject, updateClipTrim } from './storage'
 import type { ClipRecord, Project } from './types'
 
 /**
@@ -143,23 +143,43 @@ export async function parseProjectBackup(file: Blob): Promise<ParsedBackup> {
   return { projectName: String(manifest.projectName || 'Imported project'), clips }
 }
 
+function assertImportableClip(clip: ParsedBackup['clips'][number]): void {
+  const finite =
+    Number.isFinite(clip.durationMs) &&
+    Number.isFinite(clip.trimStartMs) &&
+    Number.isFinite(clip.trimEndMs) &&
+    Number.isFinite(clip.createdAt)
+  if (!finite || clip.durationMs <= 0 || clip.blob.size <= 0) {
+    throw new Error('This backup file is damaged')
+  }
+}
+
 /** Create a fresh project (new ids) from a parsed backup. */
 export async function importProjectBackup(parsed: ParsedBackup): Promise<Project> {
   const project = await createProject(parsed.projectName)
-  for (const clip of parsed.clips) {
-    const added = await addClip({
-      projectId: project.id,
-      blob: clip.blob,
-      mimeType: clip.mimeType,
-      durationMs: clip.durationMs,
-      width: clip.width,
-      height: clip.height,
-      lat: clip.lat,
-      lng: clip.lng,
-      locationAccuracyM: clip.locationAccuracyM,
-    })
-    // Restore trims (addClip resets them to the full clip).
-    await updateClipTrim(added.id, clip.trimStartMs, clip.trimEndMs)
+  try {
+    for (const clip of parsed.clips) {
+      assertImportableClip(clip)
+      const added = await addClip({
+        projectId: project.id,
+        blob: clip.blob,
+        mimeType: clip.mimeType,
+        durationMs: clip.durationMs,
+        // Keep the original capture time so chapter titles stay truthful.
+        createdAt: clip.createdAt,
+        width: clip.width,
+        height: clip.height,
+        lat: clip.lat,
+        lng: clip.lng,
+        locationAccuracyM: clip.locationAccuracyM,
+      })
+      // Restore trims (addClip resets them to the full clip).
+      await updateClipTrim(added.id, clip.trimStartMs, clip.trimEndMs)
+    }
+    return project
+  } catch (error) {
+    // Never leave a half-imported project behind.
+    await deleteProject(project.id).catch(() => undefined)
+    throw error
   }
-  return project
 }
