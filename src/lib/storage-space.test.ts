@@ -29,7 +29,8 @@ describe('formatBytes', () => {
     expect(formatBytes(12 * 1024 * 1024 * 1024)).toBe('12 GB')
   })
 
-  it('handles nonsense input', () => {
+  it('handles zero and nonsense input', () => {
+    expect(formatBytes(0)).toBe('0 MB')
     expect(formatBytes(-5)).toBe('0 MB')
     expect(formatBytes(Number.NaN)).toBe('0 MB')
   })
