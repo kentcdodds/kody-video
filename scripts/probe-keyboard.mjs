@@ -146,6 +146,26 @@ try {
   const endedOnKeyup = await page.evaluate(() => !document.querySelector('.record-screen.is-recording'))
   check('space keyup still ends the take', endedOnKeyup)
 
+  // Space on a tab-focused control must activate it, not start a take.
+  await page.locator('button[aria-label="Self-timer"]').focus()
+  await page.keyboard.press('Space')
+  await sleep(600)
+  const recordedViaFocusedButton = await page.evaluate(
+    () => !!document.querySelector('.record-screen.is-recording'),
+  )
+  const countdownShown = await page.evaluate(
+    () => !!document.querySelector('.countdown-overlay'),
+  )
+  check(
+    'space on focused control activates it instead of recording',
+    !recordedViaFocusedButton && countdownShown,
+    `countdown=${countdownShown} recording=${recordedViaFocusedButton}`,
+  )
+  // Cancel the countdown via a stage tap so the probe ends idle.
+  const stageBox = await page.locator('.record-stage').boundingBox()
+  await page.mouse.click(stageBox.x + stageBox.width / 2, stageBox.y + stageBox.height / 2)
+  await sleep(400)
+
   check('no page errors', errors.length === 0, errors.join(' | '))
   await browser.close()
 } catch (err) {

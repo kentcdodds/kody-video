@@ -2,6 +2,7 @@ import { useCallback, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { planExport } from '../lib/export'
 import type { ClipRecord } from '../lib/types'
 import { IconPlay } from './icons'
+import { isInteractiveTarget } from '../lib/keyboard'
 
 interface PlaybackOverlayProps {
   clips: ClipRecord[]
@@ -75,6 +76,9 @@ export function PlaybackOverlay({ clips, onClose }: PlaybackOverlayProps) {
   // re-assigned after every commit.
   const keyActionRef = useRef<(event: KeyboardEvent) => void>(() => undefined)
   const keyAction = (event: KeyboardEvent) => {
+    // Escape stays global; everything else yields to focused controls
+    // (e.g. Space on a tab-focused skip button must click it).
+    if (event.code !== 'Escape' && isInteractiveTarget(event)) return
     switch (event.code) {
       case 'Escape':
         onClose()

@@ -22,6 +22,7 @@ import {
   IconTorch,
 } from './icons'
 import { RecordTimer } from './record-timer'
+import { isInteractiveTarget } from '../lib/keyboard'
 
 type RecordingMode = 'hold' | 'hands-free'
 
@@ -479,8 +480,7 @@ export function RecordScreen({
   const keyActions: KeyActions = {
     down: (event) => {
       if (event.repeat || lockedRef.current) return
-      const target = event.target as HTMLElement | null
-      if (target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA')) return
+      if (isInteractiveTarget(event)) return
       switch (event.code) {
         case 'Space': {
           event.preventDefault()

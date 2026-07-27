@@ -24,6 +24,7 @@ import {
 import { Timeline } from './timeline'
 import { TrimStrip } from './trim-strip'
 import type { ToastAction } from './record-screen'
+import { isInteractiveTarget } from '../lib/keyboard'
 
 interface EditorScreenProps {
   project: Project
@@ -91,8 +92,8 @@ export function EditorScreen({
   const keyActionRef = useRef<(event: KeyboardEvent) => void>(() => undefined)
   const keyAction = (event: KeyboardEvent) => {
     if (interactionLocked) return
-    const target = event.target as HTMLElement | null
-    if (target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA')) return
+    // Escape stays global; everything else yields to focused controls.
+    if (event.code !== 'Escape' && isInteractiveTarget(event)) return
     if (event.code === 'Escape') {
       if (trimming) {
         previewApiRef.current?.pause()
