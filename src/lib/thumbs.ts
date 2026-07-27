@@ -10,8 +10,9 @@ export const POSTER_HEIGHT = 640
 
 export interface GeneratedThumbs {
   thumbs: Blob[]
-  /** High-res frame for the home slot art (same moment as thumbs[0]). */
-  poster: Blob | null
+  /** High-res frame for the home slot art (same moment as thumbs[0]);
+   * guaranteed present — falls back to the first filmstrip frame. */
+  poster: Blob
   thumbWidth: number
   thumbHeight: number
   videoWidth: number
@@ -68,7 +69,9 @@ export async function generateClipThumbs(
 
     return {
       thumbs,
-      poster,
+      // A poster must always persist, or ensureClipThumbs would re-decode
+      // the whole clip on every load looking for one.
+      poster: poster ?? thumbs[0],
       thumbWidth,
       thumbHeight,
       videoWidth: video.videoWidth,
@@ -124,7 +127,7 @@ export function ensureClipThumbs(clip: ClipRecord): Promise<ClipRecord> {
       return {
         ...clip,
         thumbs: generated.thumbs,
-        poster: generated.poster ?? clip.poster,
+        poster: generated.poster,
         thumbWidth: generated.thumbWidth,
         thumbHeight: generated.thumbHeight,
         width: clip.width ?? generated.videoWidth,

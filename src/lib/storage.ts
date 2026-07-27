@@ -255,7 +255,7 @@ export async function addClip(input: AddClipInput): Promise<ClipRecord> {
 
 export interface ClipThumbsInput {
   thumbs: Blob[]
-  poster?: Blob | null
+  poster: Blob
   thumbWidth: number
   thumbHeight: number
   videoWidth?: number
@@ -275,7 +275,7 @@ export async function updateClipThumbs(clipId: ClipId, input: ClipThumbsInput): 
   const updated: ClipRecord = {
     ...clip,
     thumbs: input.thumbs,
-    poster: input.poster ?? clip.poster,
+    poster: input.poster,
     thumbWidth: input.thumbWidth,
     thumbHeight: input.thumbHeight,
     width: clip.width ?? input.videoWidth,
