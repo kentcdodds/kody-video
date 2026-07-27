@@ -98,6 +98,12 @@ export async function setOnboardingDismissed(onboardingDismissed: boolean): Prom
   await db.put('meta', { ...settings, onboardingDismissed })
 }
 
+export async function setLocationTaggingEnabled(locationTaggingEnabled: boolean): Promise<void> {
+  const db = await getDb()
+  const settings = await getSettings()
+  await db.put('meta', { ...settings, locationTaggingEnabled })
+}
+
 export async function listProjects(): Promise<Project[]> {
   const db = await getDb()
   const projects = await db.getAllFromIndex('projects', 'by-updated')
@@ -206,6 +212,9 @@ export interface AddClipInput {
   durationMs: number
   width?: number
   height?: number
+  lat?: number
+  lng?: number
+  locationAccuracyM?: number
 }
 
 export async function addClip(input: AddClipInput): Promise<ClipRecord> {
@@ -225,6 +234,9 @@ export async function addClip(input: AddClipInput): Promise<ClipRecord> {
     createdAt: now,
     width: input.width,
     height: input.height,
+    lat: input.lat,
+    lng: input.lng,
+    locationAccuracyM: input.locationAccuracyM,
   }
 
   const tx = db.transaction(['clips', 'projects'], 'readwrite')

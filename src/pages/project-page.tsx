@@ -52,6 +52,7 @@ export async function projectLoader({ params }: LoaderFunctionArgs): Promise<Pro
       onboardingDismissed: true,
       watermarkRemoved: false,
       storage: null,
+      locationTaggingEnabled: false,
       error: 'Project not found',
     }
   }
