@@ -36,6 +36,9 @@ For a phone on the same network, use your machine’s LAN URL over HTTPS, or tun
 - Up to **6** stable project slots (create / open / rename / delete, poster art from your clips)
 - Big OK CTA: on-device export to **one video file**, then Share (system sheet) or Save
 - Fallback: save clips as separate files
+- Project **backup/import**: one `.kodyvideo` file per project (clips, trims,
+  location data) — a safety net, and the way to move a project between
+  devices or origins (e.g. kody-video.pages.dev → kody.video)
 - Installable PWA (manifest + Workbox service worker for the app shell)
 - **No accounts, no uploads, no analytics**
 

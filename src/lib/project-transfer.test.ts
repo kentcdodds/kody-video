@@ -1,0 +1,82 @@
+import { beforeEach, describe, expect, it } from 'vitest'
+import {
+  importProjectBackup,
+  parseProjectBackup,
+  projectBackupFilename,
+  serializeProject,
+} from './project-transfer'
+import { __resetDbForTests, getClipsForProject, listProjects } from './storage'
+import type { ClipRecord, Project } from './types'
+
+function fakeProject(name = 'Road Trip'): Project {
+  return { id: 'proj_x', name, createdAt: 1, updatedAt: 2, clipIds: ['clip_a', 'clip_b'] }
+}
+
+function fakeClip(id: string, content: string, extra: Partial<ClipRecord> = {}): ClipRecord {
+  return {
+    id,
+    projectId: 'proj_x',
+    blob: new Blob([content], { type: 'video/mp4' }),
+    mimeType: 'video/mp4',
+    durationMs: 1500,
+    trimStartMs: 100,
+    trimEndMs: 1200,
+    createdAt: 1700000000000,
+    lat: 40.2338,
+    lng: -111.6585,
+    locationAccuracyM: 12,
+    ...extra,
+  }
+}
+
+describe('project backup round trip', () => {
+  beforeEach(async () => {
+    await __resetDbForTests()
+  })
+
+  it('serializes and parses a project faithfully', async () => {
+    const clips = [fakeClip('clip_a', 'AAAA'), fakeClip('clip_b', 'BBBBBBBB', { lat: undefined, lng: undefined })]
+    const backup = serializeProject(fakeProject(), clips)
+
+    const parsed = await parseProjectBackup(backup)
+    expect(parsed.projectName).toBe('Road Trip')
+    expect(parsed.clips).toHaveLength(2)
+    expect(parsed.clips[0].trimStartMs).toBe(100)
+    expect(parsed.clips[0].trimEndMs).toBe(1200)
+    expect(parsed.clips[0].lat).toBe(40.2338)
+    expect(parsed.clips[1].lat).toBeUndefined()
+    expect(await parsed.clips[0].blob.text()).toBe('AAAA')
+    expect(await parsed.clips[1].blob.text()).toBe('BBBBBBBB')
+    expect(parsed.clips[0].blob.type).toBe('video/mp4')
+  })
+
+  it('imports a backup as a fresh project with trims and geo intact', async () => {
+    const backup = serializeProject(fakeProject('Moved'), [fakeClip('clip_a', 'MEDIA')])
+    const parsed = await parseProjectBackup(backup)
+    const project = await importProjectBackup(parsed)
+
+    const projects = await listProjects()
+    expect(projects.map((p) => p.id)).toContain(project.id)
+    const clips = await getClipsForProject(project.id)
+    expect(clips).toHaveLength(1)
+    expect(clips[0].trimStartMs).toBe(100)
+    expect(clips[0].trimEndMs).toBe(1200)
+    expect(clips[0].lat).toBe(40.2338)
+    expect(await clips[0].blob.text()).toBe('MEDIA')
+  })
+
+  it('rejects non-backup files', async () => {
+    await expect(parseProjectBackup(new Blob(['just a video']))).rejects.toThrow(/not a kody video/i)
+  })
+
+  it('rejects truncated backups', async () => {
+    const backup = serializeProject(fakeProject(), [fakeClip('clip_a', 'AAAAAAAAAA')])
+    const truncated = backup.slice(0, backup.size - 4)
+    await expect(parseProjectBackup(truncated)).rejects.toThrow(/damaged/i)
+  })
+
+  it('builds a sensible filename', () => {
+    expect(projectBackupFilename('Röad Trip!!')).toBe('r-ad-trip.kodyvideo')
+    expect(projectBackupFilename('   ')).toBe('project.kodyvideo')
+  })
+})

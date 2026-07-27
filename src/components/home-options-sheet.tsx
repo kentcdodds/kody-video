@@ -2,15 +2,17 @@ interface HomeOptionsSheetProps {
   projectName: string
   onOpen: () => void
   onRename: () => void
+  onBackup: () => void
   onDelete: () => void
   onClose: () => void
 }
 
-/** Bottom sheet with Open / Rename / Delete for a filled project slot. */
+/** Bottom sheet with Open / Rename / Backup / Delete for a filled project slot. */
 export function HomeOptionsSheet({
   projectName,
   onOpen,
   onRename,
+  onBackup,
   onDelete,
   onClose,
 }: HomeOptionsSheetProps) {
@@ -26,6 +28,9 @@ export function HomeOptionsSheet({
           </button>
           <button type="button" className="home-option-btn" onClick={onRename}>
             Rename
+          </button>
+          <button type="button" className="home-option-btn" onClick={onBackup}>
+            Save backup
           </button>
           <button type="button" className="home-option-btn home-option-danger" onClick={onDelete}>
             Delete

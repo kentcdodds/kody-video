@@ -6,8 +6,15 @@ import { ConfirmSheet } from '../components/confirm-sheet'
 import { HomeOptionsSheet } from '../components/home-options-sheet'
 import { IconMore, IconPlus } from '../components/icons'
 import { RenameSheet } from '../components/rename-sheet'
+import { shareOrDownload } from '../lib/media'
 import { loadHomePage, type HomeLoaderData, type ProjectSummary } from '../lib/project-actions'
-import { createProject, deleteProject, renameProject } from '../lib/storage'
+import {
+  importProjectBackup,
+  parseProjectBackup,
+  projectBackupFilename,
+  serializeProject,
+} from '../lib/project-transfer'
+import { createProject, deleteProject, getClipsForProject, renameProject } from '../lib/storage'
 import {
   formatBytes,
   formatStoragePercent,
@@ -28,6 +35,7 @@ export function HomePage() {
   const [renaming, setRenaming] = useState<ProjectSummary | null>(null)
   const [deleting, setDeleting] = useState<ProjectSummary | null>(null)
   const [busy, setBusy] = useState(false)
+  const [notice, setNotice] = useState<string | null>(null)
 
   const refresh = () => {
     startTransition(() => {
@@ -44,6 +52,47 @@ export function HomePage() {
         navigate(`/project/${project.id}`)
       } catch (err) {
         setError(err instanceof Error ? err.message : 'Could not create project')
+      } finally {
+        setBusy(false)
+      }
+    })()
+  }
+
+  const backupProject = (project: ProjectSummary) => {
+    void (async () => {
+      setBusy(true)
+      setError(null)
+      setNotice(null)
+      try {
+        const clips = await getClipsForProject(project.id)
+        if (clips.length === 0) throw new Error('Nothing to back up — this project has no clips.')
+        const backup = serializeProject(project, clips)
+        const outcome = await shareOrDownload(backup, projectBackupFilename(project.name))
+        if (outcome !== 'cancelled') {
+          setNotice(
+            'Backup saved. Open kody.video (or any Kody Video) and tap Import to restore it.',
+          )
+        }
+      } catch (err) {
+        setError(err instanceof Error ? err.message : 'Could not create the backup')
+      } finally {
+        setBusy(false)
+      }
+    })()
+  }
+
+  const importBackup = (file: File) => {
+    void (async () => {
+      setBusy(true)
+      setError(null)
+      setNotice(null)
+      try {
+        const parsed = await parseProjectBackup(file)
+        const project = await importProjectBackup(parsed)
+        refresh()
+        setNotice(`Imported “${project.name}” — ${parsed.clips.length} clip${parsed.clips.length === 1 ? '' : 's'}.`)
+      } catch (err) {
+        setError(err instanceof Error ? err.message : 'Could not import that file')
       } finally {
         setBusy(false)
       }
@@ -68,6 +117,7 @@ export function HomePage() {
       </div>
 
       {error ? <div className="error-banner">{error}</div> : null}
+      {notice ? <p className="home-notice">{notice}</p> : null}
 
       {storage && severity !== 'ok' ? (
         <div
@@ -154,6 +204,20 @@ export function HomePage() {
         >
           {atCap ? `Limit ${MAX_PROJECTS}` : 'New project'}
         </button>
+        <label className={`btn btn-ghost home-import${busy || atCap ? ' is-disabled' : ''}`}>
+          Import
+          <input
+            type="file"
+            accept=".kodyvideo,application/octet-stream"
+            className="visually-hidden"
+            disabled={busy || atCap}
+            onChange={(event) => {
+              const file = event.target.files?.[0]
+              event.target.value = ''
+              if (file) importBackup(file)
+            }}
+          />
+        </label>
       </div>
 
       {menuProject ? (
@@ -168,6 +232,11 @@ export function HomePage() {
           onRename={() => {
             setRenaming(menuProject)
             setMenuProject(null)
+          }}
+          onBackup={() => {
+            const project = menuProject
+            setMenuProject(null)
+            backupProject(project)
           }}
           onDelete={() => {
             setDeleting(menuProject)
