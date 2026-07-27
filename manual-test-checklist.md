@@ -76,3 +76,6 @@ Run locally with HTTPS or `localhost` (`npm run dev`). Camera/mic require a secu
 - [ ] Slots show poster art from the first clip
 - [ ] ⋯ menu: Open / Rename / Delete (styled confirm, no browser dialog)
 - [ ] Deleting a project frees its stored clips
+- [ ] ⋯ → Save backup produces a .kodyvideo file (share sheet on Android)
+- [ ] Import on another domain/device restores the project with clips, trims, and geo
+- [ ] Importing at the 6-project cap is blocked with a clear message

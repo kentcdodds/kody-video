@@ -215,6 +215,9 @@ export interface AddClipInput {
   lat?: number
   lng?: number
   locationAccuracyM?: number
+  /** Original capture time — used when importing backups so chapter titles
+   * keep the real recording time. Defaults to now. */
+  createdAt?: number
 }
 
 export async function addClip(input: AddClipInput): Promise<ClipRecord> {
@@ -231,7 +234,7 @@ export async function addClip(input: AddClipInput): Promise<ClipRecord> {
     durationMs: input.durationMs,
     trimStartMs: 0,
     trimEndMs: input.durationMs,
-    createdAt: now,
+    createdAt: input.createdAt ?? now,
     width: input.width,
     height: input.height,
     lat: input.lat,

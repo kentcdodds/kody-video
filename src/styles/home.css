@@ -247,6 +247,26 @@
   flex: 1;
 }
 
+.home-footer .home-import {
+  flex: 0 0 auto;
+  cursor: pointer;
+}
+
+.home-footer .home-import.is-disabled {
+  opacity: 0.45;
+  pointer-events: none;
+}
+
+.home-notice {
+  margin: 10px 0 0;
+  padding: 10px 12px;
+  border-radius: 12px;
+  background: var(--accent-soft);
+  border: 1px solid color-mix(in srgb, var(--accent) 40%, transparent);
+  font-size: 0.9rem;
+  line-height: 1.4;
+}
+
 /* Options + confirm sheets (home-owned) */
 
 .home-options-list {

@@ -340,6 +340,34 @@ try {
   if (filledAfterRefresh >= 1) pass('hard refresh restores projects', `${filledAfterRefresh} filled`)
   else fail('hard refresh restores projects', `${filledAfterRefresh} filled`)
 
+  // --- Project backup round trip (backup → import as new project) ---
+  const filledBefore = await page.locator('.project-slot.filled').count()
+  await page.getByRole('button', { name: /^options for/i }).first().click()
+  const downloadPromise = page.waitForEvent('download', { timeout: 10000 })
+  await page.getByRole('button', { name: /save backup/i }).click()
+  const download = await downloadPromise.catch(() => null)
+  if (download && download.suggestedFilename().endsWith('.kodyvideo')) {
+    pass('project backup downloads', download.suggestedFilename())
+  } else {
+    fail('project backup downloads')
+  }
+  if (download) {
+    const backupPath = await download.path()
+    await page.locator('.home-import input[type=file]').setInputFiles(backupPath)
+    const imported = await page
+      .waitForFunction(
+        (before) => document.querySelectorAll('.project-slot.filled').length > before,
+        filledBefore,
+        { timeout: 10000 },
+      )
+      .then(() => true)
+      .catch(() => false)
+    if (imported) pass('backup imports as a new project')
+    else fail('backup imports as a new project')
+  } else {
+    fail('backup imports as a new project', 'no backup file to import')
+  }
+
   await page.goto(BASE, { waitUntil: 'networkidle' })
   await sleep(1000)
   await context.setOffline(true)
