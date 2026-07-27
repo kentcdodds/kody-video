@@ -647,10 +647,11 @@ export function RecordScreen({
           }
           const stageHeight = dragZoomStageHeightRef.current || stageRef.current?.clientHeight || 1
           // Multiplicative zoom: equal finger travel = equal zoom *ratio*
-          // (drag up to zoom in). Each ~55% of stage height doubles the zoom,
-          // which is far gentler than the old linear full-range mapping —
-          // especially near 1× and on cameras with big zoom ranges.
-          const travelPerDoubling = stageHeight * 0.55
+          // (drag up to zoom in). Each ~28% of stage height doubles the zoom,
+          // so a full-stage drag covers ~3.5 doublings (≈11×) — quick enough
+          // to feel responsive, while the dead zone above still absorbs
+          // accidental finger drift.
+          const travelPerDoubling = stageHeight * 0.28
           const deltaY = dragZoomPressYRef.current - event.clientY
           const next = Math.min(
             zoom.max,
