@@ -21,6 +21,11 @@ export interface ClipMeta {
   height?: number
   thumbWidth?: number
   thumbHeight?: number
+  /** Opt-in geolocation captured at recording time (absent on older clips
+   * and whenever tagging is off or unavailable). */
+  lat?: number
+  lng?: number
+  locationAccuracyM?: number
 }
 
 export interface ClipRecord extends ClipMeta {
@@ -43,6 +48,8 @@ export interface AppMeta {
   /** One-time "Remove Watermark" purchase (verified via Stripe). */
   watermarkRemoved?: boolean
   purchaseSessionId?: string | null
+  /** Opt-in: tag new clips with device location. */
+  locationTaggingEnabled?: boolean
 }
 
 export const MAX_PROJECTS = 6

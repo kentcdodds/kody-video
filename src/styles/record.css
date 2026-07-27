@@ -354,6 +354,12 @@
   flex-shrink: 0;
 }
 
+.record-dock .btn-icon.is-active {
+  color: #10171a;
+  background: var(--accent);
+  border-color: color-mix(in srgb, var(--accent) 65%, #fff);
+}
+
 .record-dock .btn-icon:disabled {
   opacity: 0.32;
 }

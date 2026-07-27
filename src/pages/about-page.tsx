@@ -69,6 +69,15 @@ export function AboutPage() {
             purchase verification if you buy the watermark removal.
           </p>
         </section>
+
+        <section className="about-section">
+          <h2>Legal</h2>
+          <p>
+            <Link to="/privacy">Privacy</Link>
+            {' · '}
+            <Link to="/terms">Terms</Link>
+          </p>
+        </section>
       </div>
     </div>
   )

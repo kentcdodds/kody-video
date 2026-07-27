@@ -184,7 +184,7 @@ export function watermarkDomain(): string {
   const host = typeof location !== 'undefined' ? location.hostname : ''
   // Dev servers and IPs shouldn't end up stamped on anyone's video.
   if (!host || host === 'localhost' || /^[\d.]+$/.test(host)) {
-    return 'kody-video.pages.dev'
+    return 'kody.video'
   }
   return host
 }

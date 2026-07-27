@@ -52,6 +52,7 @@ export async function projectLoader({ params }: LoaderFunctionArgs): Promise<Pro
       onboardingDismissed: true,
       watermarkRemoved: false,
       storage: null,
+      locationTaggingEnabled: false,
       error: 'Project not found',
     }
   }
@@ -206,6 +207,7 @@ export function ProjectPage() {
           clips={clips}
           camera={camera}
           storage={data.storage}
+          locationTaggingEnabled={data.locationTaggingEnabled}
           interactionLocked={overlayOpen}
           onOpenEditor={() => setMode('editor')}
           onOpenExport={startExport}

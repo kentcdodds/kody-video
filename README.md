@@ -20,7 +20,8 @@ npm test           # storage/export-planner unit tests
 npm run test:smoke # Playwright UX smoke (fake camera, records + exports)
 ```
 
-**Live app:** [https://kody-video.pages.dev](https://kody-video.pages.dev) (Cloudflare Pages, builds from `main`)
+**Live app:** [https://kody.video](https://kody.video) (Cloudflare Pages, builds from `main`; the original
+[kody-video.pages.dev](https://kody-video.pages.dev) origin stays live so existing on-device projects remain accessible)
 
 For a phone on the same network, use your machine’s LAN URL over HTTPS, or tunnel (`npm run dev -- --host` plus a trusted tunnel). `getUserMedia` will fail on plain `http://<lan-ip>` in most browsers.
 
@@ -55,6 +56,18 @@ src/
   pages/                    Home (project slots) + Project (record/editor shell)
   router.tsx                React Router data routers (loaders)
 ```
+
+### Chapters & optional location
+
+MP4 exports carry **chapter markers** at every clip boundary (Nero `chpl`,
+injected post-mux by `lib/export/mp4-metadata.ts`), titled with each clip's
+recording time. With the opt-in **location tagging** toggle on the record
+screen, clips store device coordinates (kept in IndexedDB alongside the clip,
+never inside the MediaRecorder blob), chapter titles include them, and the
+file gets a `©xyz` geotag — derived by averaging the majority cluster of clip
+locations (within 5 km), falling back to the first located clip. WebM exports
+skip both (the WebM subset of Matroska excludes chapters). Clips recorded
+before this feature simply lack the data and degrade gracefully.
 
 ### Export pipeline
 

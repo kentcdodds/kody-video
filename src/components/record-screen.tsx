@@ -1,8 +1,10 @@
 import { useCallback, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
 import type { CameraZoomRange, UseCameraResult } from '../hooks/use-camera'
+import { getLocationFix, type LocationFix } from '../lib/location'
 import { appendRecording, removeClip, undoLastDelete } from '../lib/project-actions'
 import { HoldRecorder } from '../lib/recorder'
+import { setLocationTaggingEnabled } from '../lib/storage'
 import {
   formatStoragePercent,
   storageSeverity,
@@ -14,6 +16,7 @@ import {
   IconDeleteLast,
   IconEditor,
   IconFlip,
+  IconLocation,
   IconPlay,
   IconTimer,
   IconTorch,
@@ -35,6 +38,8 @@ interface RecordScreenProps {
   storage: StorageSpace | null
   /** True while an overlay (export, preview, onboarding) should block capture. */
   interactionLocked: boolean
+  /** Opt-in: tag new clips with device location (shell may pass persisted setting). */
+  locationTaggingEnabled?: boolean
   onOpenEditor: () => void
   onOpenExport: () => void
   onPlay: () => void
@@ -87,6 +92,7 @@ export function RecordScreen({
   camera,
   storage,
   interactionLocked,
+  locationTaggingEnabled = false,
   onOpenEditor,
   onOpenExport,
   onPlay,
@@ -103,6 +109,9 @@ export function RecordScreen({
   const wakeLockGenRef = useRef(0)
   const lockedRef = useRef(interactionLocked)
   lockedRef.current = interactionLocked
+  /** In-flight GPS fix for the current take; never shared across takes. */
+  const pendingFixRef = useRef<Promise<LocationFix | null> | null>(null)
+  const locationTaggingRef = useRef(locationTaggingEnabled)
 
   const dragZoomPressYRef = useRef(0)
   const dragZoomStartValueRef = useRef(0)
@@ -122,6 +131,8 @@ export function RecordScreen({
   const [recordingMode, setRecordingMode] = useState<RecordingMode | null>(null)
   const [recordStartedAt, setRecordStartedAt] = useState(0)
   const [countdown, setCountdown] = useState<number | null>(null)
+  const [locationTagging, setLocationTagging] = useState(locationTaggingEnabled)
+  locationTaggingRef.current = locationTagging
 
   const totalDurationMs = clips.reduce((sum, clip) => sum + effectiveDurationMs(clip), 0)
   const zoomLevels = camera.zoom ? zoomChipLevels(camera.zoom) : []
@@ -230,6 +241,11 @@ export function RecordScreen({
           showToast('Still finishing the last clip')
           return false
         }
+        // Fire-and-forget GPS for this take — must not delay recording start.
+        pendingFixRef.current = null
+        if (locationTaggingRef.current) {
+          pendingFixRef.current = getLocationFix()
+        }
         acquireWakeLock()
         setRecording(true)
         setRecordingMode(nextRecordingMode)
@@ -274,13 +290,31 @@ export function RecordScreen({
       pointerIdRef.current = null
       setRecording(false)
       setRecordingMode(null)
+      // Detach this take's fix before any await so a quick next hold can own the ref.
+      const pendingForThisTake = pendingFixRef.current
+      pendingFixRef.current = null
       try {
         const result = await recorderRef.current.stop()
         if (!result) {
           showToast('Hold a bit longer')
           return
         }
-        await appendRecording(project.id, result)
+        // Recording already elapsed while the fix ran; wait at most ~1.5s more.
+        let fix: LocationFix | null = null
+        if (pendingForThisTake) {
+          fix = await Promise.race([
+            pendingForThisTake,
+            new Promise<null>((resolve) => {
+              window.setTimeout(() => resolve(null), 1500)
+            }),
+          ])
+        }
+        await appendRecording(project.id, {
+          ...result,
+          ...(fix
+            ? { lat: fix.lat, lng: fix.lng, locationAccuracyM: fix.accuracyM }
+            : {}),
+        })
         refresh()
       } catch (err) {
         showToast(err instanceof Error ? err.message : 'Save failed')
@@ -347,6 +381,33 @@ export function RecordScreen({
       })
     })()
   }, [clips, project.id, refresh, showToast])
+
+  const toggleLocationTagging = useCallback(() => {
+    if (recording || countdown !== null) return
+    if (locationTagging) {
+      void (async () => {
+        try {
+          await setLocationTaggingEnabled(false)
+          setLocationTagging(false)
+          showToast('Location tagging off')
+        } catch {
+          showToast('Could not save the setting — try again')
+        }
+      })()
+      return
+    }
+    // Tap is the user gesture that legitimizes the permission prompt.
+    void (async () => {
+      const fix = await getLocationFix()
+      if (!fix) {
+        showToast("Location unavailable — check the site's location permission")
+        return
+      }
+      await setLocationTaggingEnabled(true)
+      setLocationTagging(true)
+      showToast('Location tagging on — new clips will be geotagged')
+    })()
+  }, [countdown, locationTagging, recording, showToast])
 
   const cleanupOnUnmount = useCallback(() => {
     clearCountdown()
@@ -634,6 +695,16 @@ export function RecordScreen({
             onClick={startSelfTimer}
           >
             <IconTimer />
+          </button>
+          <button
+            type="button"
+            className={`btn-icon${locationTagging ? ' is-active' : ''}`}
+            aria-label="Toggle location tagging"
+            aria-pressed={locationTagging}
+            disabled={recording || countdown !== null}
+            onClick={toggleLocationTagging}
+          >
+            <IconLocation />
           </button>
           <button
             type="button"
