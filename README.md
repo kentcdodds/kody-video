@@ -1,6 +1,6 @@
 # Kody Video
 
-Mobile-first web clips camera: **hold anywhere on the preview to record**, arrange clips on a filmstrip timeline, then tap **OK** to export/share — all **on-device**.
+Mobile-first web clips camera: **hold anywhere on the preview to record**, arrange clips on a filmstrip timeline, then tap **Go** to export/share — all **on-device**.
 
 Kody Video is inspired by the OK Video interaction model: camera-first capture, quick clip cleanup, and one big OK/share moment. It is an independent project with its own name, mark, and implementation; it is not affiliated with OK Video and does not use OK Video trademarks or assets. The koala mascot is credited to the KCD community / [kentcdodds.com/kody](https://kentcdodds.com/kody). App artwork in `public/art/` was generated from that Kody reference (camera, timeline, share, app icon).
 
@@ -34,7 +34,7 @@ For a phone on the same network, use your machine’s LAN URL over HTTPS, or tun
 - Editor: filmstrip timeline (thumbnails, width ∝ duration), drag to reorder, duplicate, delete w/ undo, **in-timeline trim with drag handles**
 - Project preview playback: tap edges to skip clips, tap middle to stop
 - Up to **6** stable project slots (create / open / rename / delete, poster art from your clips)
-- Big OK CTA: on-device export to **one video file**, then Share (system sheet) or Save
+- Big Go CTA: on-device export to **one video file**, then Share (system sheet) or Save
 - Fallback: save clips as separate files
 - Project **backup/import**: one `.kodyvideo` file per project (clips, trims,
   location data) — a safety net, and the way to move a project between
@@ -123,6 +123,17 @@ Verified approach: `npm run build && npm run preview`, load once online, then De
 - **Storage quotas:** large projects can hit IndexedDB quotas; the soft 6-project cap helps.
 - **Background tabs:** recording should stay in the foreground; browsers may throttle capture.
 
+## Desktop keyboard support
+
+Kody Video is designed as a mobile camera app, but desktop gets first-class
+keyboard support (hints appear automatically on fine-pointer devices):
+
+- **Camera:** hold `Space` to record (release to stop), `F` flip, `T`
+  self-timer, `E` editor, `P` play preview, `Delete` remove last clip.
+- **Editor:** `←`/`→` select clip, `Alt`+arrows reorder, `T` trim, `D`
+  duplicate, `Delete` delete, `P` play, `Esc` back to camera (or exit trim).
+- **Playback:** `←`/`→` skip clips, `Space` pause/resume, `Esc` close.
+
 ## Remove Watermark purchase
 
 Exports carry a small Kody Video mark in the corner. A one-time $0.99 Stripe
@@ -155,3 +166,6 @@ Checkout Sessions read access is enough) on the Cloudflare Pages project.
 | `npm test`                           | Vitest storage/export-planner tests        |
 | `npm run test:smoke`                 | Playwright smoke: record → edit → export   |
 | `node scripts/probe-export-chrome.mjs` | Export validation in Chrome stable (real codecs) |
+| `node scripts/probe-keyboard.mjs`    | Desktop keyboard flows (record/edit/playback) |
+| `node scripts/probe-touch-timeline.mjs` | Touch timeline gestures (scroll, long-press lift) |
+| `node scripts/probe-webkit.mjs`      | WebKit engine sanity + feature matrix (iOS proxy, not a substitute for a real device) |

@@ -18,6 +18,7 @@ Run locally with HTTPS or `localhost` (`npm run dev`). Camera/mic require a secu
 - [ ] Press/hold anywhere on the preview starts recording (REC pill + elapsed)
 - [ ] Camera preview stays smooth while recording (no visible frame drops)
 - [ ] Dragging up/down during a hold zooms in/out (zoom-capable devices)
+- [ ] Small finger tremble while holding (< ~14px) does not start zooming
 - [ ] Releasing the hold eases zoom back to the pre-take level (chip choice or 1×)
 - [ ] Release stops and appends a clip; filmstrip thumbnail appears shortly after
 - [ ] Self-timer counts down, starts hands-free recording, then tap stops
@@ -46,8 +47,8 @@ Run locally with HTTPS or `localhost` (`npm run dev`). Camera/mic require a secu
 - [ ] Tap right/left edge skips to next/previous clip; tap middle stops
 - [ ] Segmented progress bar tracks clips
 
-## OK / export
-- [ ] OK starts the export immediately ("Exporting your video…" + progress)
+## Go / export
+- [ ] Go starts the export immediately ("Exporting your video…" + progress)
 - [ ] Export completes; sheet shows format + size ("MP4 · x MB" expected on Android)
 - [ ] Share opens the system share sheet (fresh tap, no silent failure)
 - [ ] Save stores the file locally
@@ -79,3 +80,15 @@ Run locally with HTTPS or `localhost` (`npm run dev`). Camera/mic require a secu
 - [ ] ⋯ → Save backup produces a .kodyvideo file (share sheet on Android)
 - [ ] Import on another domain/device restores the project with clips, trims, and geo
 - [ ] Importing at the 6-project cap is blocked with a clear message
+- [ ] On kody-video.pages.dev, home shows the "moved to kody.video" migration banner (absent on kody.video)
+
+## Desktop keyboard (fine-pointer devices)
+- [ ] Key-hint lines appear on the record screen and editor (hidden on touch devices)
+- [ ] Hold Space records; release stops; a sub-120ms tap does not leave a stuck recording
+- [ ] F flips camera, T starts self-timer, E opens editor, P plays, Delete removes last clip
+- [ ] Editor: arrows select, Alt+arrows reorder, T trims, D duplicates, Delete deletes, Esc returns to camera
+- [ ] Playback overlay: arrows skip, Space pauses/resumes, Esc closes; editor keys stay inert underneath
+- [ ] Typing in a rename field never triggers shortcuts
+
+## Social / meta
+- [ ] Opening /og-image.png directly (with the app's service worker active) shows the image, not the app

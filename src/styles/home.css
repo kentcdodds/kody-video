@@ -267,6 +267,23 @@
   line-height: 1.4;
 }
 
+.home-migrate {
+  margin: 10px 0 0;
+  padding: 10px 12px;
+  border-radius: 12px;
+  background: var(--accent-soft);
+  border: 1px solid color-mix(in srgb, var(--accent) 40%, transparent);
+  font-size: 0.9rem;
+  line-height: 1.45;
+}
+
+.home-migrate a {
+  color: var(--accent);
+  font-weight: 700;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
 /* Options + confirm sheets (home-owned) */
 
 .home-options-list {
@@ -417,6 +434,16 @@
   font-weight: 600;
   text-decoration: underline;
   text-underline-offset: 2px;
+}
+
+.about-section kbd {
+  display: inline-block;
+  padding: 0 5px;
+  border: 1px solid var(--line);
+  border-radius: 5px;
+  font-family: inherit;
+  font-size: 0.85em;
+  background: rgba(127, 127, 127, 0.12);
 }
 
 .legal-updated {

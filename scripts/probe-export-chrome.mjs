@@ -104,7 +104,7 @@ try {
 
   // Capture the exported blob by intercepting share/download via the sheet state:
   // run export, then read the blob back out of the page for validation.
-  await page.getByRole('button', { name: /^ok$/i }).first().click()
+  await page.getByRole('button', { name: /^go$/i }).first().click()
   const state = await page
     .waitForFunction(
       () => {

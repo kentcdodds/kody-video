@@ -1,4 +1,4 @@
-import { useRef, useState, type ReactNode } from 'react'
+import { useCallback, useLayoutEffect, useRef, useState, type ReactNode } from 'react'
 import {
   duplicateSelectedClip,
   moveSelectedClip,
@@ -24,11 +24,14 @@ import {
 import { Timeline } from './timeline'
 import { TrimStrip } from './trim-strip'
 import type { ToastAction } from './record-screen'
+import { isInteractiveTarget } from '../lib/keyboard'
 
 interface EditorScreenProps {
   project: Project
   clips: ClipRecord[]
   canUndo: boolean
+  /** True while a full-screen overlay owns input (playback, export, …). */
+  interactionLocked: boolean
   onOpenCamera: () => void
   onOpenExport: () => void
   onPlay: () => void
@@ -40,6 +43,7 @@ export function EditorScreen({
   project,
   clips,
   canUndo,
+  interactionLocked,
   onOpenCamera,
   onOpenExport,
   onPlay,
@@ -83,8 +87,90 @@ export function EditorScreen({
     })()
   }
 
+  // Desktop keyboard support; the stable listener reads the latest committed
+  // handler through a ref, re-assigned after every commit.
+  const keyActionRef = useRef<(event: KeyboardEvent) => void>(() => undefined)
+  const keyAction = (event: KeyboardEvent) => {
+    if (interactionLocked) return
+    // Escape stays global; everything else yields to focused controls.
+    if (event.code !== 'Escape' && isInteractiveTarget(event)) return
+    if (event.code === 'Escape') {
+      if (trimming) {
+        previewApiRef.current?.pause()
+        setTrimming(false)
+      } else {
+        onOpenCamera()
+      }
+      return
+    }
+    if (trimming) return
+    switch (event.code) {
+      case 'ArrowLeft':
+      case 'ArrowRight': {
+        if (clips.length === 0) return
+        event.preventDefault()
+        const step = event.code === 'ArrowLeft' ? -1 : 1
+        if (event.altKey) {
+          // Alt+arrow reorders, matching the Left/Right buttons.
+          if (!resolvedSelectedId) return
+          const atEdge = step < 0 ? selectedIndex <= 0 : selectedIndex >= clips.length - 1
+          if (atEdge) return
+          void moveSelectedClip(project.id, resolvedSelectedId, step < 0 ? 'left' : 'right').then(
+            refresh,
+          )
+          return
+        }
+        const nextIndex = Math.min(
+          clips.length - 1,
+          Math.max(0, (selectedIndex < 0 ? clips.length - 1 : selectedIndex) + step),
+        )
+        setSelectedClipId(clips[nextIndex].id)
+        return
+      }
+      case 'Backspace':
+      case 'Delete': {
+        event.preventDefault()
+        handleDelete()
+        return
+      }
+      case 'KeyT': {
+        if (!selected) return
+        previewApiRef.current?.pause()
+        setTrimming(true)
+        return
+      }
+      case 'KeyD': {
+        if (!resolvedSelectedId) return
+        void duplicateSelectedClip(resolvedSelectedId).then((copy) => {
+          setSelectedClipId(copy.id)
+          refresh()
+        })
+        return
+      }
+      case 'KeyP': {
+        if (clips.length > 0) onPlay()
+        return
+      }
+      default:
+        return
+    }
+  }
+  useLayoutEffect(() => {
+    keyActionRef.current = keyAction
+  })
+  const onWindowKeyDown = useCallback((event: KeyboardEvent) => {
+    keyActionRef.current(event)
+  }, [])
+  const bindKeyboard = useCallback(
+    (element: HTMLDivElement | null) => {
+      if (element) window.addEventListener('keydown', onWindowKeyDown)
+      else window.removeEventListener('keydown', onWindowKeyDown)
+    },
+    [onWindowKeyDown],
+  )
+
   return (
-    <div className={`editor-screen${trimming ? ' is-trimming' : ''}`}>
+    <div className={`editor-screen${trimming ? ' is-trimming' : ''}`} ref={bindKeyboard}>
       <div className="editor-top">
         <button type="button" className="btn-icon" aria-label="Back to camera" onClick={onOpenCamera}>
           <IconBack />
@@ -232,12 +318,17 @@ export function EditorScreen({
           </button>
           <button
             type="button"
-            className="ok-button compact"
+            className="go-button compact"
             disabled={clips.length === 0}
             onClick={onOpenExport}
           >
-            OK
+            Go
           </button>
+        </div>
+
+        <div className="key-hints" aria-hidden="true">
+          <kbd>←</kbd>/<kbd>→</kbd> select · <kbd>Alt</kbd>+arrows move · <kbd>T</kbd> trim ·{' '}
+          <kbd>D</kbd> duplicate · <kbd>⌫</kbd> delete · <kbd>P</kbd> play · <kbd>Esc</kbd> camera
         </div>
       </div>
     </div>

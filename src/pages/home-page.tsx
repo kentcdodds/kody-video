@@ -31,6 +31,11 @@ function isIOS(): boolean {
   return /iPad|iPhone|iPod/.test(navigator.userAgent)
 }
 
+/** The pre-custom-domain deployment; nudge people to migrate to kody.video. */
+function isLegacyOrigin(): boolean {
+  return location.hostname === 'kody-video.pages.dev'
+}
+
 export async function homeLoader(): Promise<HomeLoaderData> {
   return loadHomePage()
 }
@@ -154,8 +159,16 @@ export function HomePage() {
         <h1 className="brand">
           Kody <span>Video</span>
         </h1>
-        <p className="lede">Hold to record. Tap OK to share.</p>
+        <p className="lede">Hold to record. Tap Go to share.</p>
       </div>
+
+      {isLegacyOrigin() ? (
+        <div className="home-migrate">
+          <strong>Kody Video has moved to <a href="https://kody.video">kody.video</a>.</strong>{' '}
+          Projects live in this browser per-site, so use ⋯ → Save backup here, then Import them
+          over there. This address keeps working but won&rsquo;t get updates.
+        </div>
+      ) : null}
 
       {error ? <div className="error-banner">{error}</div> : null}
       {notice ? <p className="home-notice">{notice}</p> : null}

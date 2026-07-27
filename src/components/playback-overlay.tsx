@@ -1,7 +1,8 @@
-import { useCallback, useMemo, useRef, useState } from 'react'
+import { useCallback, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { planExport } from '../lib/export'
 import type { ClipRecord } from '../lib/types'
 import { IconPlay } from './icons'
+import { isInteractiveTarget } from '../lib/keyboard'
 
 interface PlaybackOverlayProps {
   clips: ClipRecord[]
@@ -32,41 +33,9 @@ export function PlaybackOverlay({ clips, onClose }: PlaybackOverlayProps) {
 
   const segment = segments[index] ?? null
 
-  const bindVideo = useCallback(
-    (el: HTMLVideoElement | null) => {
-      videoRef.current = el
-      const state = urlStateRef.current
-      if (!el) {
-        if (state.url) URL.revokeObjectURL(state.url)
-        state.url = null
-        state.blob = null
-        return
-      }
-      if (!segment) return
-      if (state.blob !== segment.clip.blob) {
-        if (state.url) URL.revokeObjectURL(state.url)
-        state.url = URL.createObjectURL(segment.clip.blob)
-        state.blob = segment.clip.blob
-        el.src = state.url
-      }
-    },
-    [segment],
-  )
-
-  if (!segment) {
-    return (
-      <div className="playback-overlay" role="dialog" aria-label="Project preview">
-        <p className="playback-empty">Nothing to play yet — record a clip first.</p>
-        <button type="button" className="btn btn-secondary" onClick={onClose}>
-          Close
-        </button>
-      </div>
-    )
-  }
-
-  const startSec = segment.startMs / 1000
-  const endSec = segment.endMs / 1000
-  const segmentMs = segment.endMs - segment.startMs
+  const startSec = segment ? segment.startMs / 1000 : 0
+  const endSec = segment ? segment.endMs / 1000 : 0
+  const segmentMs = segment ? segment.endMs - segment.startMs : 0
 
   const goTo = (nextIndex: number) => {
     advancedForRef.current = -1
@@ -100,6 +69,97 @@ export function PlaybackOverlay({ clips, onClose }: PlaybackOverlayProps) {
       .play()
       .then(() => setNeedsTap(false))
       .catch(() => setNeedsTap(true))
+  }
+
+  // Desktop keyboard support: arrows skip clips, Space pauses, Esc closes.
+  // The stable listener reads the latest committed handler through a ref,
+  // re-assigned after every commit.
+  const keyActionRef = useRef<(event: KeyboardEvent) => void>(() => undefined)
+  const keyAction = (event: KeyboardEvent) => {
+    // Escape stays global; everything else yields to focused controls
+    // (e.g. Space on a tab-focused skip button must click it).
+    if (event.code !== 'Escape' && isInteractiveTarget(event)) return
+    switch (event.code) {
+      case 'Escape':
+        onClose()
+        return
+      case 'ArrowLeft':
+        event.preventDefault()
+        if (index > 0) goTo(index - 1)
+        return
+      case 'ArrowRight':
+        event.preventDefault()
+        goTo(index + 1)
+        return
+      case 'Space': {
+        event.preventDefault()
+        // Auto-repeat while held must not rapid-toggle pause/resume.
+        if (event.repeat) return
+        const video = videoRef.current
+        if (!video) return
+        if (video.paused) {
+          void video.play().then(() => setNeedsTap(false)).catch(() => setNeedsTap(true))
+        } else {
+          video.pause()
+        }
+        return
+      }
+      default:
+        return
+    }
+  }
+  useLayoutEffect(() => {
+    keyActionRef.current = keyAction
+  })
+  const onWindowKeyDown = useCallback((event: KeyboardEvent) => {
+    keyActionRef.current(event)
+  }, [])
+  // The empty state has no video element, but Escape must still dismiss.
+  const bindEmptyState = useCallback(
+    (element: HTMLDivElement | null) => {
+      if (element) window.addEventListener('keydown', onWindowKeyDown)
+      else window.removeEventListener('keydown', onWindowKeyDown)
+    },
+    [onWindowKeyDown],
+  )
+
+  const bindVideo = useCallback(
+    (el: HTMLVideoElement | null) => {
+      videoRef.current = el
+      const state = urlStateRef.current
+      if (!el) {
+        window.removeEventListener('keydown', onWindowKeyDown)
+        if (state.url) URL.revokeObjectURL(state.url)
+        state.url = null
+        state.blob = null
+        return
+      }
+      window.addEventListener('keydown', onWindowKeyDown)
+      if (!segment) return
+      if (state.blob !== segment.clip.blob) {
+        if (state.url) URL.revokeObjectURL(state.url)
+        state.url = URL.createObjectURL(segment.clip.blob)
+        state.blob = segment.clip.blob
+        el.src = state.url
+      }
+    },
+    [onWindowKeyDown, segment],
+  )
+
+  if (!segment) {
+    return (
+      <div
+        className="playback-overlay"
+        role="dialog"
+        aria-label="Project preview"
+        ref={bindEmptyState}
+      >
+        <p className="playback-empty">Nothing to play yet — record a clip first.</p>
+        <button type="button" className="btn btn-secondary" onClick={onClose}>
+          Close
+        </button>
+      </div>
+    )
   }
 
   return (

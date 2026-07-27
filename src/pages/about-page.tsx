@@ -1,6 +1,24 @@
 import { Link } from 'react-router-dom'
 import { BrandMark } from '../components/brand-mark'
 
+/** Prefilled GitHub issue so bug reports arrive with device context attached. */
+function reportProblemUrl(): string {
+  const body = [
+    '## What happened?',
+    '',
+    '(describe the problem — what you tapped, what you expected, what you got)',
+    '',
+    '## Device info (auto-filled)',
+    '',
+    `- App URL: ${location.origin}`,
+    `- User agent: ${navigator.userAgent}`,
+    `- Screen: ${window.screen.width}×${window.screen.height} @${window.devicePixelRatio}x`,
+    `- Installed as app: ${window.matchMedia('(display-mode: standalone)').matches ? 'yes' : 'no'}`,
+  ].join('\n')
+  const params = new URLSearchParams({ labels: 'bug', body })
+  return `https://github.com/kentcdodds/kody-video/issues/new?${params}`
+}
+
 /** Credits, inspiration, and the open-source pointer. */
 export function AboutPage() {
   return (
@@ -67,6 +85,31 @@ export function AboutPage() {
             No accounts, no analytics, no uploads. Clips live in this browser&rsquo;s storage until
             you export and share them yourself. The only network calls are Stripe checkout and its
             purchase verification if you buy the watermark removal.
+          </p>
+        </section>
+
+        <section className="about-section">
+          <h2>Made for phones</h2>
+          <p>
+            Kody Video is designed as a mobile camera app — install it on your phone for the real
+            experience. It works on desktop too, with keyboard support: hold <kbd>Space</kbd> to
+            record, <kbd>F</kbd> flips the camera, <kbd>T</kbd> starts the self-timer,{' '}
+            <kbd>E</kbd> opens the editor, <kbd>P</kbd> plays your cut, and <kbd>Delete</kbd>{' '}
+            removes the last clip. In the editor the arrow keys select clips,{' '}
+            <kbd>Alt</kbd>+arrows reorder, <kbd>T</kbd> trims, <kbd>D</kbd> duplicates,{' '}
+            <kbd>Delete</kbd> deletes, and <kbd>Esc</kbd> goes back. During playback the arrows
+            skip clips, <kbd>Space</kbd> pauses, and <kbd>Esc</kbd> closes.
+          </p>
+        </section>
+
+        <section className="about-section">
+          <h2>Report a problem</h2>
+          <p>
+            Hit a bug? Please{' '}
+            <a href={reportProblemUrl()} target="_blank" rel="noreferrer noopener">
+              open an issue on GitHub
+            </a>{' '}
+            — the link pre-fills your device details so you only have to describe what went wrong.
           </p>
         </section>
 

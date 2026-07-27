@@ -220,6 +220,7 @@ export function ProjectPage() {
           project={project}
           clips={clips}
           canUndo={data.canUndo}
+          interactionLocked={overlayOpen}
           onOpenCamera={() => setMode('record')}
           onOpenExport={startExport}
           onPlay={() => setPlaying(true)}

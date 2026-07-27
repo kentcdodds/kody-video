@@ -54,7 +54,7 @@ export function ExportSheet({
         {status === 'ready' ? (
           <>
             <BrandMark size={84} className="export-celebrate-art" variant="share" />
-            <h3>OK! Your video is ready</h3>
+            <h3>Done! Your video is ready</h3>
             <p className="muted sheet-lede">
               {formatFileInfo(fileExtension, fileSizeBytes)} — it stays on this device until you
               share it.
@@ -91,7 +91,7 @@ export function ExportSheet({
             ) : null}
             {watermarked && purchased ? (
               <p className="watermark-note">
-                This video still includes the Kody mark — tap OK again for a clean export.
+                This video still includes the Kody mark — tap Go again for a clean export.
               </p>
             ) : null}
           </>
