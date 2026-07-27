@@ -13,6 +13,8 @@ import { OnboardingOverlay } from '../components/onboarding-overlay'
 import { PlaybackOverlay } from '../components/playback-overlay'
 import { RecordScreen, type ToastAction } from '../components/record-screen'
 import { useCamera } from '../hooks/use-camera'
+import { RestoreSheet } from '../components/restore-sheet'
+import { REMOVE_WATERMARK_LINK } from '../lib/entitlement'
 import { exportProject, type ExportResult } from '../lib/export'
 import {
   canShareFile,
@@ -36,6 +38,8 @@ interface ExportUiState {
   result: ExportResult | null
   error: string | null
   notice: string | null
+  /** Whether THIS export was stamped (entitlement can change mid-sheet). */
+  watermarked: boolean
 }
 
 export async function projectLoader({ params }: LoaderFunctionArgs): Promise<ProjectLoaderData> {
@@ -46,6 +50,7 @@ export async function projectLoader({ params }: LoaderFunctionArgs): Promise<Pro
       clips: [],
       canUndo: false,
       onboardingDismissed: true,
+      watermarkRemoved: false,
       error: 'Project not found',
     }
   }
@@ -70,6 +75,7 @@ export function ProjectPage() {
   const [playing, setPlaying] = useState(false)
   const [toast, setToast] = useState<ToastState | null>(null)
   const [exportState, setExportState] = useState<ExportUiState | null>(null)
+  const [restoring, setRestoring] = useState(false)
 
   const refresh = useCallback(() => {
     startTransition(() => {
@@ -103,11 +109,20 @@ export function ProjectPage() {
       audioContext = undefined
     }
 
-    setExportState({ status: 'exporting', progress: 0, result: null, error: null, notice: null })
+    const watermarked = !data.watermarkRemoved
+    setExportState({
+      status: 'exporting',
+      progress: 0,
+      result: null,
+      error: null,
+      notice: null,
+      watermarked,
+    })
     void (async () => {
       try {
         const result = await exportProject(clips, {
           audioContext,
+          watermark: watermarked,
           getPreviewCanvas: () => previewCanvasRef.current,
           onProgress: (ratio) => {
             if (exportRunRef.current !== runId) return
@@ -119,7 +134,14 @@ export function ProjectPage() {
           },
         })
         if (exportRunRef.current !== runId) return
-        setExportState({ status: 'ready', progress: 1, result, error: null, notice: null })
+        setExportState({
+          status: 'ready',
+          progress: 1,
+          result,
+          error: null,
+          notice: null,
+          watermarked,
+        })
       } catch (err) {
         if (exportRunRef.current !== runId) return
         setExportState({
@@ -128,6 +150,7 @@ export function ProjectPage() {
           result: null,
           error: err instanceof Error ? err.message : 'Export failed.',
           notice: null,
+          watermarked,
         })
       } finally {
         // The realtime engine closes the context it used; when WebCodecs
@@ -137,7 +160,7 @@ export function ProjectPage() {
         }
       }
     })()
-  }, [clips])
+  }, [clips, data.watermarkRemoved])
 
   const closeExport = useCallback(() => {
     exportRunRef.current += 1
@@ -216,6 +239,12 @@ export function ProjectPage() {
           status={exportState.status}
           error={exportState.error}
           notice={exportState.notice}
+          watermarked={exportState.watermarked}
+          purchased={data.watermarkRemoved}
+          onRemoveWatermark={() => {
+            window.open(REMOVE_WATERMARK_LINK, '_blank', 'noopener')
+          }}
+          onRestorePurchase={() => setRestoring(true)}
           canShare={
             !!exportState.result &&
             !!exportFilename &&
@@ -248,6 +277,17 @@ export function ProjectPage() {
           }}
           onRetry={startExport}
           onClose={closeExport}
+        />
+      ) : null}
+
+      {restoring ? (
+        <RestoreSheet
+          onClose={() => setRestoring(false)}
+          onRestored={() => {
+            setRestoring(false)
+            showToast('Purchase restored — new exports are watermark-free')
+            refresh()
+          }}
         />
       ) : null}
 

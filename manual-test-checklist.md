@@ -47,6 +47,10 @@ Run locally with HTTPS or `localhost` (`npm run dev`). Camera/mic require a secu
 - [ ] Exported video: clips in order, trims applied, audio in sync across clips, smooth frame rate
 - [ ] Export failure path offers "Save clips instead"
 - [ ] Network tab shows no upload of clip binaries
+- [ ] Exported video shows the small Kody mark bottom-right (before purchase)
+- [ ] "Remove it — $0.99" opens Stripe checkout; KODYFRIEND promo checks out at $0
+- [ ] After checkout, /unlocked verifies and celebrates; next export has no mark
+- [ ] "Already paid?" restore accepts the receipt link and unlocks
 
 ## Persistence / offline
 - [ ] Hard refresh restores projects and clip media

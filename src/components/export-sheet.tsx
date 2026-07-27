@@ -12,9 +12,15 @@ interface ExportSheetProps {
   fileSizeBytes: number | null
   /** Feedback after a share/save action ("Saved to downloads", …). */
   notice: string | null
+  /** True when THIS export was stamped with the Kody Video mark. */
+  watermarked: boolean
+  /** True when the removal purchase is unlocked (may change mid-sheet). */
+  purchased: boolean
   onShare: () => void
   onSave: () => void
   onSaveClips: () => void
+  onRemoveWatermark: () => void
+  onRestorePurchase: () => void
   onRetry: () => void
   onClose: () => void
 }
@@ -31,9 +37,13 @@ export function ExportSheet({
   fileExtension,
   fileSizeBytes,
   notice,
+  watermarked,
+  purchased,
   onShare,
   onSave,
   onSaveClips,
+  onRemoveWatermark,
+  onRestorePurchase,
   onRetry,
   onClose,
 }: ExportSheetProps) {
@@ -67,6 +77,23 @@ export function ExportSheet({
                 Done
               </button>
             </div>
+            {watermarked && !purchased ? (
+              <p className="watermark-note">
+                Includes a small Kody mark in the corner.{' '}
+                <button type="button" className="link-button" onClick={onRemoveWatermark}>
+                  Remove it — $0.99
+                </button>{' '}
+                ·{' '}
+                <button type="button" className="link-button" onClick={onRestorePurchase}>
+                  Already paid?
+                </button>
+              </p>
+            ) : null}
+            {watermarked && purchased ? (
+              <p className="watermark-note">
+                This video still includes the Kody mark — tap OK again for a clean export.
+              </p>
+            ) : null}
           </>
         ) : null}
 

@@ -166,6 +166,41 @@ export async function decodeClipAudio(
   }
 }
 
+/**
+ * Load the mark stamped onto exported frames (unless the user purchased the
+ * watermark removal). Best-effort: a missing asset must never fail an export.
+ */
+export function loadWatermarkImage(): Promise<HTMLImageElement | null> {
+  return new Promise((resolve) => {
+    const image = new Image()
+    image.onload = () => resolve(image)
+    image.onerror = () => resolve(null)
+    image.src = '/pwa-192.png'
+  })
+}
+
+/** Stamp the Kody Video mark in the bottom-right corner of a frame. */
+export function drawWatermark(
+  ctx: CanvasRenderingContext2D,
+  image: HTMLImageElement,
+  width: number,
+  height: number,
+): void {
+  const size = Math.round(Math.min(width, height) * 0.12)
+  const margin = Math.round(size * 0.3)
+  const x = width - size - margin
+  const y = height - size - margin
+  const radius = Math.round(size * 0.22)
+
+  ctx.save()
+  ctx.globalAlpha = 0.78
+  ctx.beginPath()
+  ctx.roundRect(x, y, size, size, radius)
+  ctx.clip()
+  ctx.drawImage(image, x, y, size, size)
+  ctx.restore()
+}
+
 /** How often the engines mirror an encoded frame to the UI preview canvas. */
 export const PREVIEW_EVERY_N_FRAMES = 10
 
