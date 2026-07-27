@@ -57,6 +57,12 @@ Run locally with HTTPS or `localhost` (`npm run dev`). Camera/mic require a secu
 - [ ] Airplane mode after first visit still loads the app shell (PWA/service worker)
 - [ ] Offline, existing projects open and clips play from IndexedDB
 
+## Storage
+- [ ] Home shows "X of Y used" in the footer line
+- [ ] ≥80% full: amber banner on home with delete-a-project guidance; pill on the record screen
+- [ ] ≥92% full: banner/pill turn red; starting a recording shows a warning toast
+- [ ] Watermark (before purchase) shows the mark + domain at 50% opacity
+
 ## Projects
 - [ ] Create up to 6 projects; 7th is blocked with clear UX
 - [ ] Slot order is stable (does not shuffle after opening projects)

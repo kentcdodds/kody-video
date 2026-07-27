@@ -332,6 +332,27 @@ try {
   if (backHome) pass('unknown project redirects home')
   else fail('unknown project redirects home')
 
+  // --- Storage warning (stubbed estimate: 93% full) ---
+  const stubbed = await context.newPage()
+  await stubbed.addInitScript(() => {
+    navigator.storage.estimate = async () => ({
+      usage: 9.3 * 1024 ** 3,
+      quota: 10 * 1024 ** 3,
+    })
+  })
+  await stubbed.goto(BASE, { waitUntil: 'networkidle' })
+  const bannerText = await stubbed
+    .locator('.storage-banner.is-critical')
+    .innerText()
+    .catch(() => '')
+  if (/93% full/.test(bannerText) && /delete an old project/i.test(bannerText)) {
+    pass('storage warning appears when nearly full')
+  } else {
+    fail('storage warning appears when nearly full', bannerText.slice(0, 80))
+  }
+  await shot(stubbed, '12-storage-warning')
+  await stubbed.close()
+
   const realErrors = pageErrors.filter(
     (err) =>
       !/service worker|workbox|manifest|favicon|fonts\.googleapis|fonts\.gstatic|net::ERR_INTERNET_DISCONNECTED/i.test(

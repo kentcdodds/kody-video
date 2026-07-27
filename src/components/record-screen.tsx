@@ -3,6 +3,11 @@ import { Link } from 'react-router-dom'
 import type { CameraZoomRange, UseCameraResult } from '../hooks/use-camera'
 import { appendRecording, removeClip, undoLastDelete } from '../lib/project-actions'
 import { HoldRecorder } from '../lib/recorder'
+import {
+  formatStoragePercent,
+  storageSeverity,
+  type StorageSpace,
+} from '../lib/storage-space'
 import { effectiveDurationMs, formatDuration, type ClipRecord, type Project } from '../lib/types'
 import {
   IconBack,
@@ -26,6 +31,8 @@ interface RecordScreenProps {
   project: Project
   clips: ClipRecord[]
   camera: UseCameraResult
+  /** Device storage estimate for the almost-full warning. */
+  storage: StorageSpace | null
   /** True while an overlay (export, preview, onboarding) should block capture. */
   interactionLocked: boolean
   onOpenEditor: () => void
@@ -78,6 +85,7 @@ export function RecordScreen({
   project,
   clips,
   camera,
+  storage,
   interactionLocked,
   onOpenEditor,
   onOpenExport,
@@ -85,6 +93,7 @@ export function RecordScreen({
   showToast,
   refresh,
 }: RecordScreenProps) {
+  const storageState = storage ? storageSeverity(storage.ratio) : 'ok'
   const recorderRef = useRef(new HoldRecorder())
   const pointerIdRef = useRef<number | null>(null)
   const beginInFlightRef = useRef(false)
@@ -225,6 +234,9 @@ export function RecordScreen({
         setRecording(true)
         setRecordingMode(nextRecordingMode)
         setRecordStartedAt(performance.now())
+        if (storageState === 'critical') {
+          showToast('Storage almost full — delete an old project soon')
+        }
         return true
       } catch (err) {
         if (!recorderRef.current.isRecording) camera.releaseMic()
@@ -236,7 +248,7 @@ export function RecordScreen({
         beginInFlightRef.current = false
       }
     },
-    [acquireWakeLock, camera, countdown, recording, showToast],
+    [acquireWakeLock, camera, countdown, recording, showToast, storageState],
   )
 
   const endRecord = useCallback(
@@ -533,6 +545,15 @@ export function RecordScreen({
         <div className="record-meta">
           <strong>{project.name}</strong>
           <span className="record-total">{formatDuration(totalDurationMs)}</span>
+          {storage && storageState !== 'ok' && !recording ? (
+            <Link
+              to="/"
+              className={`storage-pill${storageState === 'critical' ? ' is-critical' : ''}`}
+              aria-label="Device storage almost full — manage projects"
+            >
+              Storage {formatStoragePercent(storage.ratio)} full
+            </Link>
+          ) : null}
         </div>
         <div className="record-top-actions">
           {camera.torchAvailable ? (

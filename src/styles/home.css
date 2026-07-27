@@ -288,6 +288,28 @@
   border-color: color-mix(in srgb, var(--danger) 36%, transparent);
 }
 
+.storage-banner {
+  margin-top: 12px;
+  padding: 12px 14px;
+  border-radius: 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  background: color-mix(in srgb, #e0a63a 16%, transparent);
+  border: 1px solid color-mix(in srgb, #e0a63a 45%, transparent);
+  font-size: 0.9rem;
+  line-height: 1.4;
+}
+
+.storage-banner span {
+  color: var(--ink-muted);
+}
+
+.storage-banner.is-critical {
+  background: color-mix(in srgb, var(--danger) 14%, transparent);
+  border-color: color-mix(in srgb, var(--danger) 45%, transparent);
+}
+
 .home-privacy a {
   color: var(--accent);
   font-weight: 600;
