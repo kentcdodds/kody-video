@@ -306,6 +306,28 @@ try {
   else fail('about page links repo and OK Video', `repo=${repoLink} okvideo=${okVideoLink}`)
   await shot(page, '11-about')
 
+  // --- Legal pages ---
+  await page.goto(`${BASE}/privacy`, { waitUntil: 'networkidle' })
+  const privacyOk = await page
+    .waitForSelector('text=/location tagging/i', { timeout: 5000 })
+    .then(() => true)
+    .catch(() => false)
+  await page.goto(`${BASE}/terms`, { waitUntil: 'networkidle' })
+  const termsOk = await page
+    .waitForSelector('text=/as is/i', { timeout: 5000 })
+    .then(() => true)
+    .catch(() => false)
+  if (privacyOk && termsOk) pass('privacy and terms pages render')
+  else fail('privacy and terms pages render', `privacy=${privacyOk} terms=${termsOk}`)
+
+  // --- Location toggle present on record screen ---
+  await page.goto(BASE, { waitUntil: 'networkidle' })
+  await page.locator('.project-slot.filled .slot-open').first().click()
+  await page.waitForURL(/\/project\//, { timeout: 5000 })
+  const locToggle = page.getByRole('button', { name: /toggle location tagging/i })
+  if ((await locToggle.count()) === 1) pass('location tagging toggle present')
+  else fail('location tagging toggle present')
+
   // --- Persistence / offline / SPA fallback ---
   await page.goto(BASE, { waitUntil: 'networkidle' })
   const filled = await page.locator('.project-slot.filled').count()

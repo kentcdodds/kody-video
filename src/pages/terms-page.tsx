@@ -1,0 +1,84 @@
+import { Link } from 'react-router-dom'
+
+/** Plain-language terms of use for on-device Kody Video. */
+export function TermsPage() {
+  return (
+    <div className="screen about-screen">
+      <div className="about-top">
+        <Link to="/" className="btn-icon" aria-label="Back to projects">
+          ←
+        </Link>
+        <strong>Terms</strong>
+        <span className="about-top-spacer" aria-hidden="true" />
+      </div>
+
+      <div className="about-body">
+        <h1>Terms</h1>
+        <p className="legal-updated">Last updated: July 2026</p>
+
+        <section className="about-section">
+          <h2>Free to use, as is</h2>
+          <p>
+            Kody Video is free to use and runs entirely on your device. It is provided &ldquo;as
+            is&rdquo; without warranty of any kind. Use it at your own risk — always keep copies of
+            recordings you care about. Device storage can be cleared by the browser or OS.
+          </p>
+        </section>
+
+        <section className="about-section">
+          <h2>Your recordings are yours</h2>
+          <p>
+            You own your recordings entirely. The app claims no rights to any of your content.
+          </p>
+        </section>
+
+        <section className="about-section">
+          <h2>Watermark removal</h2>
+          <p>
+            Watermark removal is a one-time $0.99 purchase that unlocks watermark-free exports for
+            the browser profile where it&rsquo;s verified. You can restore the purchase on another
+            device via the Stripe receipt link. Payments are handled by Stripe. For refunds or
+            purchase trouble, open a GitHub issue.
+          </p>
+        </section>
+
+        <section className="about-section">
+          <h2>Recording responsibly</h2>
+          <p>
+            Don&rsquo;t use the app to record people unlawfully. You are responsible for complying
+            with local recording and consent laws.
+          </p>
+        </section>
+
+        <section className="about-section">
+          <h2>Liability</h2>
+          <p>
+            Liability is limited to the amount you paid for the app — at most $0.99.
+          </p>
+        </section>
+
+        <section className="about-section">
+          <h2>Changes &amp; affiliation</h2>
+          <p>
+            These terms may change with the app; they&rsquo;re versioned in the{' '}
+            <a
+              href="https://github.com/kentcdodds/kody-video"
+              target="_blank"
+              rel="noreferrer noopener"
+            >
+              open-source repo
+            </a>
+            . Kody Video is not affiliated with OK Video.
+          </p>
+        </section>
+
+        <section className="about-section legal-nav">
+          <p>
+            See also the <Link to="/privacy">Privacy</Link> and{' '}
+            <Link to="/about">About</Link> pages.
+          </p>
+        </section>
+      </div>
+    </div>
+  )
+}

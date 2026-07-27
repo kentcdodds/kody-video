@@ -207,6 +207,7 @@ export function ProjectPage() {
           clips={clips}
           camera={camera}
           storage={data.storage}
+          locationTaggingEnabled={data.locationTaggingEnabled}
           interactionLocked={overlayOpen}
           onOpenEditor={() => setMode('editor')}
           onOpenExport={startExport}

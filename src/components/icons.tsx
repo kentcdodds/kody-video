@@ -60,6 +60,16 @@ export function IconTimer({ size = 22 }: IconProps) {
   )
 }
 
+/** Map-pin outline for location tagging. */
+export function IconLocation({ size = 22 }: IconProps) {
+  return (
+    <svg {...baseProps(size)}>
+      <path d="M12 20.5s6.5-4.4 6.5-10a6.5 6.5 0 10-13 0c0 5.6 6.5 10 6.5 10z" />
+      <circle cx="12" cy="10.5" r="2.25" />
+    </svg>
+  )
+}
+
 export function IconPlay({ size = 22 }: IconProps) {
   return (
     <svg {...baseProps(size)}>

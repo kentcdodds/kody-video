@@ -34,6 +34,13 @@ Run locally with HTTPS or `localhost` (`npm run dev`). Camera/mic require a secu
 - [ ] Duplicate inserts a copy after the selection; Delete offers Undo
 - [ ] Tapping the stage plays just the selected clip within its trim range
 
+## Chapters & location
+- [ ] Location toggle asks permission on first enable; pressed state shows while on
+- [ ] Clips recorded while on carry coordinates; toggle off stops tagging
+- [ ] MP4 export shows chapters at clip boundaries in VLC/mpv (titles = clip times)
+- [ ] With tagged clips, VLC/exiftool show the ©xyz geotag; Photos apps place the video
+- [ ] Old projects without location data export fine (chapters only, no geotag)
+
 ## Preview playback
 - [ ] Play button previews the whole cut in order, honoring trims, with audio
 - [ ] Tap right/left edge skips to next/previous clip; tap middle stops

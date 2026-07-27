@@ -6,6 +6,9 @@ import {
   ArrayBufferTarget as WebmTarget,
   Muxer as WebmMuxer,
 } from 'webm-muxer'
+import { deriveProjectLocation } from '../geo'
+import type { ClipRecord } from '../types'
+import { injectMp4Metadata, type Mp4Chapter } from './mp4-metadata'
 import { clampSegmentToMedia, type ExportPlan } from './plan'
 import {
   PREVIEW_EVERY_N_FRAMES,
@@ -147,13 +150,17 @@ export async function exportWithWebCodecs(
 
   let muxer: MuxerLike
   let takeBuffer: () => ArrayBuffer
+  const chapters: Mp4Chapter[] = []
   if (choice.container === 'mp4') {
     const target = new Mp4Target()
     const mp4 = new Mp4Muxer({
       target,
       video: { codec: 'avc', width, height },
       audio: { codec: 'aac', numberOfChannels: AUDIO_CHANNELS, sampleRate: AUDIO_SAMPLE_RATE },
-      fastStart: 'in-memory',
+      // Trailing moov so chapter/geotag injection can append udta without
+      // rewriting stco/co64. Exports are saved/shared, not streamed, so
+      // faststart matters little here.
+      fastStart: false,
     })
     muxer = mp4
     takeBuffer = () => target.buffer
@@ -212,6 +219,9 @@ export async function exportWithWebCodecs(
     frameCount: 0,
   }
 
+  const clipsInPlan = plan.segments.map((s) => s.clip)
+  const multiDay = clipsSpanMultipleDays(clipsInPlan)
+
   try {
     for (const segment of plan.segments) {
       if (encoderError) throw encoderError
@@ -221,6 +231,13 @@ export async function exportWithWebCodecs(
         const clamped = clampSegmentToMedia(segment, loaded.mediaDurationMs)
         if (!clamped) continue
         const segmentMs = clamped.endMs - clamped.startMs
+
+        if (choice.container === 'mp4') {
+          chapters.push({
+            startMs: Math.round(state.outputOffsetUs / 1000),
+            title: formatChapterTitle(segment.clip, multiDay),
+          })
+        }
 
         const buffer = await decodeClipAudio(segment.clip.blob, AUDIO_SAMPLE_RATE)
         encodeSegmentAudio({
@@ -281,12 +298,51 @@ export async function exportWithWebCodecs(
   }
 
   onProgress?.(1)
+  let buffer = takeBuffer()
+  if (choice.container === 'mp4') {
+    buffer = injectMp4Metadata(buffer, {
+      chapters,
+      location: deriveProjectLocation(clipsInPlan),
+    })
+  }
   const mimeType = choice.container === 'mp4' ? 'video/mp4' : 'video/webm'
   return {
-    blob: new Blob([takeBuffer()], { type: mimeType }),
+    blob: new Blob([buffer], { type: mimeType }),
     mimeType,
     fileExtension: choice.container,
   }
+}
+
+/** Recording start ≈ createdAt − durationMs (wall-clock capture window). */
+function clipRecordingStartMs(clip: Pick<ClipRecord, 'createdAt' | 'durationMs'>): number {
+  return clip.createdAt - clip.durationMs
+}
+
+function clipsSpanMultipleDays(clips: Pick<ClipRecord, 'createdAt' | 'durationMs'>[]): boolean {
+  if (clips.length <= 1) return false
+  const days = new Set<string>()
+  for (const clip of clips) {
+    const d = new Date(clipRecordingStartMs(clip))
+    days.add(`${d.getFullYear()}-${d.getMonth()}-${d.getDate()}`)
+    if (days.size > 1) return true
+  }
+  return false
+}
+
+function formatChapterTitle(
+  clip: Pick<ClipRecord, 'createdAt' | 'durationMs' | 'lat' | 'lng'>,
+  includeDate: boolean,
+): string {
+  const start = new Date(clipRecordingStartMs(clip))
+  const time = start.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })
+  const datePrefix = includeDate
+    ? `${start.toLocaleDateString([], { month: 'short', day: 'numeric' })} `
+    : ''
+  let title = `${datePrefix}${time}`
+  if (typeof clip.lat === 'number' && typeof clip.lng === 'number') {
+    title += ` · ${clip.lat.toFixed(4)},${clip.lng.toFixed(4)}`
+  }
+  return title
 }
 
 interface PumpArgs {

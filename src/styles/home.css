@@ -385,6 +385,18 @@
   text-underline-offset: 2px;
 }
 
+.legal-updated {
+  margin: 0 0 4px;
+  text-align: center;
+  color: var(--ink-muted);
+  font-size: 0.9rem;
+}
+
+.legal-nav {
+  margin-top: 28px;
+  padding-top: 4px;
+}
+
 /* Onboarding */
 
 .onboarding-overlay {
