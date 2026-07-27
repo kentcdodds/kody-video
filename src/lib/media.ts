@@ -43,6 +43,8 @@ export async function queryCameraPermission(): Promise<CameraPermissionState> {
 export interface OpenCameraOptions {
   /** Preview should stay video-only so Android voice-to-text can use the mic. */
   audio?: boolean
+  /** Open a specific camera (rear lens switching); falls back to facing. */
+  deviceId?: string
 }
 
 export async function openCameraStream(
@@ -50,17 +52,29 @@ export async function openCameraStream(
   options: OpenCameraOptions = {},
 ): Promise<MediaStream> {
   const withAudio = options.audio === true
-  const videoConstraints: MediaTrackConstraints = {
-    facingMode: { ideal: facing },
+  const baseConstraints: MediaTrackConstraints = {
     width: { ideal: 1280 },
     height: { ideal: 720 },
     frameRate: { ideal: 30 },
   }
 
+  // A specific lens (e.g. the rear ultra-wide) is requested by device id;
+  // stale ids (permission reset, OS updates) fall back to facing mode.
+  if (options.deviceId) {
+    try {
+      return await navigator.mediaDevices.getUserMedia({
+        audio: withAudio,
+        video: { ...baseConstraints, deviceId: { exact: options.deviceId } },
+      })
+    } catch {
+      // Fall through to the facing-mode request below.
+    }
+  }
+
   try {
     return await navigator.mediaDevices.getUserMedia({
       audio: withAudio,
-      video: videoConstraints,
+      video: { ...baseConstraints, facingMode: { ideal: facing } },
     })
   } catch (error) {
     if (isOverconstrained(error)) {
@@ -70,6 +84,40 @@ export async function openCameraStream(
       })
     }
     throw error
+  }
+}
+
+interface InputDeviceWithCapabilities extends MediaDeviceInfo {
+  getCapabilities?: () => MediaTrackCapabilities
+}
+
+/**
+ * Rear camera devices, in enumeration order. Many Androids expose the
+ * ultra-wide (and telephoto) as separate rear cameras rather than as zoom
+ * below 1× on the main one — reaching them requires opening that device.
+ * Labels/capabilities are only populated once camera permission is granted.
+ */
+export async function listRearCameras(): Promise<string[]> {
+  if (!navigator.mediaDevices?.enumerateDevices) return []
+  try {
+    const devices = await navigator.mediaDevices.enumerateDevices()
+    return devices
+      .filter((device): device is InputDeviceWithCapabilities => device.kind === 'videoinput')
+      .filter((device) => {
+        try {
+          const facing = device.getCapabilities?.().facingMode
+          if (Array.isArray(facing) && facing.length > 0) {
+            return facing.includes('environment')
+          }
+        } catch {
+          // Fall through to the label heuristic.
+        }
+        return /\bback\b|\brear\b|environment/i.test(device.label)
+      })
+      .map((device) => device.deviceId)
+      .filter((id) => id.length > 0)
+  } catch {
+    return []
   }
 }
 

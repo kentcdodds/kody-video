@@ -16,6 +16,7 @@ import {
   IconDeleteLast,
   IconEditor,
   IconFlip,
+  IconLens,
   IconLocation,
   IconPlay,
   IconTimer,
@@ -151,6 +152,9 @@ export function RecordScreen({
   const zoomLevels = camera.zoom ? zoomChipLevels(camera.zoom) : []
   const activeZoomLevel =
     camera.zoom && zoomLevels.length > 0 ? nearestZoomLevel(zoomLevels, camera.zoom.value) : null
+  // Ultra-wide/telephoto are usually separate rear cameras on Android — a
+  // lens chip is the only way to reach 0.5× when zoom can't go below 1×.
+  const showLensChip = camera.facing === 'environment' && camera.rearLensCount > 1
 
   const clearCountdown = useCallback(() => {
     window.clearTimeout(countdownTimerRef.current)
@@ -778,8 +782,27 @@ export function RecordScreen({
         </div>
       </div>
 
-      {camera.zoom && zoomLevels.length > 0 ? (
-        <div className="record-zoom" role="group" aria-label="Zoom">
+      {(camera.zoom && zoomLevels.length > 0) || showLensChip ? (
+        <div className="record-zoom" role="group" aria-label="Zoom and lens">
+          {showLensChip ? (
+            <button
+              type="button"
+              className="zoom-chip lens-chip"
+              aria-label={`Switch rear lens (${camera.rearLensIndex + 1} of ${camera.rearLensCount})`}
+              disabled={recording || countdown !== null}
+              onClick={(event) => {
+                event.stopPropagation()
+                // Each lens has its own zoom range and default.
+                cancelAnimationFrame(zoomRestoreRafRef.current)
+                zoomBaselineRef.current = null
+                dragZoomMovedRef.current = false
+                void camera.switchRearLens()
+              }}
+            >
+              <IconLens size={14} />
+              {camera.rearLensIndex + 1}/{camera.rearLensCount}
+            </button>
+          ) : null}
           {zoomLevels.map((level) => {
             const isActive = activeZoomLevel !== null && Math.abs(activeZoomLevel - level) < 0.05
             return (

@@ -122,6 +122,9 @@ Verified approach: `npm run build && npm run preview`, load once online, then De
 - **Permissions:** denied camera/mic must be re-enabled in site settings; the UI surfaces this.
 - **Storage quotas:** large projects can hit IndexedDB quotas; the soft 6-project cap helps.
 - **Background tabs:** recording should stay in the foreground; browsers may throttle capture.
+- **Ultra-wide (0.5×):** Android usually exposes the ultra-wide/telephoto as *separate* rear
+  cameras, not as zoom below 1× — the lens chip next to the zoom chips switches between them.
+  Some devices don't expose the extra lenses to browsers at all; the chip is hidden there.
 
 ## Desktop keyboard support
 
@@ -167,5 +170,6 @@ Checkout Sessions read access is enough) on the Cloudflare Pages project.
 | `npm run test:smoke`                 | Playwright smoke: record → edit → export   |
 | `node scripts/probe-export-chrome.mjs` | Export validation in Chrome stable (real codecs) |
 | `node scripts/probe-keyboard.mjs`    | Desktop keyboard flows (record/edit/playback) |
+| `node scripts/probe-rear-lens.mjs`   | Rear lens switching (ultra-wide) with fake cameras |
 | `node scripts/probe-touch-timeline.mjs` | Touch timeline gestures (scroll, long-press lift) |
 | `node scripts/probe-webkit.mjs`      | WebKit engine sanity + feature matrix (iOS proxy, not a substitute for a real device) |
