@@ -2,11 +2,17 @@ import { loadClipVideo, seekTo } from './export/shared'
 import { updateClipThumbs } from './storage'
 import type { ClipRecord } from './types'
 
-export const THUMB_HEIGHT = 120
+/** Filmstrip frame height: timeline tiles are 72 CSS px on up-to-3× screens. */
+export const THUMB_HEIGHT = 216
 export const THUMB_COUNT = 3
+/** Slot poster height: the home card is ~200 CSS px tall on up-to-3× screens. */
+export const POSTER_HEIGHT = 640
 
 export interface GeneratedThumbs {
   thumbs: Blob[]
+  /** High-res frame for the home slot art (same moment as thumbs[0]);
+   * guaranteed present — falls back to the first filmstrip frame. */
+  poster: Blob
   thumbWidth: number
   thumbHeight: number
   videoWidth: number
@@ -16,7 +22,8 @@ export interface GeneratedThumbs {
 /**
  * Capture evenly spaced poster frames for a clip. Used by the timeline so it
  * can show real filmstrip thumbnails instead of keeping a live <video>
- * decoder per clip (Android caps concurrent decoders hard).
+ * decoder per clip (Android caps concurrent decoders hard), plus one
+ * high-resolution poster for the home slot art.
  */
 export async function generateClipThumbs(
   blob: Blob,
@@ -37,19 +44,34 @@ export async function generateClipThumbs(
     const ctx = canvas.getContext('2d', { alpha: false })
     if (!ctx) throw new Error('Canvas not available')
 
+    const posterHeight = Math.min(POSTER_HEIGHT, video.videoHeight || POSTER_HEIGHT)
+    const posterWidth = Math.max(2, Math.round(posterHeight * aspect))
+    const posterCanvas = document.createElement('canvas')
+    posterCanvas.width = posterWidth
+    posterCanvas.height = posterHeight
+    const posterCtx = posterCanvas.getContext('2d', { alpha: false })
+
     const durationSec = Math.max(0, mediaDurationMs / 1000)
     const thumbs: Blob[] = []
+    let poster: Blob | null = null
     for (let i = 0; i < count; i += 1) {
       const at = durationSec > 0 ? (durationSec * (i + 0.5)) / count : 0
       await seekTo(video, at)
+      if (i === 0 && posterCtx) {
+        posterCtx.drawImage(video, 0, 0, posterWidth, posterHeight)
+        poster = await canvasToBlob(posterCanvas, 0.82)
+      }
       ctx.drawImage(video, 0, 0, thumbWidth, thumbHeight)
-      const thumb = await canvasToBlob(canvas)
+      const thumb = await canvasToBlob(canvas, 0.72)
       if (thumb) thumbs.push(thumb)
     }
     if (thumbs.length === 0) throw new Error('Could not capture clip thumbnails')
 
     return {
       thumbs,
+      // A poster must always persist, or ensureClipThumbs would re-decode
+      // the whole clip on every load looking for one.
+      poster: poster ?? thumbs[0],
       thumbWidth,
       thumbHeight,
       videoWidth: video.videoWidth,
@@ -60,9 +82,9 @@ export async function generateClipThumbs(
   }
 }
 
-function canvasToBlob(canvas: HTMLCanvasElement): Promise<Blob | null> {
+function canvasToBlob(canvas: HTMLCanvasElement, quality: number): Promise<Blob | null> {
   return new Promise((resolve) => {
-    canvas.toBlob((blob) => resolve(blob), 'image/jpeg', 0.72)
+    canvas.toBlob((blob) => resolve(blob), 'image/jpeg', quality)
   })
 }
 
@@ -78,7 +100,9 @@ const failedThisSession = new Set<string>()
  * Best-effort: failures leave the clip untouched.
  */
 export function ensureClipThumbs(clip: ClipRecord): Promise<ClipRecord> {
-  if (clip.thumbs && clip.thumbs.length > 0) return Promise.resolve(clip)
+  // Regenerate when the high-res poster is missing too (clips saved before
+  // posters existed had only the low-res filmstrip frames).
+  if (clip.thumbs && clip.thumbs.length > 0 && clip.poster) return Promise.resolve(clip)
   if (failedThisSession.has(clip.id)) return Promise.resolve(clip)
   const existing = inFlight.get(clip.id)
   if (existing) return existing
@@ -103,6 +127,7 @@ export function ensureClipThumbs(clip: ClipRecord): Promise<ClipRecord> {
       return {
         ...clip,
         thumbs: generated.thumbs,
+        poster: generated.poster,
         thumbWidth: generated.thumbWidth,
         thumbHeight: generated.thumbHeight,
         width: clip.width ?? generated.videoWidth,

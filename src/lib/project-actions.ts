@@ -63,12 +63,14 @@ export async function loadHomeProjects(): Promise<ProjectSummary[]> {
     list.map(async (project) => {
       const clips = await getClipsForProject(project.id)
       const durationMs = clips.reduce((sum, clip) => sum + effectiveDurationMs(clip), 0)
+      // Prefer any clip with a high-res poster over an older thumbs-only one.
+      const withPoster = clips.find((clip) => clip.poster)
       const withThumb = clips.find((clip) => clip.thumbs && clip.thumbs.length > 0)
       return {
         ...project,
         clipCount: clips.length,
         durationMs,
-        posterThumb: withThumb?.thumbs?.[0] ?? null,
+        posterThumb: withPoster?.poster ?? withThumb?.thumbs?.[0] ?? null,
       }
     }),
   )
