@@ -284,14 +284,26 @@ export function useCamera(): UseCameraResult {
       stopStream(current)
       streamRef.current = null
       setIsReady(false)
+      // A flip may land while a lens open is in flight; its stream must win.
+      const adopt = (opened: MediaStream): boolean => {
+        if (facingRef.current !== 'environment') {
+          stopStream(opened)
+          return false
+        }
+        replaceStream(opened)
+        void syncRearLenses(opened)
+        return true
+      }
       try {
         const next = await openCameraStream('environment', { audio: false, deviceId: nextId })
         const openedId = next.getVideoTracks()[0]?.getSettings().deviceId ?? ''
-        // openCameraStream falls back to facing mode on stale ids; only
-        // remember the lens the browser actually opened.
-        rememberRearLens(openedId ? { id: openedId, index: lenses.indexOf(openedId) } : null)
-        replaceStream(next)
-        void syncRearLenses(next)
+        if (!adopt(next)) return
+        // openCameraStream falls back to facing mode when the exact device
+        // can't be opened — only persist a lens the user actually reached,
+        // never an unintended fallback.
+        if (openedId === nextId) {
+          rememberRearLens({ id: openedId, index: lenses.indexOf(openedId) })
+        }
       } catch (err) {
         // Try to restore the lens we just released.
         try {
@@ -299,8 +311,7 @@ export function useCamera(): UseCameraResult {
             audio: false,
             deviceId: activeId || undefined,
           })
-          replaceStream(restored)
-          void syncRearLenses(restored)
+          adopt(restored)
         } catch {
           setError(permissionMessage(err))
         }
