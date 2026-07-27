@@ -63,12 +63,12 @@ export async function loadHomeProjects(): Promise<ProjectSummary[]> {
     list.map(async (project) => {
       const clips = await getClipsForProject(project.id)
       const durationMs = clips.reduce((sum, clip) => sum + effectiveDurationMs(clip), 0)
-      const withThumb = clips.find((clip) => clip.thumbs && clip.thumbs.length > 0)
+      const withPoster = clips.find((clip) => clip.poster || (clip.thumbs && clip.thumbs.length > 0))
       return {
         ...project,
         clipCount: clips.length,
         durationMs,
-        posterThumb: withThumb?.thumbs?.[0] ?? null,
+        posterThumb: withPoster?.poster ?? withPoster?.thumbs?.[0] ?? null,
       }
     }),
   )

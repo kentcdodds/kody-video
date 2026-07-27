@@ -32,6 +32,8 @@ export interface ClipRecord extends ClipMeta {
   blob: Blob
   /** Filmstrip poster frames (JPEG). Generated lazily for old clips. */
   thumbs?: Blob[]
+  /** High-resolution poster frame for the home slot art. */
+  poster?: Blob
 }
 
 export interface DeletedClipSnapshot {
