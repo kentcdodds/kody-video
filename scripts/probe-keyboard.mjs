@@ -133,6 +133,19 @@ try {
   const stuckRecording = await page.evaluate(() => !!document.querySelector('.record-screen.is-recording'))
   check('quick space tap does not leave stuck recording', !stuckRecording)
 
+  // A pointer tap during a Space-held take must not end it; only keyup does.
+  await page.keyboard.down('Space')
+  await sleep(900)
+  const stage = await page.locator('.record-stage').boundingBox()
+  await page.mouse.click(stage.x + stage.width / 2, stage.y + stage.height / 2)
+  await sleep(500)
+  const survivedTap = await page.evaluate(() => !!document.querySelector('.record-screen.is-recording'))
+  check('tap during space take does not stop it', survivedTap)
+  await page.keyboard.up('Space')
+  await sleep(1500)
+  const endedOnKeyup = await page.evaluate(() => !document.querySelector('.record-screen.is-recording'))
+  check('space keyup still ends the take', endedOnKeyup)
+
   check('no page errors', errors.length === 0, errors.join(' | '))
   await browser.close()
 } catch (err) {

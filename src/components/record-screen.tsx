@@ -106,6 +106,9 @@ export function RecordScreen({
   const recorderRef = useRef(new HoldRecorder())
   const pointerIdRef = useRef<number | null>(null)
   const spaceHeldRef = useRef(false)
+  /** True while a Space-started take is active: only keyup may end it, and
+   * stray pointer events must not end the take or reset drag-zoom state. */
+  const keyboardTakeRef = useRef(false)
   const beginInFlightRef = useRef(false)
   const endInFlightRef = useRef(false)
   const countdownTimerRef = useRef(0)
@@ -273,6 +276,9 @@ export function RecordScreen({
 
   const endRecord = useCallback(
     async (pointerId?: number) => {
+      // Pointer events never end a Space-owned take (keyup does, and it
+      // clears the flag before calling in).
+      if (pointerId !== undefined && keyboardTakeRef.current) return
       if (
         pointerId !== undefined &&
         pointerIdRef.current !== null &&
@@ -287,11 +293,13 @@ export function RecordScreen({
       if (!recorderRef.current.isRecording && !recording) {
         // Pointer released while mic grant was still in flight.
         pointerIdRef.current = null
+        keyboardTakeRef.current = false
         camera.releaseMic()
         return
       }
       endInFlightRef.current = true
       pointerIdRef.current = null
+      keyboardTakeRef.current = false
       setRecording(false)
       setRecordingMode(null)
       // Detach this take's fix before any await so a quick next hold can own the ref.
@@ -484,9 +492,17 @@ export function RecordScreen({
             return
           }
           spaceHeldRef.current = true
+          keyboardTakeRef.current = true
           void beginRecord(null, 'hold').then((started) => {
+            if (!started) {
+              keyboardTakeRef.current = false
+              return
+            }
             // Space was released while the mic grant was in flight.
-            if (started && !spaceHeldRef.current) void endRecord()
+            if (!spaceHeldRef.current) {
+              keyboardTakeRef.current = false
+              void endRecord()
+            }
           })
           return
         }
@@ -510,6 +526,8 @@ export function RecordScreen({
         }
         case 'Backspace':
         case 'Delete': {
+          // Without this, Backspace can also trigger history navigation.
+          event.preventDefault()
           if (!recording && clips.length > 0) deleteLastClip()
           return
         }
@@ -522,6 +540,7 @@ export function RecordScreen({
       spaceHeldRef.current = false
       // Only a keyboard-started hold (no owning pointer) ends on keyup.
       if (recording && recordingMode === 'hold' && pointerIdRef.current === null) {
+        keyboardTakeRef.current = false
         void endRecord()
       }
     },
@@ -572,6 +591,9 @@ export function RecordScreen({
             void endRecord()
             return
           }
+          // A Space-owned take ends on Space keyup only; taps must not
+          // disturb it or its zoom state.
+          if (keyboardTakeRef.current) return
           // A second finger landing during an active hold must not reset the
           // drag-zoom state or start another take.
           if (pointerIdRef.current !== null) return
@@ -622,6 +644,7 @@ export function RecordScreen({
           camera.setZoom(next)
         }}
         onPointerUp={(event) => {
+          if (keyboardTakeRef.current) return
           if (recordingMode !== 'hands-free') {
             // Only the pointer that owns the hold may end the take and start
             // the snap-back — a stray second finger lifting must not zoom
@@ -633,6 +656,7 @@ export function RecordScreen({
           }
         }}
         onPointerCancel={(event) => {
+          if (keyboardTakeRef.current) return
           if (recordingMode !== 'hands-free') {
             const ownsHold =
               pointerIdRef.current === null || pointerIdRef.current === event.pointerId
