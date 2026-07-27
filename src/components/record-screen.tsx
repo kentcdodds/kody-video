@@ -789,7 +789,7 @@ export function RecordScreen({
               type="button"
               className="zoom-chip lens-chip"
               aria-label={`Switch rear lens (${camera.rearLensIndex + 1} of ${camera.rearLensCount})`}
-              disabled={recording || countdown !== null}
+              disabled={recording || countdown !== null || !camera.isReady}
               onClick={(event) => {
                 event.stopPropagation()
                 // Each lens has its own zoom range and default.

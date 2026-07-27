@@ -204,6 +204,9 @@ export function useCamera(): UseCameraResult {
       return
     }
     const lenses = await listRearCameras()
+    // A flip/stop/switch may have replaced the stream while enumerating —
+    // stale results must not clobber the newer call's state.
+    if (streamRef.current !== active || facingRef.current !== 'environment') return
     rearLensesRef.current = lenses
     setRearLensCount(lenses.length)
     const activeId = active.getVideoTracks()[0]?.getSettings().deviceId ?? ''
@@ -276,6 +279,9 @@ export function useCamera(): UseCameraResult {
   const switchRearLens = useCallback(async () => {
     const lenses = rearLensesRef.current
     if (facingRef.current !== 'environment' || lenses.length < 2) return
+    // No live stream means the camera is stopped or restarting — switching
+    // now would open a camera behind that lifecycle's back.
+    if (!streamRef.current) return
     if (lensSwitchInFlightRef.current) return
     lensSwitchInFlightRef.current = true
     try {
