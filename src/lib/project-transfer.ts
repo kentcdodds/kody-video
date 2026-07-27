@@ -1,4 +1,5 @@
 import { addClip, createProject, deleteProject, updateClipTrim } from './storage'
+import { ensureClipThumbs } from './thumbs'
 import type { ClipRecord, Project } from './types'
 
 /**
@@ -161,9 +162,15 @@ export async function importProjectBackup(parsed: ParsedBackup): Promise<Project
   try {
     for (const clip of parsed.clips) {
       assertImportableClip(clip)
+      // CRITICAL: materialize the media bytes. The parsed blob is a lazy
+      // slice of the picked backup File; persisting that into IndexedDB
+      // stores a reference to the underlying file, which goes stale (esp.
+      // Android content URIs) and leaves clips unreadable. Reading it here
+      // both copies the bytes and proves the file is intact.
+      const bytes = await clip.blob.arrayBuffer()
       const added = await addClip({
         projectId: project.id,
-        blob: clip.blob,
+        blob: new Blob([bytes], { type: clip.mimeType }),
         mimeType: clip.mimeType,
         durationMs: clip.durationMs,
         // Keep the original capture time so chapter titles stay truthful.
@@ -175,7 +182,10 @@ export async function importProjectBackup(parsed: ParsedBackup): Promise<Project
         locationAccuracyM: clip.locationAccuracyM,
       })
       // Restore trims (addClip resets them to the full clip).
-      await updateClipTrim(added.id, clip.trimStartMs, clip.trimEndMs)
+      const trimmed = await updateClipTrim(added.id, clip.trimStartMs, clip.trimEndMs)
+      // Generate thumbnails now so the slot poster shows right away and the
+      // first open doesn't pay the backfill cost.
+      await ensureClipThumbs({ ...added, ...trimmed, blob: added.blob }).catch(() => undefined)
     }
     return project
   } catch (error) {

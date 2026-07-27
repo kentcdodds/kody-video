@@ -358,12 +358,48 @@ try {
       .waitForFunction(
         (before) => document.querySelectorAll('.project-slot.filled').length > before,
         filledBefore,
-        { timeout: 10000 },
+        { timeout: 15000 },
       )
       .then(() => true)
       .catch(() => false)
     if (imported) pass('backup imports as a new project')
     else fail('backup imports as a new project')
+
+    // Poster art must appear immediately (thumbs generate during import).
+    const postersReady = await page
+      .waitForFunction(
+        () =>
+          document.querySelectorAll('.project-slot.filled .slot-poster').length ===
+          document.querySelectorAll('.project-slot.filled').length,
+        undefined,
+        { timeout: 10000 },
+      )
+      .then(() => true)
+      .catch(() => false)
+    if (postersReady) pass('imported project shows poster art immediately')
+    else fail('imported project shows poster art immediately')
+
+    // The imported project must actually open with playable clips.
+    const slots = page.locator('.project-slot.filled .slot-open')
+    await slots.nth((await slots.count()) - 1).click()
+    const openedImported = await page
+      .waitForURL(/\/project\//, { timeout: 10000 })
+      .then(() => true)
+      .catch(() => false)
+    const importedCameraReady = await page
+      .waitForFunction(
+        () => {
+          const v = document.querySelector('.record-stage video')
+          return v && v.videoWidth > 0
+        },
+        undefined,
+        { timeout: 10000 },
+      )
+      .then(() => true)
+      .catch(() => false)
+    if (openedImported && importedCameraReady) pass('imported project opens')
+    else fail('imported project opens', `nav=${openedImported} camera=${importedCameraReady}`)
+    await page.goto(BASE, { waitUntil: 'networkidle' })
   } else {
     fail('backup imports as a new project', 'no backup file to import')
   }
