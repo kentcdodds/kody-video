@@ -114,7 +114,9 @@ export function HomePage() {
         )}
       </section>
 
-      <p className="home-privacy">Clips stay on this phone until you share.</p>
+      <p className="home-privacy">
+        Clips stay on this phone until you share. <Link to="/about">About</Link>
+      </p>
 
       <div className="home-footer">
         <button
