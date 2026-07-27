@@ -66,6 +66,21 @@ describe('project backup round trip', () => {
     expect(await clips[0].blob.text()).toBe('MEDIA')
   })
 
+  it('reports per-clip progress during import', async () => {
+    const backup = serializeProject(fakeProject('Progress'), [
+      fakeClip('clip_a', 'AAAA'),
+      fakeClip('clip_b', 'BBBB'),
+    ])
+    const parsed = await parseProjectBackup(backup)
+    const seen: Array<[number, number]> = []
+    await importProjectBackup(parsed, (done, total) => seen.push([done, total]))
+    expect(seen).toEqual([
+      [0, 2],
+      [1, 2],
+      [2, 2],
+    ])
+  })
+
   it('rolls back the project when an import fails midway', async () => {
     const backup = serializeProject(fakeProject('Broken'), [fakeClip('clip_a', 'MEDIA')])
     const parsed = await parseProjectBackup(backup)

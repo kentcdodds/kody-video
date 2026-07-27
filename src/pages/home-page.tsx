@@ -6,7 +6,7 @@ import { ConfirmSheet } from '../components/confirm-sheet'
 import { HomeOptionsSheet } from '../components/home-options-sheet'
 import { IconMore, IconPlus } from '../components/icons'
 import { RenameSheet } from '../components/rename-sheet'
-import { shareOrDownload } from '../lib/media'
+import { downloadBlob, shareOrDownload } from '../lib/media'
 import { loadHomePage, type HomeLoaderData, type ProjectSummary } from '../lib/project-actions'
 import {
   importProjectBackup,
@@ -22,6 +22,9 @@ import {
 } from '../lib/storage-space'
 import { MAX_PROJECTS, formatDuration, type ClipRecord } from '../lib/types'
 
+/** Android share targets get flaky well below this; bigger backups download. */
+const SHARE_BACKUP_LIMIT_BYTES = 50 * 1024 * 1024
+
 export async function homeLoader(): Promise<HomeLoaderData> {
   return loadHomePage()
 }
@@ -36,6 +39,7 @@ export function HomePage() {
   const [deleting, setDeleting] = useState<ProjectSummary | null>(null)
   const [busy, setBusy] = useState(false)
   const [notice, setNotice] = useState<string | null>(null)
+  const [importProgress, setImportProgress] = useState<string | null>(null)
   // Prefetched when the options sheet opens so the Save-backup tap keeps its
   // user activation (Web Share needs it; an IndexedDB read can outlive it).
   const prefetchedClipsRef = useRef<{ projectId: string; clips: Promise<ClipRecord[]> } | null>(
@@ -76,11 +80,23 @@ export function HomePage() {
             : await getClipsForProject(project.id)
         if (clips.length === 0) throw new Error('Nothing to back up — this project has no clips.')
         const backup = serializeProject(project, clips)
-        const outcome = await shareOrDownload(backup, projectBackupFilename(project.name))
-        if (outcome !== 'cancelled') {
+        const filename = projectBackupFilename(project.name)
+        const sizeLabel = formatBytes(backup.size)
+        // Android's share sheet fails (often silently) on very large files —
+        // route big backups straight to a download instead.
+        if (backup.size > SHARE_BACKUP_LIMIT_BYTES) {
+          await downloadBlob(backup, filename)
           setNotice(
-            'Backup saved. Open kody.video (or any Kody Video) and tap Import to restore it.',
+            `Backup (${sizeLabel}) saved to your downloads — too large for the share sheet. ` +
+              'Open kody.video and tap Import to restore it.',
           )
+        } else {
+          const outcome = await shareOrDownload(backup, filename)
+          if (outcome !== 'cancelled') {
+            setNotice(
+              `Backup (${sizeLabel}) saved. Open kody.video (or any Kody Video) and tap Import to restore it.`,
+            )
+          }
         }
       } catch (err) {
         setError(err instanceof Error ? err.message : 'Could not create the backup')
@@ -95,14 +111,19 @@ export function HomePage() {
       setBusy(true)
       setError(null)
       setNotice(null)
+      setImportProgress('Reading backup…')
       try {
         const parsed = await parseProjectBackup(file)
-        const project = await importProjectBackup(parsed)
-        refresh()
-        setNotice(`Imported “${project.name}” — ${parsed.clips.length} clip${parsed.clips.length === 1 ? '' : 's'}.`)
+        const project = await importProjectBackup(parsed, (done, total) => {
+          setImportProgress(`Importing clip ${Math.min(done + 1, total)} of ${total}…`)
+        })
+        // Land directly in the imported project — unambiguous success, and
+        // no dependence on the list revalidating behind the scenes.
+        navigate(`/project/${project.id}`)
       } catch (err) {
         setError(err instanceof Error ? err.message : 'Could not import that file')
       } finally {
+        setImportProgress(null)
         setBusy(false)
       }
     })()
@@ -127,6 +148,11 @@ export function HomePage() {
 
       {error ? <div className="error-banner">{error}</div> : null}
       {notice ? <p className="home-notice">{notice}</p> : null}
+      {importProgress ? (
+        <p className="home-notice" role="status" aria-live="polite">
+          {importProgress} Keep this tab open.
+        </p>
+      ) : null}
 
       {storage && severity !== 'ok' ? (
         <div
