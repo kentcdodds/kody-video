@@ -1,4 +1,4 @@
-import { startTransition, useState } from 'react'
+import { startTransition, useRef, useState } from 'react'
 import { Link, useLoaderData, useNavigate, useRevalidator } from 'react-router-dom'
 import { BlobImage } from '../components/blob-image'
 import { BrandMark } from '../components/brand-mark'
@@ -20,7 +20,7 @@ import {
   formatStoragePercent,
   storageSeverity,
 } from '../lib/storage-space'
-import { MAX_PROJECTS, formatDuration } from '../lib/types'
+import { MAX_PROJECTS, formatDuration, type ClipRecord } from '../lib/types'
 
 export async function homeLoader(): Promise<HomeLoaderData> {
   return loadHomePage()
@@ -36,6 +36,11 @@ export function HomePage() {
   const [deleting, setDeleting] = useState<ProjectSummary | null>(null)
   const [busy, setBusy] = useState(false)
   const [notice, setNotice] = useState<string | null>(null)
+  // Prefetched when the options sheet opens so the Save-backup tap keeps its
+  // user activation (Web Share needs it; an IndexedDB read can outlive it).
+  const prefetchedClipsRef = useRef<{ projectId: string; clips: Promise<ClipRecord[]> } | null>(
+    null,
+  )
 
   const refresh = () => {
     startTransition(() => {
@@ -64,7 +69,11 @@ export function HomePage() {
       setError(null)
       setNotice(null)
       try {
-        const clips = await getClipsForProject(project.id)
+        const prefetched = prefetchedClipsRef.current
+        const clips =
+          prefetched && prefetched.projectId === project.id
+            ? await prefetched.clips
+            : await getClipsForProject(project.id)
         if (clips.length === 0) throw new Error('Nothing to back up — this project has no clips.')
         const backup = serializeProject(project, clips)
         const outcome = await shareOrDownload(backup, projectBackupFilename(project.name))
@@ -166,7 +175,13 @@ export function HomePage() {
                 type="button"
                 className="slot-options"
                 aria-label={`Options for ${project.name}`}
-                onClick={() => setMenuProject(project)}
+                onClick={() => {
+                  prefetchedClipsRef.current = {
+                    projectId: project.id,
+                    clips: getClipsForProject(project.id),
+                  }
+                  setMenuProject(project)
+                }}
               >
                 <IconMore />
               </button>
@@ -204,13 +219,23 @@ export function HomePage() {
         >
           {atCap ? `Limit ${MAX_PROJECTS}` : 'New project'}
         </button>
-        <label className={`btn btn-ghost home-import${busy || atCap ? ' is-disabled' : ''}`}>
+        <label
+          className={`btn btn-ghost home-import${busy ? ' is-disabled' : ''}`}
+          onClick={(event) => {
+            if (atCap) {
+              event.preventDefault()
+              setError(
+                `Project limit reached (${MAX_PROJECTS}). Delete a project before importing.`,
+              )
+            }
+          }}
+        >
           Import
           <input
             type="file"
             accept=".kodyvideo,application/octet-stream"
             className="visually-hidden"
-            disabled={busy || atCap}
+            disabled={busy}
             onChange={(event) => {
               const file = event.target.files?.[0]
               event.target.value = ''

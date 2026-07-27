@@ -124,8 +124,9 @@ export async function parseProjectBackup(file: Blob): Promise<ParsedBackup> {
     ) {
       throw new Error('This backup file is damaged')
     }
+    const mimeType = typeof clip.mimeType === 'string' ? clip.mimeType : 'video/webm'
     clips.push({
-      mimeType: typeof clip.mimeType === 'string' ? clip.mimeType : 'video/webm',
+      mimeType,
       durationMs: clip.durationMs,
       trimStartMs: clip.trimStartMs,
       trimEndMs: clip.trimEndMs,
@@ -135,7 +136,7 @@ export async function parseProjectBackup(file: Blob): Promise<ParsedBackup> {
       lat: clip.lat,
       lng: clip.lng,
       locationAccuracyM: clip.locationAccuracyM,
-      blob: file.slice(offset, offset + clip.byteLength, clip.mimeType),
+      blob: file.slice(offset, offset + clip.byteLength, mimeType),
     })
     offset += clip.byteLength
   }
