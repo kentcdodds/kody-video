@@ -44,7 +44,7 @@ export class HoldRecorder {
       ? new MediaRecorder(stream, {
           mimeType: this.mimeType,
           videoBitsPerSecond: 3_500_000,
-          audioBitsPerSecond: 128_000,
+          audioBitsPerSecond: 192_000,
         })
       : new MediaRecorder(stream)
 

@@ -8,6 +8,8 @@ import {
 } from 'webm-muxer'
 import { clampSegmentToMedia, type ExportPlan } from './plan'
 import {
+  PREVIEW_EVERY_N_FRAMES,
+  blitPreview,
   decodeClipAudio,
   drawCover,
   loadClipVideo,
@@ -22,7 +24,7 @@ const AUDIO_CHANNELS = 2
 const AUDIO_CHUNK_FRAMES = 4800 // 100ms
 const KEYFRAME_INTERVAL_US = 2_000_000
 const VIDEO_BITRATE = 4_000_000
-const AUDIO_BITRATE = 128_000
+const AUDIO_BITRATE = 192_000
 
 export function supportsWebCodecsExport(): boolean {
   return typeof VideoEncoder !== 'undefined' && typeof VideoFrame !== 'undefined'
@@ -119,6 +121,7 @@ interface MuxerLike {
 export async function exportWithWebCodecs(
   plan: ExportPlan,
   onProgress?: (ratio: number) => void,
+  getPreviewCanvas?: () => HTMLCanvasElement | null,
 ): Promise<ExportResult> {
   if (!supportsWebCodecsExport()) {
     throw new Error('WebCodecs is not available')
@@ -204,6 +207,7 @@ export async function exportWithWebCodecs(
     lastKeyTsUs: -1_000_000_000,
     outputOffsetUs: 0,
     doneMs: 0,
+    frameCount: 0,
   }
 
   try {
@@ -234,6 +238,7 @@ export async function exportWithWebCodecs(
           ctx,
           videoEncoder,
           state,
+          getPreviewCanvas,
           hasError: () => encoderError !== null,
           onElapsedMs: (elapsed) => {
             if (plan.totalMs > 0) {
@@ -288,7 +293,13 @@ interface PumpArgs {
   canvas: HTMLCanvasElement
   ctx: CanvasRenderingContext2D
   videoEncoder: VideoEncoder
-  state: { lastVideoTsUs: number; lastKeyTsUs: number; outputOffsetUs: number }
+  state: {
+    lastVideoTsUs: number
+    lastKeyTsUs: number
+    outputOffsetUs: number
+    frameCount: number
+  }
+  getPreviewCanvas?: () => HTMLCanvasElement | null
   hasError: () => boolean
   onElapsedMs: (elapsedMs: number) => void
 }
@@ -301,6 +312,7 @@ async function pumpSegmentVideo({
   ctx,
   videoEncoder,
   state,
+  getPreviewCanvas,
   hasError,
   onElapsedMs,
 }: PumpArgs): Promise<void> {
@@ -325,6 +337,10 @@ async function pumpSegmentVideo({
     }
     if (keyFrame) state.lastKeyTsUs = tsUs
     state.lastVideoTsUs = tsUs
+    if (state.frameCount % PREVIEW_EVERY_N_FRAMES === 0) {
+      blitPreview(canvas, getPreviewCanvas?.())
+    }
+    state.frameCount += 1
   }
 
   // Guarantee at least one frame per segment, even if playback ends instantly.

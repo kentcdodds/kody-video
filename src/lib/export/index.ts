@@ -14,6 +14,12 @@ export interface ExportOptions {
    * fallback engine (WebCodecs does not need a live audio graph).
    */
   audioContext?: AudioContext
+  /**
+   * Visible canvas to mirror the frame currently being encoded onto
+   * (sampled, not every frame). Resolved lazily so the overlay can mount
+   * after the export starts.
+   */
+  getPreviewCanvas?: () => HTMLCanvasElement | null
 }
 
 /**
@@ -32,7 +38,7 @@ export async function exportProject(
 
   if (supportsWebCodecsExport()) {
     try {
-      return await exportWithWebCodecs(plan, options.onProgress)
+      return await exportWithWebCodecs(plan, options.onProgress, options.getPreviewCanvas)
     } catch (error) {
       console.warn('WebCodecs export failed; falling back to realtime stitcher', error)
     }
@@ -41,5 +47,6 @@ export async function exportProject(
   return exportRealtime(plan, {
     audioContext: options.audioContext,
     onProgress: options.onProgress,
+    getPreviewCanvas: options.getPreviewCanvas,
   })
 }

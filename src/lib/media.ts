@@ -75,10 +75,18 @@ export async function openCameraStream(
 
 /** Grab a mic track only for the duration of a recording. */
 export async function openMicrophoneTrack(): Promise<MediaStreamTrack> {
+  // Camera-app audio, not voice-call audio: echoCancellation/noiseSuppression/
+  // autoGainControl route the mic through the "communications" processing
+  // path (especially on Android), which sounds muffled, pumpy, and narrow.
+  // Real camera apps record the raw mic — so do we. Bare boolean constraint
+  // values are treated as ideal, so unsupported devices still open the mic.
   const mic = await navigator.mediaDevices.getUserMedia({
     audio: {
-      echoCancellation: true,
-      noiseSuppression: true,
+      echoCancellation: false,
+      noiseSuppression: false,
+      autoGainControl: false,
+      channelCount: { ideal: 2 },
+      sampleRate: { ideal: 48000 },
     },
     video: false,
   })

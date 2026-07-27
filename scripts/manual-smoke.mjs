@@ -176,11 +176,29 @@ try {
   await shot(page, '06-trim')
   await page.getByRole('button', { name: /^cancel$/i }).click()
 
-  // --- Export: OK → progress → ready with Save ---
+  // --- Export: OK → full-screen progress overlay → ready with Save ---
   await page.getByRole('button', { name: /^ok$/i }).first().click()
+  const overlayShown = await page
+    .waitForSelector('.export-overlay', { timeout: 4000 })
+    .then(() => true)
+    .catch(() => false)
+  if (overlayShown) pass('OK opens full-screen export overlay')
+  else fail('OK opens full-screen export overlay')
+
+  const previewPainted = await page
+    .waitForFunction(
+      () => {
+        const canvas = document.querySelector('.export-preview-canvas')
+        return canvas && canvas.width > 300
+      },
+      { timeout: 15000 },
+    )
+    .then(() => true)
+    .catch(() => false)
+  if (previewPainted) pass('export overlay shows encoded frames')
+  else fail('export overlay shows encoded frames')
+
   const exportDialog = page.getByRole('dialog', { name: /share project/i })
-  if (await exportDialog.count()) pass('OK opens export sheet')
-  else fail('OK opens export sheet')
 
   const exported = await page
     .waitForFunction(
