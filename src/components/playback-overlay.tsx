@@ -114,6 +114,14 @@ export function PlaybackOverlay({ clips, onClose }: PlaybackOverlayProps) {
   const onWindowKeyDown = useCallback((event: KeyboardEvent) => {
     keyActionRef.current(event)
   }, [])
+  // The empty state has no video element, but Escape must still dismiss.
+  const bindEmptyState = useCallback(
+    (element: HTMLDivElement | null) => {
+      if (element) window.addEventListener('keydown', onWindowKeyDown)
+      else window.removeEventListener('keydown', onWindowKeyDown)
+    },
+    [onWindowKeyDown],
+  )
 
   const bindVideo = useCallback(
     (el: HTMLVideoElement | null) => {
@@ -140,7 +148,12 @@ export function PlaybackOverlay({ clips, onClose }: PlaybackOverlayProps) {
 
   if (!segment) {
     return (
-      <div className="playback-overlay" role="dialog" aria-label="Project preview">
+      <div
+        className="playback-overlay"
+        role="dialog"
+        aria-label="Project preview"
+        ref={bindEmptyState}
+      >
         <p className="playback-empty">Nothing to play yet — record a clip first.</p>
         <button type="button" className="btn btn-secondary" onClick={onClose}>
           Close
