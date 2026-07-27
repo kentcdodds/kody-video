@@ -314,12 +314,13 @@ export function useCamera(): UseCameraResult {
         const next = await openCameraStream('environment', { audio: false, deviceId: nextId })
         const openedId = next.getVideoTracks()[0]?.getSettings().deviceId ?? ''
         if (!adopt(next)) return
-        // openCameraStream falls back to facing mode when the exact device
-        // can't be opened — only persist a lens the user actually reached,
-        // never an unintended fallback.
-        if (openedId === nextId) {
-          rememberRearLens({ id: openedId, index: lenses.indexOf(openedId) })
-        }
+        // Memory must mirror what's actually on screen: the requested lens,
+        // or the fallback the browser opened instead (facing-mode fallback on
+        // stale ids) — never a stale entry a reload would diverge to.
+        const openedIndex = lenses.indexOf(openedId)
+        rememberRearLens(
+          openedId && openedIndex >= 0 ? { id: openedId, index: openedIndex } : null,
+        )
       } catch (err) {
         // Try to restore the lens we just released.
         try {
