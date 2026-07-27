@@ -94,8 +94,11 @@ export function AboutPage() {
             Kody Video is designed as a mobile camera app — install it on your phone for the real
             experience. It works on desktop too, with keyboard support: hold <kbd>Space</kbd> to
             record, <kbd>F</kbd> flips the camera, <kbd>T</kbd> starts the self-timer,{' '}
-            <kbd>E</kbd> opens the editor, and in the editor the arrow keys select clips,{' '}
-            <kbd>Alt</kbd>+arrows reorder, <kbd>T</kbd> trims, and <kbd>Delete</kbd> deletes.
+            <kbd>E</kbd> opens the editor, <kbd>P</kbd> plays your cut, and <kbd>Delete</kbd>{' '}
+            removes the last clip. In the editor the arrow keys select clips,{' '}
+            <kbd>Alt</kbd>+arrows reorder, <kbd>T</kbd> trims, <kbd>D</kbd> duplicates,{' '}
+            <kbd>Delete</kbd> deletes, and <kbd>Esc</kbd> goes back. During playback the arrows
+            skip clips, <kbd>Space</kbd> pauses, and <kbd>Esc</kbd> closes.
           </p>
         </section>
 

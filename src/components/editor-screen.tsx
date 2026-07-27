@@ -1,4 +1,4 @@
-import { useCallback, useRef, useState, type ReactNode } from 'react'
+import { useCallback, useLayoutEffect, useRef, useState, type ReactNode } from 'react'
 import {
   duplicateSelectedClip,
   moveSelectedClip,
@@ -86,9 +86,10 @@ export function EditorScreen({
     })()
   }
 
-  // Desktop keyboard support; latest state is read through a per-render ref.
+  // Desktop keyboard support; the stable listener reads the latest committed
+  // handler through a ref, re-assigned after every commit.
   const keyActionRef = useRef<(event: KeyboardEvent) => void>(() => undefined)
-  keyActionRef.current = (event) => {
+  const keyAction = (event: KeyboardEvent) => {
     if (interactionLocked) return
     const target = event.target as HTMLElement | null
     if (target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA')) return
@@ -153,6 +154,9 @@ export function EditorScreen({
         return
     }
   }
+  useLayoutEffect(() => {
+    keyActionRef.current = keyAction
+  })
   const onWindowKeyDown = useCallback((event: KeyboardEvent) => {
     keyActionRef.current(event)
   }, [])

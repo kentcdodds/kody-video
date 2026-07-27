@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useRef, useState } from 'react'
+import { useCallback, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { planExport } from '../lib/export'
 import type { ClipRecord } from '../lib/types'
 import { IconPlay } from './icons'
@@ -32,8 +32,81 @@ export function PlaybackOverlay({ clips, onClose }: PlaybackOverlayProps) {
 
   const segment = segments[index] ?? null
 
+  const startSec = segment ? segment.startMs / 1000 : 0
+  const endSec = segment ? segment.endMs / 1000 : 0
+  const segmentMs = segment ? segment.endMs - segment.startMs : 0
+
+  const goTo = (nextIndex: number) => {
+    advancedForRef.current = -1
+    setSegmentProgress(0)
+    setNeedsTap(false)
+    if (nextIndex === index) {
+      const video = videoRef.current
+      if (video) {
+        video.currentTime = startSec
+        void video.play().catch(() => setNeedsTap(true))
+      }
+      return
+    }
+    setIndex(Math.max(0, Math.min(segments.length - 1, nextIndex)))
+  }
+
+  const advance = () => {
+    if (advancedForRef.current === index) return
+    advancedForRef.current = index
+    if (index >= segments.length - 1) {
+      onClose()
+      return
+    }
+    setSegmentProgress(0)
+    setIndex(index + 1)
+  }
+
+  const startPlayback = (video: HTMLVideoElement) => {
+    video.currentTime = startSec
+    void video
+      .play()
+      .then(() => setNeedsTap(false))
+      .catch(() => setNeedsTap(true))
+  }
+
   // Desktop keyboard support: arrows skip clips, Space pauses, Esc closes.
+  // The stable listener reads the latest committed handler through a ref,
+  // re-assigned after every commit.
   const keyActionRef = useRef<(event: KeyboardEvent) => void>(() => undefined)
+  const keyAction = (event: KeyboardEvent) => {
+    switch (event.code) {
+      case 'Escape':
+        onClose()
+        return
+      case 'ArrowLeft':
+        event.preventDefault()
+        if (index > 0) goTo(index - 1)
+        return
+      case 'ArrowRight':
+        event.preventDefault()
+        goTo(index + 1)
+        return
+      case 'Space': {
+        event.preventDefault()
+        // Auto-repeat while held must not rapid-toggle pause/resume.
+        if (event.repeat) return
+        const video = videoRef.current
+        if (!video) return
+        if (video.paused) {
+          void video.play().then(() => setNeedsTap(false)).catch(() => setNeedsTap(true))
+        } else {
+          video.pause()
+        }
+        return
+      }
+      default:
+        return
+    }
+  }
+  useLayoutEffect(() => {
+    keyActionRef.current = keyAction
+  })
   const onWindowKeyDown = useCallback((event: KeyboardEvent) => {
     keyActionRef.current(event)
   }, [])
@@ -70,75 +143,6 @@ export function PlaybackOverlay({ clips, onClose }: PlaybackOverlayProps) {
         </button>
       </div>
     )
-  }
-
-  const startSec = segment.startMs / 1000
-  const endSec = segment.endMs / 1000
-  const segmentMs = segment.endMs - segment.startMs
-
-  const goTo = (nextIndex: number) => {
-    advancedForRef.current = -1
-    setSegmentProgress(0)
-    setNeedsTap(false)
-    if (nextIndex === index) {
-      const video = videoRef.current
-      if (video) {
-        video.currentTime = startSec
-        void video.play().catch(() => setNeedsTap(true))
-      }
-      return
-    }
-    setIndex(Math.max(0, Math.min(segments.length - 1, nextIndex)))
-  }
-
-  const advance = () => {
-    if (advancedForRef.current === index) return
-    advancedForRef.current = index
-    if (index >= segments.length - 1) {
-      onClose()
-      return
-    }
-    setSegmentProgress(0)
-    setIndex(index + 1)
-  }
-
-  const startPlayback = (video: HTMLVideoElement) => {
-    video.currentTime = startSec
-    void video
-      .play()
-      .then(() => setNeedsTap(false))
-      .catch(() => setNeedsTap(true))
-  }
-
-  keyActionRef.current = (event) => {
-    switch (event.code) {
-      case 'Escape':
-        onClose()
-        return
-      case 'ArrowLeft':
-        event.preventDefault()
-        if (index > 0) goTo(index - 1)
-        return
-      case 'ArrowRight':
-        event.preventDefault()
-        goTo(index + 1)
-        return
-      case 'Space': {
-        event.preventDefault()
-        // Auto-repeat while held must not rapid-toggle pause/resume.
-        if (event.repeat) return
-        const video = videoRef.current
-        if (!video) return
-        if (video.paused) {
-          void video.play().then(() => setNeedsTap(false)).catch(() => setNeedsTap(true))
-        } else {
-          video.pause()
-        }
-        return
-      }
-      default:
-        return
-    }
   }
 
   return (

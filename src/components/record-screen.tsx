@@ -1,4 +1,4 @@
-import { useCallback, useRef, useState } from 'react'
+import { useCallback, useLayoutEffect, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
 import type { CameraZoomRange, UseCameraResult } from '../hooks/use-camera'
 import { getLocationFix, type LocationFix } from '../lib/location'
@@ -27,6 +27,11 @@ type RecordingMode = 'hold' | 'hands-free'
 
 /** Finger tremble tolerance before drag-to-zoom engages. */
 const DRAG_ZOOM_DEADZONE_PX = 14
+
+interface KeyActions {
+  down: (e: KeyboardEvent) => void
+  up: (e: KeyboardEvent) => void
+}
 
 export interface ToastAction {
   actionLabel: string
@@ -468,12 +473,10 @@ export function RecordScreen({
   }, [])
 
   // Desktop keyboard support (the app is designed for phones; this keeps the
-  // desktop experience respectable). Handlers read the latest state via a
-  // per-render ref, wrapped by stable listeners.
-  const keyActionsRef = useRef<{ down: (e: KeyboardEvent) => void; up: (e: KeyboardEvent) => void }>(
-    { down: () => undefined, up: () => undefined },
-  )
-  keyActionsRef.current = {
+  // desktop experience respectable). Stable listeners read the latest
+  // committed handlers through a ref, re-assigned after every commit.
+  const keyActionsRef = useRef<KeyActions>({ down: () => undefined, up: () => undefined })
+  const keyActions: KeyActions = {
     down: (event) => {
       if (event.repeat || lockedRef.current) return
       const target = event.target as HTMLElement | null
@@ -552,6 +555,9 @@ export function RecordScreen({
       }
     },
   }
+  useLayoutEffect(() => {
+    keyActionsRef.current = keyActions
+  })
   const onWindowKeyDown = useCallback((event: KeyboardEvent) => {
     keyActionsRef.current.down(event)
   }, [])
