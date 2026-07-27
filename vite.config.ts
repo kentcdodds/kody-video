@@ -6,7 +6,9 @@ export default defineConfig({
   plugins: [
     react(),
     VitePWA({
-      registerType: 'autoUpdate',
+      // Prompt-based updates: users see "new version ready — update" instead
+      // of silently running stale code until some future reload.
+      registerType: 'prompt',
       includeAssets: ['favicon.png', 'apple-touch-icon.png', 'kody-mark.webp', 'art/*.webp'],
       manifest: {
         name: 'Kody Video',
@@ -39,6 +41,9 @@ export default defineConfig({
       },
       workbox: {
         globPatterns: ['**/*.{js,css,html,ico,png,svg,webp,woff2}'],
+        // Not part of the app shell: the social card is for link scrapers
+        // and the icon master is only the source for generated icons.
+        globIgnores: ['**/og-image.png', '**/art/kody-video-icon.png'],
         navigateFallback: '/index.html',
         maximumFileSizeToCacheInBytes: 3 * 1024 * 1024,
       },

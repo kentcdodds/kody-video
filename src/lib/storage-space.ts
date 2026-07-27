@@ -40,3 +40,16 @@ export function formatBytes(bytes: number): string {
 export function formatStoragePercent(ratio: number): string {
   return `${Math.round(ratio * 100)}%`
 }
+
+/**
+ * Ask the browser to mark this origin's storage persistent so recordings
+ * can't be silently evicted under storage pressure. Chromium grants it
+ * without any prompt for engaged/installed origins; fire-and-forget.
+ */
+export function requestPersistentStorage(): void {
+  try {
+    void navigator.storage?.persist?.().catch(() => undefined)
+  } catch {
+    // Older browsers: nothing to do.
+  }
+}

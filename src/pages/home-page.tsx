@@ -1,4 +1,4 @@
-import { startTransition, useRef, useState } from 'react'
+import { startTransition, useRef, useState, useSyncExternalStore } from 'react'
 import { Link, useLoaderData, useNavigate, useRevalidator } from 'react-router-dom'
 import { BlobImage } from '../components/blob-image'
 import { BrandMark } from '../components/brand-mark'
@@ -15,15 +15,21 @@ import {
   serializeProject,
 } from '../lib/project-transfer'
 import { createProject, deleteProject, getClipsForProject, renameProject } from '../lib/storage'
+import { canPromptInstall, promptInstall, subscribeInstallPrompt } from '../lib/install-prompt'
 import {
   formatBytes,
   formatStoragePercent,
+  requestPersistentStorage,
   storageSeverity,
 } from '../lib/storage-space'
 import { MAX_PROJECTS, formatDuration, type ClipRecord } from '../lib/types'
 
 /** Android share targets get flaky well below this; bigger backups download. */
 const SHARE_BACKUP_LIMIT_BYTES = 50 * 1024 * 1024
+
+function isIOS(): boolean {
+  return /iPad|iPhone|iPod/.test(navigator.userAgent)
+}
 
 export async function homeLoader(): Promise<HomeLoaderData> {
   return loadHomePage()
@@ -52,12 +58,16 @@ export function HomePage() {
     })
   }
 
+  const installable = useSyncExternalStore(subscribeInstallPrompt, canPromptInstall)
+
   const createAndOpenProject = () => {
     void (async () => {
       setBusy(true)
       setError(null)
       try {
         const project = await createProject()
+        // Their recordings should survive storage pressure.
+        requestPersistentStorage()
         navigate(`/project/${project.id}`)
       } catch (err) {
         setError(err instanceof Error ? err.message : 'Could not create project')
@@ -117,6 +127,7 @@ export function HomePage() {
         const project = await importProjectBackup(parsed, (done, total) => {
           setImportProgress(`Importing clip ${Math.min(done + 1, total)} of ${total}…`)
         })
+        requestPersistentStorage()
         // Land directly in the imported project — unambiguous success, and
         // no dependence on the list revalidating behind the scenes.
         navigate(`/project/${project.id}`)
@@ -230,10 +241,31 @@ export function HomePage() {
         )}
       </section>
 
+      {isIOS() ? (
+        <p className="home-ios-note">
+          Heads up: iPhone/iPad support is experimental — Kody Video works best in Chrome on
+          Android.
+        </p>
+      ) : null}
+
       <p className="home-privacy">
         Clips stay on this phone until you share.
         {storage ? ` ${formatBytes(storage.usedBytes)} of ${formatBytes(storage.quotaBytes)} used.` : ''}{' '}
         <Link to="/about">About</Link>
+        {installable ? (
+          <>
+            {' · '}
+            <button
+              type="button"
+              className="link-button"
+              onClick={() => {
+                void promptInstall()
+              }}
+            >
+              Install app
+            </button>
+          </>
+        ) : null}
       </p>
 
       <div className="home-footer">

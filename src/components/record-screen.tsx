@@ -514,15 +514,17 @@ export function RecordScreen({
           if (pointerIdRef.current === null || pointerIdRef.current !== event.pointerId) return
           const zoom = camera.zoom
           if (!zoom) return
-          const range = zoom.max - zoom.min
-          if (range <= 0) return
+          if (zoom.max - zoom.min <= 0) return
           const stageHeight = dragZoomStageHeightRef.current || stageRef.current?.clientHeight || 1
-          // Full zoom range over ~60% of stage height; drag up = zoom in.
-          const travel = stageHeight * 0.6
+          // Multiplicative zoom: equal finger travel = equal zoom *ratio*
+          // (drag up to zoom in). Each ~55% of stage height doubles the zoom,
+          // which is far gentler than the old linear full-range mapping —
+          // especially near 1× and on cameras with big zoom ranges.
+          const travelPerDoubling = stageHeight * 0.55
           const deltaY = dragZoomPressYRef.current - event.clientY
           const next = Math.min(
             zoom.max,
-            Math.max(zoom.min, dragZoomStartValueRef.current + (deltaY / travel) * range),
+            Math.max(zoom.min, dragZoomStartValueRef.current * 2 ** (deltaY / travelPerDoubling)),
           )
           dragZoomMovedRef.current = true
           dragZoomLastValueRef.current = next

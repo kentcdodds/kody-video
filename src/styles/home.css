@@ -330,6 +330,20 @@
   border-color: color-mix(in srgb, var(--danger) 45%, transparent);
 }
 
+.home-ios-note {
+  margin: 8px 0 0;
+  padding: 8px 12px;
+  border-radius: 12px;
+  background: color-mix(in srgb, #e0a63a 14%, transparent);
+  border: 1px solid color-mix(in srgb, #e0a63a 40%, transparent);
+  font-size: 0.82rem;
+  line-height: 1.4;
+}
+
+.home-privacy .link-button {
+  font-size: inherit;
+}
+
 .home-privacy a {
   color: var(--accent);
   font-weight: 600;

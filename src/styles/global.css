@@ -481,6 +481,31 @@ a {
   transition: width 160ms linear;
 }
 
+.update-toast {
+  position: absolute;
+  top: calc(10px + var(--safe-top));
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 20;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  max-width: calc(100% - 24px);
+  background: var(--toast-bg);
+  border: 1px solid var(--line);
+  color: var(--ink);
+  padding: 10px 14px;
+  border-radius: 999px;
+  font-size: 0.9rem;
+  box-shadow: var(--shadow);
+  animation: rise-in 220ms ease both;
+}
+
+.update-toast button {
+  color: var(--accent);
+  font-weight: 700;
+}
+
 .toast {
   position: absolute;
   left: 50%;
