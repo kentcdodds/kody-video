@@ -157,9 +157,14 @@ function assertImportableClip(clip: ParsedBackup['clips'][number]): void {
 }
 
 /** Create a fresh project (new ids) from a parsed backup. */
-export async function importProjectBackup(parsed: ParsedBackup): Promise<Project> {
+export async function importProjectBackup(
+  parsed: ParsedBackup,
+  onProgress?: (doneClips: number, totalClips: number) => void,
+): Promise<Project> {
   const project = await createProject(parsed.projectName)
   try {
+    let done = 0
+    onProgress?.(0, parsed.clips.length)
     for (const clip of parsed.clips) {
       assertImportableClip(clip)
       // CRITICAL: materialize the media bytes. The parsed blob is a lazy
@@ -186,6 +191,8 @@ export async function importProjectBackup(parsed: ParsedBackup): Promise<Project
       // Generate thumbnails now so the slot poster shows right away and the
       // first open doesn't pay the backfill cost.
       await ensureClipThumbs({ ...added, ...trimmed, blob: added.blob }).catch(() => undefined)
+      done += 1
+      onProgress?.(done, parsed.clips.length)
     }
     return project
   } catch (error) {
