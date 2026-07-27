@@ -315,6 +315,15 @@
   cursor: not-allowed;
 }
 
+.lens-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  border-right: 1px solid rgba(255, 255, 255, 0.18);
+  border-radius: 999px 0 0 999px;
+  padding-right: 12px;
+}
+
 .record-dock {
   position: absolute;
   left: 0;

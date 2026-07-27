@@ -9,6 +9,7 @@ Run locally with HTTPS or `localhost` (`npm run dev`). Camera/mic require a secu
 - [ ] Allow → live rear-camera preview (or fallback)
 - [ ] Flip camera works when multiple cameras exist
 - [ ] Torch toggle appears on devices with a flash; zoom chips appear when supported
+- [ ] Phones with multiple rear cameras show a lens chip (e.g. "1/3") that switches to the ultra-wide/telephoto; choice sticks across flips and restarts
 - [ ] Backgrounding the app releases camera/mic (green dot goes out); returning restarts the preview
 - [ ] Backgrounding mid-recording still saves the take
 - [ ] Screen off → on while on the camera view: preview is live again, not frozen; recording works

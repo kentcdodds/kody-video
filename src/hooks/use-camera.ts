@@ -1,6 +1,7 @@
 import { useCallback, useRef, useState, type RefCallback } from 'react'
 import {
   canFlipCamera,
+  listRearCameras,
   openCameraStream,
   openMicrophoneTrack,
   queryCameraPermission,
@@ -9,6 +10,47 @@ import {
   type CameraPermissionState,
   type FacingMode,
 } from '../lib/media'
+
+/** Remembered rear lens (e.g. the ultra-wide) across sessions. */
+const REAR_LENS_STORAGE_KEY = 'kodyVideo.rearLens'
+
+interface RememberedLens {
+  id: string
+  /** Position in enumeration order — device ids rotate when the browser
+   * clears site data, but the lens order on a given phone is stable. */
+  index: number
+}
+
+function rememberedRearLens(): RememberedLens | null {
+  try {
+    const raw = localStorage.getItem(REAR_LENS_STORAGE_KEY)
+    if (!raw) return null
+    const parsed = JSON.parse(raw) as Partial<RememberedLens>
+    if (typeof parsed.id !== 'string' || typeof parsed.index !== 'number') return null
+    return { id: parsed.id, index: parsed.index }
+  } catch {
+    return null
+  }
+}
+
+function rememberRearLens(lens: RememberedLens | null): void {
+  try {
+    if (lens) localStorage.setItem(REAR_LENS_STORAGE_KEY, JSON.stringify(lens))
+    else localStorage.removeItem(REAR_LENS_STORAGE_KEY)
+  } catch {
+    // Storage unavailable (private mode) — lens choice just won't persist.
+  }
+}
+
+/** Resolve a remembered lens against the current enumeration: exact id when
+ * still valid, otherwise the same position, otherwise nothing. */
+async function resolveRememberedLens(): Promise<string | undefined> {
+  const remembered = rememberedRearLens()
+  if (!remembered) return undefined
+  const lenses = await listRearCameras()
+  if (lenses.includes(remembered.id)) return remembered.id
+  return lenses[remembered.index]
+}
 
 export interface CameraZoomRange {
   min: number
@@ -29,6 +71,12 @@ export interface UseCameraResult {
   zoom: CameraZoomRange | null
   torchAvailable: boolean
   torchOn: boolean
+  /** Number of rear camera devices (ultra-wide/tele are often separate). */
+  rearLensCount: number
+  /** Index of the active rear lens, when facing the environment. */
+  rearLensIndex: number
+  /** Cycle to the next rear lens (no-op while facing the user). */
+  switchRearLens: () => Promise<void>
   start: () => Promise<void>
   flip: () => Promise<void>
   stop: () => void
@@ -77,6 +125,13 @@ export function useCamera(): UseCameraResult {
   const [zoom, setZoomState] = useState<CameraZoomRange | null>(null)
   const [torchAvailable, setTorchAvailable] = useState(false)
   const [torchOn, setTorchOn] = useState(false)
+  const [rearLensCount, setRearLensCount] = useState(0)
+  const [rearLensIndex, setRearLensIndex] = useState(0)
+  const rearLensesRef = useRef<string[]>([])
+  const rearLensIndexRef = useRef(0)
+  const lensSwitchInFlightRef = useRef(false)
+  /** Bumped by stop(): async opens started before a stop must not adopt. */
+  const cameraEpochRef = useRef(0)
 
   const zoomRangeRef = useRef<CameraZoomRange | null>(null)
   const zoomSyncTimerRef = useRef(0)
@@ -140,6 +195,26 @@ export function useCamera(): UseCameraResult {
     [attachToVideo, readTrackCapabilities],
   )
 
+  /** Discover rear lenses and locate the active one (post-permission only). */
+  const syncRearLenses = useCallback(async (active: MediaStream) => {
+    if (facingRef.current !== 'environment') {
+      rearLensesRef.current = []
+      setRearLensCount(0)
+      setRearLensIndex(0)
+      return
+    }
+    const lenses = await listRearCameras()
+    // A flip/stop/switch may have replaced the stream while enumerating —
+    // stale results must not clobber the newer call's state.
+    if (streamRef.current !== active || facingRef.current !== 'environment') return
+    rearLensesRef.current = lenses
+    setRearLensCount(lenses.length)
+    const activeId = active.getVideoTracks()[0]?.getSettings().deviceId ?? ''
+    const index = lenses.indexOf(activeId)
+    rearLensIndexRef.current = index >= 0 ? index : 0
+    setRearLensIndex(index >= 0 ? index : 0)
+  }, [])
+
   const start = useCallback(async () => {
     if (startInFlightRef.current) {
       await startInFlightRef.current
@@ -156,10 +231,16 @@ export function useCamera(): UseCameraResult {
       }
 
       try {
-        const next = await openCameraStream(facingRef.current, { audio: false })
+        const rememberedLens =
+          facingRef.current === 'environment' ? await resolveRememberedLens() : undefined
+        const next = await openCameraStream(facingRef.current, {
+          audio: false,
+          deviceId: rememberedLens,
+        })
         setPermission({ status: 'granted' })
         replaceStream(next)
         setCanFlip(await canFlipCamera())
+        void syncRearLenses(next)
       } catch (err) {
         const message = permissionMessage(err)
         setPermission({ status: 'denied', message })
@@ -183,14 +264,80 @@ export function useCamera(): UseCameraResult {
     setFacing(nextFacing)
     setError(null)
     try {
-      const next = await openCameraStream(nextFacing, { audio: false })
+      const rememberedLens =
+        nextFacing === 'environment' ? await resolveRememberedLens() : undefined
+      const next = await openCameraStream(nextFacing, { audio: false, deviceId: rememberedLens })
       replaceStream(next)
+      void syncRearLenses(next)
     } catch (err) {
       facingRef.current = previousFacing
       setFacing(previousFacing)
       setError(permissionMessage(err))
     }
-  }, [replaceStream])
+  }, [replaceStream, syncRearLenses])
+
+  const switchRearLens = useCallback(async () => {
+    const lenses = rearLensesRef.current
+    if (facingRef.current !== 'environment' || lenses.length < 2) return
+    // No live stream means the camera is stopped or restarting — switching
+    // now would open a camera behind that lifecycle's back.
+    if (!streamRef.current) return
+    if (lensSwitchInFlightRef.current) return
+    lensSwitchInFlightRef.current = true
+    try {
+      const current = streamRef.current
+      const activeId = current?.getVideoTracks()[0]?.getSettings().deviceId ?? ''
+      const foundIndex = lenses.indexOf(activeId)
+      // When the open stream and the enumeration disagree (id rotation,
+      // fallback opens), advance from the lens the UI shows instead of
+      // silently jumping back to the first lens.
+      const activeIndex = foundIndex >= 0 ? foundIndex : rearLensIndexRef.current
+      const nextId = lenses[(activeIndex + 1) % lenses.length]!
+      // Android camera HALs are often exclusive across rear lenses: release
+      // the current camera before opening the next one.
+      stopStream(current)
+      streamRef.current = null
+      setStream(null)
+      setIsReady(false)
+      // A flip or a full stop (e.g. tab hidden) may land while a lens open
+      // is in flight — never adopt a stream into a stopped or flipped camera.
+      const epoch = cameraEpochRef.current
+      const adopt = (opened: MediaStream): boolean => {
+        if (facingRef.current !== 'environment' || cameraEpochRef.current !== epoch) {
+          stopStream(opened)
+          return false
+        }
+        replaceStream(opened)
+        void syncRearLenses(opened)
+        return true
+      }
+      try {
+        const next = await openCameraStream('environment', { audio: false, deviceId: nextId })
+        const openedId = next.getVideoTracks()[0]?.getSettings().deviceId ?? ''
+        if (!adopt(next)) return
+        // Memory must mirror what's actually on screen: the requested lens,
+        // or the fallback the browser opened instead (facing-mode fallback on
+        // stale ids) — never a stale entry a reload would diverge to.
+        const openedIndex = lenses.indexOf(openedId)
+        rememberRearLens(
+          openedId && openedIndex >= 0 ? { id: openedId, index: openedIndex } : null,
+        )
+      } catch (err) {
+        // Try to restore the lens we just released.
+        try {
+          const restored = await openCameraStream('environment', {
+            audio: false,
+            deviceId: activeId || undefined,
+          })
+          adopt(restored)
+        } catch {
+          setError(permissionMessage(err))
+        }
+      }
+    } finally {
+      lensSwitchInFlightRef.current = false
+    }
+  }, [replaceStream, syncRearLenses])
 
   const setZoom = useCallback((value: number) => {
     const track = streamRef.current?.getVideoTracks()[0]
@@ -280,6 +427,7 @@ export function useCamera(): UseCameraResult {
   }, [])
 
   const stop = useCallback(() => {
+    cameraEpochRef.current += 1
     stopStream(streamRef.current)
     streamRef.current = null
     setStream(null)
@@ -321,6 +469,9 @@ export function useCamera(): UseCameraResult {
     zoom,
     torchAvailable,
     torchOn,
+    rearLensCount,
+    rearLensIndex,
+    switchRearLens,
     start,
     flip,
     stop,

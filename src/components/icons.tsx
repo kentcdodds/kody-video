@@ -189,3 +189,12 @@ export function IconUndo({ size = 22 }: IconProps) {
     </svg>
   )
 }
+
+export function IconLens({ size = 22 }: IconProps) {
+  return (
+    <svg {...baseProps(size)}>
+      <circle cx="12" cy="12" r="8.5" />
+      <circle cx="12" cy="12" r="3.5" />
+    </svg>
+  )
+}
