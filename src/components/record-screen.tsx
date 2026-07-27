@@ -385,9 +385,15 @@ export function RecordScreen({
   const toggleLocationTagging = useCallback(() => {
     if (recording || countdown !== null) return
     if (locationTagging) {
-      void setLocationTaggingEnabled(false)
-      setLocationTagging(false)
-      showToast('Location tagging off')
+      void (async () => {
+        try {
+          await setLocationTaggingEnabled(false)
+          setLocationTagging(false)
+          showToast('Location tagging off')
+        } catch {
+          showToast('Could not save the setting — try again')
+        }
+      })()
       return
     }
     // Tap is the user gesture that legitimizes the permission prompt.
@@ -695,7 +701,7 @@ export function RecordScreen({
             className={`btn-icon${locationTagging ? ' is-active' : ''}`}
             aria-label="Toggle location tagging"
             aria-pressed={locationTagging}
-            disabled={recording}
+            disabled={recording || countdown !== null}
             onClick={toggleLocationTagging}
           >
             <IconLocation />
