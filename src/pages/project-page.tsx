@@ -38,6 +38,8 @@ interface ExportUiState {
   result: ExportResult | null
   error: string | null
   notice: string | null
+  /** Whether THIS export was stamped (entitlement can change mid-sheet). */
+  watermarked: boolean
 }
 
 export async function projectLoader({ params }: LoaderFunctionArgs): Promise<ProjectLoaderData> {
@@ -107,12 +109,20 @@ export function ProjectPage() {
       audioContext = undefined
     }
 
-    setExportState({ status: 'exporting', progress: 0, result: null, error: null, notice: null })
+    const watermarked = !data.watermarkRemoved
+    setExportState({
+      status: 'exporting',
+      progress: 0,
+      result: null,
+      error: null,
+      notice: null,
+      watermarked,
+    })
     void (async () => {
       try {
         const result = await exportProject(clips, {
           audioContext,
-          watermark: !data.watermarkRemoved,
+          watermark: watermarked,
           getPreviewCanvas: () => previewCanvasRef.current,
           onProgress: (ratio) => {
             if (exportRunRef.current !== runId) return
@@ -124,7 +134,14 @@ export function ProjectPage() {
           },
         })
         if (exportRunRef.current !== runId) return
-        setExportState({ status: 'ready', progress: 1, result, error: null, notice: null })
+        setExportState({
+          status: 'ready',
+          progress: 1,
+          result,
+          error: null,
+          notice: null,
+          watermarked,
+        })
       } catch (err) {
         if (exportRunRef.current !== runId) return
         setExportState({
@@ -133,6 +150,7 @@ export function ProjectPage() {
           result: null,
           error: err instanceof Error ? err.message : 'Export failed.',
           notice: null,
+          watermarked,
         })
       } finally {
         // The realtime engine closes the context it used; when WebCodecs
@@ -221,7 +239,8 @@ export function ProjectPage() {
           status={exportState.status}
           error={exportState.error}
           notice={exportState.notice}
-          watermarked={!data.watermarkRemoved}
+          watermarked={exportState.watermarked}
+          purchased={data.watermarkRemoved}
           onRemoveWatermark={() => {
             window.open(REMOVE_WATERMARK_LINK, '_blank', 'noopener')
           }}
