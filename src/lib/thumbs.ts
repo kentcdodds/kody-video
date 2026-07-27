@@ -85,8 +85,21 @@ export function ensureClipThumbs(clip: ClipRecord): Promise<ClipRecord> {
 
   const run = (async () => {
     try {
-      const generated = await generateClipThumbs(clip.blob)
-      await updateClipThumbs(clip.id, generated)
+      let generated: GeneratedThumbs
+      try {
+        generated = await generateClipThumbs(clip.blob)
+      } catch {
+        // Unreadable/undecodable media — retrying costs an 8s timeout every
+        // load, so skip this clip for the rest of the session.
+        failedThisSession.add(clip.id)
+        return clip
+      }
+      try {
+        await updateClipThumbs(clip.id, generated)
+      } catch {
+        // Transient persistence failure: still use the thumbs in memory and
+        // let a later load retry the (cheap-by-then) save.
+      }
       return {
         ...clip,
         thumbs: generated.thumbs,
@@ -95,9 +108,6 @@ export function ensureClipThumbs(clip: ClipRecord): Promise<ClipRecord> {
         width: clip.width ?? generated.videoWidth,
         height: clip.height ?? generated.videoHeight,
       }
-    } catch {
-      failedThisSession.add(clip.id)
-      return clip
     } finally {
       inFlight.delete(clip.id)
     }
