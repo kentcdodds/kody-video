@@ -45,6 +45,10 @@ export default defineConfig({
         // and the icon master is only the source for generated icons.
         globIgnores: ['**/og-image.png', '**/art/kody-video-icon.png'],
         navigateFallback: '/index.html',
+        // Never SPA-fallback these: opening the social card in a tab with an
+        // active service worker was "redirecting" to the app, and the API
+        // must always hit the server.
+        navigateFallbackDenylist: [/^\/api\//, /\/og-image\.png$/],
         maximumFileSizeToCacheInBytes: 3 * 1024 * 1024,
       },
       devOptions: {

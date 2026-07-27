@@ -25,6 +25,9 @@ import { RecordTimer } from './record-timer'
 
 type RecordingMode = 'hold' | 'hands-free'
 
+/** Finger tremble tolerance before drag-to-zoom engages. */
+const DRAG_ZOOM_DEADZONE_PX = 14
+
 export interface ToastAction {
   actionLabel: string
   onAction: () => void
@@ -102,6 +105,7 @@ export function RecordScreen({
   const storageState = storage ? storageSeverity(storage.ratio) : 'ok'
   const recorderRef = useRef(new HoldRecorder())
   const pointerIdRef = useRef<number | null>(null)
+  const spaceHeldRef = useRef(false)
   const beginInFlightRef = useRef(false)
   const endInFlightRef = useRef(false)
   const countdownTimerRef = useRef(0)
@@ -455,18 +459,96 @@ export function RecordScreen({
     visibilityActionRef.current()
   }, [])
 
+  // Desktop keyboard support (the app is designed for phones; this keeps the
+  // desktop experience respectable). Handlers read the latest state via a
+  // per-render ref, wrapped by stable listeners.
+  const keyActionsRef = useRef<{ down: (e: KeyboardEvent) => void; up: (e: KeyboardEvent) => void }>(
+    { down: () => undefined, up: () => undefined },
+  )
+  keyActionsRef.current = {
+    down: (event) => {
+      if (event.repeat || lockedRef.current) return
+      const target = event.target as HTMLElement | null
+      if (target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA')) return
+      switch (event.code) {
+        case 'Space': {
+          event.preventDefault()
+          if (countdown !== null) {
+            clearCountdown()
+            showToast('Timer canceled')
+            return
+          }
+          if (recording) {
+            // Hands-free (or a stuck keyboard hold): stop on press.
+            if (recordingMode === 'hands-free') void endRecord()
+            return
+          }
+          spaceHeldRef.current = true
+          void beginRecord(null, 'hold').then((started) => {
+            // Space was released while the mic grant was in flight.
+            if (started && !spaceHeldRef.current) void endRecord()
+          })
+          return
+        }
+        case 'KeyE': {
+          if (recording) return
+          camera.releaseMic()
+          onOpenEditor()
+          return
+        }
+        case 'KeyP': {
+          if (!recording && clips.length > 0) onPlay()
+          return
+        }
+        case 'KeyF': {
+          if (!recording && camera.canFlip && countdown === null) void camera.flip()
+          return
+        }
+        case 'KeyT': {
+          if (!recording && countdown === null) startSelfTimer()
+          return
+        }
+        case 'Backspace':
+        case 'Delete': {
+          if (!recording && clips.length > 0) deleteLastClip()
+          return
+        }
+        default:
+          return
+      }
+    },
+    up: (event) => {
+      if (event.code !== 'Space') return
+      spaceHeldRef.current = false
+      // Only a keyboard-started hold (no owning pointer) ends on keyup.
+      if (recording && recordingMode === 'hold' && pointerIdRef.current === null) {
+        void endRecord()
+      }
+    },
+  }
+  const onWindowKeyDown = useCallback((event: KeyboardEvent) => {
+    keyActionsRef.current.down(event)
+  }, [])
+  const onWindowKeyUp = useCallback((event: KeyboardEvent) => {
+    keyActionsRef.current.up(event)
+  }, [])
+
   const attachCameraVideo = camera.videoRef
   const bindCameraVideo = useCallback(
     (element: HTMLVideoElement | null) => {
       if (!element) {
         document.removeEventListener('visibilitychange', onVisibilityChange)
+        window.removeEventListener('keydown', onWindowKeyDown)
+        window.removeEventListener('keyup', onWindowKeyUp)
         cleanupOnUnmount()
       } else {
         document.addEventListener('visibilitychange', onVisibilityChange)
+        window.addEventListener('keydown', onWindowKeyDown)
+        window.addEventListener('keyup', onWindowKeyUp)
       }
       attachCameraVideo(element)
     },
-    [attachCameraVideo, cleanupOnUnmount, onVisibilityChange],
+    [attachCameraVideo, cleanupOnUnmount, onVisibilityChange, onWindowKeyDown, onWindowKeyUp],
   )
 
   const needsPermission =
@@ -515,6 +597,15 @@ export function RecordScreen({
           const zoom = camera.zoom
           if (!zoom) return
           if (zoom.max - zoom.min <= 0) return
+          // Dead zone: natural finger tremble while holding to record must
+          // not start zooming. Once crossed, re-anchor so zoom ramps from
+          // the current finger position without a jump.
+          if (!dragZoomMovedRef.current) {
+            if (Math.abs(event.clientY - dragZoomPressYRef.current) < DRAG_ZOOM_DEADZONE_PX) {
+              return
+            }
+            dragZoomPressYRef.current = event.clientY
+          }
           const stageHeight = dragZoomStageHeightRef.current || stageRef.current?.clientHeight || 1
           // Multiplicative zoom: equal finger travel = equal zoom *ratio*
           // (drag up to zoom in). Each ~55% of stage height doubles the zoom,
@@ -674,6 +765,11 @@ export function RecordScreen({
           })}
         </div>
       ) : null}
+
+      <div className="key-hints" aria-hidden="true">
+        Hold <kbd>Space</kbd> record · <kbd>F</kbd> flip · <kbd>T</kbd> timer · <kbd>E</kbd> editor ·{' '}
+        <kbd>P</kbd> play · <kbd>⌫</kbd> delete last
+      </div>
 
       <div className="record-dock">
         <div className="record-tools">

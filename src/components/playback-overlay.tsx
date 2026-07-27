@@ -32,16 +32,24 @@ export function PlaybackOverlay({ clips, onClose }: PlaybackOverlayProps) {
 
   const segment = segments[index] ?? null
 
+  // Desktop keyboard support: arrows skip clips, Space pauses, Esc closes.
+  const keyActionRef = useRef<(event: KeyboardEvent) => void>(() => undefined)
+  const onWindowKeyDown = useCallback((event: KeyboardEvent) => {
+    keyActionRef.current(event)
+  }, [])
+
   const bindVideo = useCallback(
     (el: HTMLVideoElement | null) => {
       videoRef.current = el
       const state = urlStateRef.current
       if (!el) {
+        window.removeEventListener('keydown', onWindowKeyDown)
         if (state.url) URL.revokeObjectURL(state.url)
         state.url = null
         state.blob = null
         return
       }
+      window.addEventListener('keydown', onWindowKeyDown)
       if (!segment) return
       if (state.blob !== segment.clip.blob) {
         if (state.url) URL.revokeObjectURL(state.url)
@@ -50,7 +58,7 @@ export function PlaybackOverlay({ clips, onClose }: PlaybackOverlayProps) {
         el.src = state.url
       }
     },
-    [segment],
+    [onWindowKeyDown, segment],
   )
 
   if (!segment) {
@@ -100,6 +108,35 @@ export function PlaybackOverlay({ clips, onClose }: PlaybackOverlayProps) {
       .play()
       .then(() => setNeedsTap(false))
       .catch(() => setNeedsTap(true))
+  }
+
+  keyActionRef.current = (event) => {
+    switch (event.code) {
+      case 'Escape':
+        onClose()
+        return
+      case 'ArrowLeft':
+        event.preventDefault()
+        if (index > 0) goTo(index - 1)
+        return
+      case 'ArrowRight':
+        event.preventDefault()
+        goTo(index + 1)
+        return
+      case 'Space': {
+        event.preventDefault()
+        const video = videoRef.current
+        if (!video) return
+        if (video.paused) {
+          void video.play().then(() => setNeedsTap(false)).catch(() => setNeedsTap(true))
+        } else {
+          video.pause()
+        }
+        return
+      }
+      default:
+        return
+    }
   }
 
   return (

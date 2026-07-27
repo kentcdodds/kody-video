@@ -665,6 +665,32 @@ a {
   margin: 0 0 14px;
 }
 
+/* Keyboard hints only make sense where a keyboard is likely present. */
+.key-hints {
+  display: none;
+  padding: 4px 16px 10px;
+  font-size: 11px;
+  color: var(--ink-soft, rgba(255, 255, 255, 0.55));
+  text-align: center;
+  user-select: none;
+}
+
+.key-hints kbd {
+  display: inline-block;
+  padding: 1px 5px;
+  border: 1px solid var(--line);
+  border-radius: 5px;
+  font-family: inherit;
+  font-size: 10px;
+  background: rgba(127, 127, 127, 0.12);
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .key-hints {
+    display: block;
+  }
+}
+
 .visually-hidden {
   position: absolute;
   width: 1px;
