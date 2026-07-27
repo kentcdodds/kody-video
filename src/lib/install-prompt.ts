@@ -42,11 +42,16 @@ export function subscribeInstallPrompt(listener: () => void): () => void {
 export async function promptInstall(): Promise<boolean> {
   const prompt = deferredPrompt
   if (!prompt) return false
-  await prompt.prompt()
-  const choice = await prompt.userChoice
-  if (choice.outcome === 'accepted') {
-    deferredPrompt = null
-    notify()
+  // The event is one-shot: consumed by prompt() regardless of the outcome.
+  // Drop it either way; the browser refires beforeinstallprompt when the
+  // app is still installable.
+  deferredPrompt = null
+  notify()
+  try {
+    await prompt.prompt()
+    const choice = await prompt.userChoice
+    return choice.outcome === 'accepted'
+  } catch {
+    return false
   }
-  return choice.outcome === 'accepted'
 }
