@@ -67,6 +67,9 @@ function canvasToBlob(canvas: HTMLCanvasElement): Promise<Blob | null> {
 }
 
 const inFlight = new Map<string, Promise<ClipRecord>>()
+/** Clips whose thumbnail generation failed this session — don't retry on
+ * every load (an unreadable blob costs an 8s media timeout per attempt). */
+const failedThisSession = new Set<string>()
 
 /**
  * Generate and persist thumbnails for a clip that does not have them yet
@@ -76,13 +79,27 @@ const inFlight = new Map<string, Promise<ClipRecord>>()
  */
 export function ensureClipThumbs(clip: ClipRecord): Promise<ClipRecord> {
   if (clip.thumbs && clip.thumbs.length > 0) return Promise.resolve(clip)
+  if (failedThisSession.has(clip.id)) return Promise.resolve(clip)
   const existing = inFlight.get(clip.id)
   if (existing) return existing
 
   const run = (async () => {
     try {
-      const generated = await generateClipThumbs(clip.blob)
-      await updateClipThumbs(clip.id, generated)
+      let generated: GeneratedThumbs
+      try {
+        generated = await generateClipThumbs(clip.blob)
+      } catch {
+        // Unreadable/undecodable media — retrying costs an 8s timeout every
+        // load, so skip this clip for the rest of the session.
+        failedThisSession.add(clip.id)
+        return clip
+      }
+      try {
+        await updateClipThumbs(clip.id, generated)
+      } catch {
+        // Transient persistence failure: still use the thumbs in memory and
+        // let a later load retry the (cheap-by-then) save.
+      }
       return {
         ...clip,
         thumbs: generated.thumbs,
@@ -91,8 +108,6 @@ export function ensureClipThumbs(clip: ClipRecord): Promise<ClipRecord> {
         width: clip.width ?? generated.videoWidth,
         height: clip.height ?? generated.videoHeight,
       }
-    } catch {
-      return clip
     } finally {
       inFlight.delete(clip.id)
     }
