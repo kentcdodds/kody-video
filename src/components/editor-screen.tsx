@@ -11,6 +11,16 @@ import {
   EditorClipPreview,
   type EditorClipPreviewHandle,
 } from './editor-clip-preview'
+import {
+  IconBack,
+  IconChevronLeft,
+  IconChevronRight,
+  IconDuplicate,
+  IconPlay,
+  IconTrash,
+  IconTrim,
+  IconUndo,
+} from './icons'
 import { Timeline } from './timeline'
 import { TrimStrip } from './trim-strip'
 import type { ToastAction } from './record-screen'
@@ -77,7 +87,7 @@ export function EditorScreen({
     <div className={`editor-screen${trimming ? ' is-trimming' : ''}`}>
       <div className="editor-top">
         <button type="button" className="btn-icon" aria-label="Back to camera" onClick={onOpenCamera}>
-          ←
+          <IconBack />
         </button>
         <div className="editor-meta">
           <strong>{project.name}</strong>
@@ -92,7 +102,7 @@ export function EditorScreen({
           disabled={clips.length === 0}
           onClick={onPlay}
         >
-          ▶
+          <IconPlay />
         </button>
       </div>
 
@@ -155,14 +165,7 @@ export function EditorScreen({
               disabled={!selected}
               tone="danger"
               onClick={handleDelete}
-              icon={
-                <svg viewBox="0 0 24 24" width="22" height="22" aria-hidden>
-                  <path
-                    d="M9 3h6l1 2h4v2H4V5h4l1-2zm1 6h2v9h-2V9zm4 0h2v9h-2V9zM7 9h2v9H7V9z"
-                    fill="currentColor"
-                  />
-                </svg>
-              }
+              icon={<IconTrash />}
             />
             <ActionButton
               label="Duplicate"
@@ -175,14 +178,7 @@ export function EditorScreen({
                   refresh()
                 })
               }}
-              icon={
-                <svg viewBox="0 0 24 24" width="22" height="22" aria-hidden>
-                  <path
-                    d="M8 7h11v14H8V7zm2 2v10h7V9h-7zM5 3h11v2H7v11H5V3z"
-                    fill="currentColor"
-                  />
-                </svg>
-              }
+              icon={<IconDuplicate />}
             />
             <ActionButton
               label="Trim"
@@ -192,14 +188,7 @@ export function EditorScreen({
                 previewApiRef.current?.pause()
                 setTrimming(true)
               }}
-              icon={
-                <svg viewBox="0 0 24 24" width="24" height="24" aria-hidden>
-                  <path
-                    d="M7.5 3.5 3.5 7.5l4.8 4.8 1.4-1.4L6.3 7.5l2.6-2.6L7.5 3.5zm9 0-1.4 1.4 2.6 2.6-2.6 2.6 1.4 1.4 4-4-4-4zM8.3 14.7l-1.4 1.4 4 4 1.4-1.4-4-4zm7.4 0-4 4 1.4 1.4 4-4-1.4-1.4z"
-                    fill="currentColor"
-                  />
-                </svg>
-              }
+              icon={<IconTrim />}
             />
             <ActionButton
               label="Left"
@@ -209,11 +198,7 @@ export function EditorScreen({
                 if (!resolvedSelectedId) return
                 void moveSelectedClip(project.id, resolvedSelectedId, 'left').then(refresh)
               }}
-              icon={
-                <svg viewBox="0 0 24 24" width="22" height="22" aria-hidden>
-                  <path d="M14.5 6 8.5 12l6 6 1.4-1.4L11.3 12l4.6-4.6L14.5 6z" fill="currentColor" />
-                </svg>
-              }
+              icon={<IconChevronLeft />}
             />
             <ActionButton
               label="Right"
@@ -223,11 +208,7 @@ export function EditorScreen({
                 if (!resolvedSelectedId) return
                 void moveSelectedClip(project.id, resolvedSelectedId, 'right').then(refresh)
               }}
-              icon={
-                <svg viewBox="0 0 24 24" width="22" height="22" aria-hidden>
-                  <path d="M9.5 6 8.1 7.4 12.7 12l-4.6 4.6L9.5 18l6-6-6-6z" fill="currentColor" />
-                </svg>
-              }
+              icon={<IconChevronRight />}
             />
           </div>
         ) : null}
@@ -246,6 +227,7 @@ export function EditorScreen({
               })()
             }}
           >
+            <IconUndo size={18} />
             Undo delete
           </button>
           <button

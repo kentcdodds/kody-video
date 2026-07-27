@@ -1,6 +1,7 @@
 import { useCallback, useMemo, useRef, useState } from 'react'
 import { planExport } from '../lib/export'
 import type { ClipRecord } from '../lib/types'
+import { IconPlay } from './icons'
 
 interface PlaybackOverlayProps {
   clips: ClipRecord[]
@@ -164,7 +165,7 @@ export function PlaybackOverlay({ clips, onClose }: PlaybackOverlayProps) {
             if (video) void video.play().then(() => setNeedsTap(false)).catch(() => undefined)
           }}
         >
-          ▶ Tap to play
+          <IconPlay size={18} /> Tap to play
         </button>
       ) : null}
 

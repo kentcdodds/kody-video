@@ -1,5 +1,6 @@
 import { useRef, useState, type MutableRefObject } from 'react'
 import { BlobVideo } from './blob-video'
+import { IconPause, IconPlay } from './icons'
 import type { ClipRecord } from '../lib/types'
 
 export interface EditorClipPreviewHandle {
@@ -124,16 +125,7 @@ export function EditorClipPreview({ clip, apiRef }: EditorClipPreviewProps) {
         aria-label={playing ? 'Pause clip preview' : 'Play clip preview'}
         onClick={togglePlayback}
       >
-        {playing ? (
-          <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden>
-            <rect x="6" y="5" width="4" height="14" rx="1" fill="currentColor" />
-            <rect x="14" y="5" width="4" height="14" rx="1" fill="currentColor" />
-          </svg>
-        ) : (
-          <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden>
-            <path d="M8 5.5v13l11-6.5-11-6.5z" fill="currentColor" />
-          </svg>
-        )}
+        {playing ? <IconPause size={18} /> : <IconPlay size={18} />}
       </button>
     </div>
   )

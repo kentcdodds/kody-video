@@ -442,6 +442,18 @@
   color: var(--danger-ink);
 }
 
+.editor-toolbar .btn-ghost {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.playback-resume {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
 .editor-toolbar {
   display: flex;
   gap: 10px;

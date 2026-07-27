@@ -6,13 +6,13 @@ import { HoldRecorder } from '../lib/recorder'
 import { effectiveDurationMs, formatDuration, type ClipRecord, type Project } from '../lib/types'
 import {
   IconBack,
-  IconDelete,
+  IconDeleteLast,
   IconEditor,
   IconFlip,
   IconPlay,
   IconTimer,
   IconTorch,
-} from './record-icons'
+} from './icons'
 import { RecordTimer } from './record-timer'
 
 type RecordingMode = 'hold' | 'hands-free'
@@ -630,7 +630,7 @@ export function RecordScreen({
             disabled={recording || clips.length === 0}
             onClick={deleteLastClip}
           >
-            <IconDelete />
+            <IconDeleteLast />
           </button>
         </div>
         <button

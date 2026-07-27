@@ -4,6 +4,7 @@ import { BlobImage } from '../components/blob-image'
 import { BrandMark } from '../components/brand-mark'
 import { ConfirmSheet } from '../components/confirm-sheet'
 import { HomeOptionsSheet } from '../components/home-options-sheet'
+import { IconMore, IconPlus } from '../components/icons'
 import { RenameSheet } from '../components/rename-sheet'
 import { loadHomeProjects, type ProjectSummary } from '../lib/project-actions'
 import { createProject, deleteProject, renameProject } from '../lib/storage'
@@ -92,7 +93,7 @@ export function HomePage() {
                 aria-label={`Options for ${project.name}`}
                 onClick={() => setMenuProject(project)}
               >
-                <span aria-hidden="true">⋯</span>
+                <IconMore />
               </button>
             </article>
           ) : (
@@ -104,7 +105,7 @@ export function HomePage() {
               onClick={createAndOpenProject}
             >
               <span className="slot-plus" aria-hidden="true">
-                +
+                <IconPlus size={26} />
               </span>
               <strong>New project</strong>
               <small>{atCap ? 'Six-project limit' : `Slot ${index + 1}`}</small>

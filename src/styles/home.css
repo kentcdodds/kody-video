@@ -145,10 +145,7 @@
   height: 44px;
   border-radius: 50%;
   margin-bottom: 2px;
-  font-family: var(--font-display);
-  font-size: 1.85rem;
-  font-weight: 700;
-  line-height: 1;
+  line-height: 0;
   color: var(--ink-strong);
   background: var(--accent);
   box-shadow: 0 8px 18px var(--accent-soft);
@@ -212,10 +209,7 @@
   border-radius: 50%;
   display: grid;
   place-items: center;
-  font-size: 1.35rem;
-  font-weight: 700;
-  line-height: 1;
-  letter-spacing: 0.02em;
+  line-height: 0;
   color: var(--ink);
   background: color-mix(in srgb, var(--bg-elevated) 72%, transparent);
   border: 1px solid var(--line);
@@ -412,6 +406,5 @@
   .slot-plus {
     width: 40px;
     height: 40px;
-    font-size: 1.6rem;
   }
 }
