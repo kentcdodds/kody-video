@@ -12,6 +12,7 @@ import {
   blitPreview,
   decodeClipAudio,
   drawCover,
+  drawWatermark,
   loadClipVideo,
   pickOutputSize,
   seekTo,
@@ -122,6 +123,7 @@ export async function exportWithWebCodecs(
   plan: ExportPlan,
   onProgress?: (ratio: number) => void,
   getPreviewCanvas?: () => HTMLCanvasElement | null,
+  watermarkImage?: HTMLImageElement | null,
 ): Promise<ExportResult> {
   if (!supportsWebCodecsExport()) {
     throw new Error('WebCodecs is not available')
@@ -239,6 +241,7 @@ export async function exportWithWebCodecs(
           videoEncoder,
           state,
           getPreviewCanvas,
+          watermarkImage,
           hasError: () => encoderError !== null,
           onElapsedMs: (elapsed) => {
             if (plan.totalMs > 0) {
@@ -300,6 +303,7 @@ interface PumpArgs {
     frameCount: number
   }
   getPreviewCanvas?: () => HTMLCanvasElement | null
+  watermarkImage?: HTMLImageElement | null
   hasError: () => boolean
   onElapsedMs: (elapsedMs: number) => void
 }
@@ -313,6 +317,7 @@ async function pumpSegmentVideo({
   videoEncoder,
   state,
   getPreviewCanvas,
+  watermarkImage,
   hasError,
   onElapsedMs,
 }: PumpArgs): Promise<void> {
@@ -325,6 +330,9 @@ async function pumpSegmentVideo({
       tsUs = state.lastVideoTsUs + 1000
     }
     drawCover(ctx, video, canvas.width, canvas.height)
+    if (watermarkImage) {
+      drawWatermark(ctx, watermarkImage, canvas.width, canvas.height)
+    }
     const frame = new VideoFrame(canvas, {
       timestamp: tsUs,
       duration: Math.round(1_000_000 / FPS),

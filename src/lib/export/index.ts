@@ -2,7 +2,7 @@ import type { ClipRecord } from '../types'
 import { exportRealtime } from './encode-realtime'
 import { exportWithWebCodecs, supportsWebCodecsExport } from './encode-webcodecs'
 import { planExport } from './plan'
-import type { ExportResult } from './shared'
+import { loadWatermarkImage, type ExportResult } from './shared'
 
 export type { ExportResult } from './shared'
 export { planExport, type ExportPlan, type PlannedSegment } from './plan'
@@ -20,6 +20,8 @@ export interface ExportOptions {
    * after the export starts.
    */
   getPreviewCanvas?: () => HTMLCanvasElement | null
+  /** Stamp the Kody Video mark on frames (default true; off after purchase). */
+  watermark?: boolean
 }
 
 /**
@@ -36,9 +38,16 @@ export async function exportProject(
     throw new Error('Nothing to export yet — record a clip first')
   }
 
+  const watermarkImage = options.watermark === false ? null : await loadWatermarkImage()
+
   if (supportsWebCodecsExport()) {
     try {
-      return await exportWithWebCodecs(plan, options.onProgress, options.getPreviewCanvas)
+      return await exportWithWebCodecs(
+        plan,
+        options.onProgress,
+        options.getPreviewCanvas,
+        watermarkImage,
+      )
     } catch (error) {
       console.warn('WebCodecs export failed; falling back to realtime stitcher', error)
     }
@@ -48,5 +57,6 @@ export async function exportProject(
     audioContext: options.audioContext,
     onProgress: options.onProgress,
     getPreviewCanvas: options.getPreviewCanvas,
+    watermarkImage,
   })
 }

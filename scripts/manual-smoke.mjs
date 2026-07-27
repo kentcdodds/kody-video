@@ -221,7 +221,57 @@ try {
   const saveBtn = exportDialog.getByRole('button', { name: /^save$/i })
   if (await saveBtn.count()) pass('export offers Save')
   else fail('export offers Save')
+
+  const upsell = exportDialog.getByRole('button', { name: /remove it — \$0\.99/i })
+  if (await upsell.count()) pass('watermark upsell shown while locked')
+  else fail('watermark upsell shown while locked')
   await exportDialog.getByRole('button', { name: /done|close/i }).first().click()
+
+  // --- Purchase verification flow (mocked endpoint) + unlocked state ---
+  await page.route('**/api/verify-purchase*', (route) =>
+    route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ unlocked: true }),
+    }),
+  )
+  await page.goto(`${BASE}/unlocked?session_id=cs_live_smoketest123`, {
+    waitUntil: 'networkidle',
+  })
+  const celebrated = await page
+    .waitForSelector('text=/watermark removed/i', { timeout: 5000 })
+    .then(() => true)
+    .catch(() => false)
+  if (celebrated) pass('unlock page verifies and celebrates')
+  else fail('unlock page verifies and celebrates')
+  await shot(page, '10-unlocked')
+
+  await page.getByRole('link', { name: /start creating/i }).click()
+  await page.waitForURL(BASE + '/', { timeout: 5000 }).catch(() => undefined)
+  await page.locator('.project-slot.filled .slot-open').first().click()
+  await page.waitForURL(/\/project\//, { timeout: 5000 })
+  await page.getByRole('button', { name: /^ok$/i }).first().click()
+  const unlockedExport = await page
+    .waitForFunction(
+      () => {
+        const dialog = document.querySelector('[aria-label="Share project"]')
+        return dialog && /video is ready/i.test(dialog.textContent || '')
+      },
+      { timeout: 45000 },
+    )
+    .then(() => true)
+    .catch(() => false)
+  const upsellGone =
+    unlockedExport &&
+    (await page.getByRole('button', { name: /remove it — \$0\.99/i }).count()) === 0
+  if (upsellGone) pass('purchase removes the watermark upsell')
+  else fail('purchase removes the watermark upsell', `exported=${unlockedExport}`)
+  await page
+    .getByRole('dialog', { name: /share project/i })
+    .getByRole('button', { name: /done|close/i })
+    .first()
+    .click()
+  await page.unroute('**/api/verify-purchase*')
 
   // --- Playback preview overlay ---
   await page.getByRole('button', { name: /play project preview/i }).click()

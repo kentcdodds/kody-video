@@ -40,6 +40,9 @@ export interface AppMeta {
   maxProjects: number
   lastOpenedProjectId: ProjectId | null
   onboardingDismissed: boolean
+  /** One-time "Remove Watermark" purchase (verified via Stripe). */
+  watermarkRemoved?: boolean
+  purchaseSessionId?: string | null
 }
 
 export const MAX_PROJECTS = 6

@@ -107,11 +107,27 @@ Verified approach: `npm run build && npm run preview`, load once online, then De
 - **Storage quotas:** large projects can hit IndexedDB quotas; the soft 6-project cap helps.
 - **Background tabs:** recording should stay in the foreground; browsers may throttle capture.
 
+## Remove Watermark purchase
+
+Exports carry a small Kody Video mark in the corner. A one-time $0.99 Stripe
+Payment Link removes it: the export sheet links to checkout, Stripe redirects
+back to `/unlocked?session_id=…`, and a single Cloudflare Pages Function
+(`functions/api/verify-purchase.ts`) verifies the session server-side before
+the entitlement is stored in IndexedDB. 100%-off promotion codes (friends /
+the developer) flow through the exact same verification. Restore on another
+device: paste the Stripe receipt link into "Already paid?" on the export
+sheet.
+
+Deployment requirement: set `STRIPE_SECRET_KEY` (a restricted key with
+Checkout Sessions read access is enough) on the Cloudflare Pages project.
+
 ## Privacy
 
 - No telemetry, analytics, or accounts.
 - No clip upload endpoints exist in this app.
 - Share/export uses user-gesture download or the Web Share API only.
+- The only network call besides Stripe checkout (opened in the browser) is
+  the purchase-verification function above; it never sees media.
 
 ## Scripts
 

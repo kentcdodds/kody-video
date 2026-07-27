@@ -13,6 +13,8 @@ import { OnboardingOverlay } from '../components/onboarding-overlay'
 import { PlaybackOverlay } from '../components/playback-overlay'
 import { RecordScreen, type ToastAction } from '../components/record-screen'
 import { useCamera } from '../hooks/use-camera'
+import { RestoreSheet } from '../components/restore-sheet'
+import { REMOVE_WATERMARK_LINK } from '../lib/entitlement'
 import { exportProject, type ExportResult } from '../lib/export'
 import {
   canShareFile,
@@ -46,6 +48,7 @@ export async function projectLoader({ params }: LoaderFunctionArgs): Promise<Pro
       clips: [],
       canUndo: false,
       onboardingDismissed: true,
+      watermarkRemoved: false,
       error: 'Project not found',
     }
   }
@@ -70,6 +73,7 @@ export function ProjectPage() {
   const [playing, setPlaying] = useState(false)
   const [toast, setToast] = useState<ToastState | null>(null)
   const [exportState, setExportState] = useState<ExportUiState | null>(null)
+  const [restoring, setRestoring] = useState(false)
 
   const refresh = useCallback(() => {
     startTransition(() => {
@@ -108,6 +112,7 @@ export function ProjectPage() {
       try {
         const result = await exportProject(clips, {
           audioContext,
+          watermark: !data.watermarkRemoved,
           getPreviewCanvas: () => previewCanvasRef.current,
           onProgress: (ratio) => {
             if (exportRunRef.current !== runId) return
@@ -137,7 +142,7 @@ export function ProjectPage() {
         }
       }
     })()
-  }, [clips])
+  }, [clips, data.watermarkRemoved])
 
   const closeExport = useCallback(() => {
     exportRunRef.current += 1
@@ -216,6 +221,11 @@ export function ProjectPage() {
           status={exportState.status}
           error={exportState.error}
           notice={exportState.notice}
+          watermarked={!data.watermarkRemoved}
+          onRemoveWatermark={() => {
+            window.open(REMOVE_WATERMARK_LINK, '_blank', 'noopener')
+          }}
+          onRestorePurchase={() => setRestoring(true)}
           canShare={
             !!exportState.result &&
             !!exportFilename &&
@@ -248,6 +258,17 @@ export function ProjectPage() {
           }}
           onRetry={startExport}
           onClose={closeExport}
+        />
+      ) : null}
+
+      {restoring ? (
+        <RestoreSheet
+          onClose={() => setRestoring(false)}
+          onRestored={() => {
+            setRestoring(false)
+            showToast('Purchase restored — new exports are watermark-free')
+            refresh()
+          }}
         />
       ) : null}
 

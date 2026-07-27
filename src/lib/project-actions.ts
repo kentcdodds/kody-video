@@ -34,6 +34,8 @@ export interface ProjectLoaderData {
   clips: ClipRecord[]
   canUndo: boolean
   onboardingDismissed: boolean
+  /** True when the one-time "Remove Watermark" purchase is unlocked. */
+  watermarkRemoved: boolean
   error: string | null
 }
 
@@ -71,6 +73,7 @@ export async function loadProjectPage(projectId: ProjectId): Promise<ProjectLoad
         clips: [],
         canUndo: false,
         onboardingDismissed: settings.onboardingDismissed,
+        watermarkRemoved: settings.watermarkRemoved === true,
         error: 'Project not found',
       }
     }
@@ -87,6 +90,7 @@ export async function loadProjectPage(projectId: ProjectId): Promise<ProjectLoad
       clips: hydrated,
       canUndo: !!undo,
       onboardingDismissed: settings.onboardingDismissed,
+      watermarkRemoved: settings.watermarkRemoved === true,
       error: null,
     }
   } catch (err) {
@@ -95,6 +99,7 @@ export async function loadProjectPage(projectId: ProjectId): Promise<ProjectLoad
       clips: [],
       canUndo: false,
       onboardingDismissed: true,
+      watermarkRemoved: false,
       error: err instanceof Error ? err.message : 'Failed to load project',
     }
   }

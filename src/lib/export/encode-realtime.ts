@@ -5,6 +5,7 @@ import {
   blitPreview,
   decodeClipAudio,
   drawCover,
+  drawWatermark,
   loadClipVideo,
   pickOutputSize,
   seekTo,
@@ -21,6 +22,8 @@ export interface RealtimeExportOptions {
   onProgress?: (ratio: number) => void
   /** Visible canvas to mirror sampled frames onto while exporting. */
   getPreviewCanvas?: () => HTMLCanvasElement | null
+  /** Mark stamped onto each frame; null when the user purchased removal. */
+  watermarkImage?: HTMLImageElement | null
 }
 
 /**
@@ -108,6 +111,7 @@ export async function exportRealtime(
           dest,
           frameCounter,
           getPreviewCanvas: options.getPreviewCanvas,
+          watermarkImage: options.watermarkImage ?? null,
           onElapsedMs: (elapsed) => {
             if (plan.totalMs > 0) {
               options.onProgress?.(Math.min(1, (paintedTotalMs + elapsed) / plan.totalMs))
@@ -159,6 +163,7 @@ interface PaintSegmentArgs {
   dest: MediaStreamAudioDestinationNode | null
   frameCounter: { count: number }
   getPreviewCanvas?: () => HTMLCanvasElement | null
+  watermarkImage: HTMLImageElement | null
   onElapsedMs: (elapsedMs: number) => void
 }
 
@@ -174,6 +179,7 @@ async function paintSegment({
   dest,
   frameCounter,
   getPreviewCanvas,
+  watermarkImage,
   onElapsedMs,
 }: PaintSegmentArgs): Promise<number> {
   const segmentSec = endSec - startSec
@@ -189,7 +195,13 @@ async function paintSegment({
     await video.play()
     await waitForPlaybackStart(video, startSec)
 
-    drawCover(ctx, video, canvas.width, canvas.height)
+    const paintFrame = () => {
+      drawCover(ctx, video, canvas.width, canvas.height)
+      if (watermarkImage) {
+        drawWatermark(ctx, watermarkImage, canvas.width, canvas.height)
+      }
+    }
+    paintFrame()
 
     if (audioContext && dest && audioBuffer) {
       const videoLeadSec = Math.max(0, video.currentTime - startSec)
@@ -214,7 +226,7 @@ async function paintSegment({
       let lastVideoTime = video.currentTime
 
       const finish = () => {
-        drawCover(ctx, video, canvas.width, canvas.height)
+        paintFrame()
         cancelAnimationFrame(raf)
         video.pause()
         resolve()
@@ -236,7 +248,7 @@ async function paintSegment({
           reject(new Error('Clip playback stalled during export'))
           return
         }
-        drawCover(ctx, video, canvas.width, canvas.height)
+        paintFrame()
         if (frameCounter.count % PREVIEW_EVERY_N_FRAMES === 0) {
           blitPreview(canvas, getPreviewCanvas?.())
         }
