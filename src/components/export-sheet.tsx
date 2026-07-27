@@ -3,9 +3,8 @@ import { BrandMark } from './brand-mark'
 export type ExportStatus = 'exporting' | 'ready' | 'error'
 
 interface ExportSheetProps {
-  projectName: string
-  status: ExportStatus
-  progress: number
+  /** The exporting state renders as the full-screen ExportOverlay instead. */
+  status: 'ready' | 'error'
   error: string | null
   /** Whether the exported file can go through the system share sheet. */
   canShare: boolean
@@ -26,9 +25,7 @@ interface ExportSheetProps {
  * system share sheet always has the user activation it requires.
  */
 export function ExportSheet({
-  projectName,
   status,
-  progress,
   error,
   canShare,
   fileExtension,
@@ -40,30 +37,10 @@ export function ExportSheet({
   onRetry,
   onClose,
 }: ExportSheetProps) {
-  const exporting = status === 'exporting'
-
   return (
     <>
-      <div
-        className="sheet-backdrop"
-        onClick={() => {
-          if (!exporting) onClose()
-        }}
-      />
+      <div className="sheet-backdrop" onClick={onClose} />
       <div className="sheet export-sheet" role="dialog" aria-label="Share project">
-        {status === 'exporting' ? (
-          <>
-            <h3>Exporting your video…</h3>
-            <p className="muted sheet-lede">
-              Stitching {projectName} into one video, right on this device.
-            </p>
-            <div className="progress-bar" aria-label="Export progress">
-              <span style={{ width: `${Math.round(progress * 100)}%` }} />
-            </div>
-            <p className="muted export-percent">{Math.round(progress * 100)}%</p>
-          </>
-        ) : null}
-
         {status === 'ready' ? (
           <>
             <BrandMark size={84} className="export-celebrate-art" variant="share" />

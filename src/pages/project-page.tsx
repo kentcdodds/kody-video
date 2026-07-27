@@ -7,6 +7,7 @@ import {
   type LoaderFunctionArgs,
 } from 'react-router-dom'
 import { EditorScreen } from '../components/editor-screen'
+import { ExportOverlay } from '../components/export-overlay'
 import { ExportSheet, type ExportStatus } from '../components/export-sheet'
 import { OnboardingOverlay } from '../components/onboarding-overlay'
 import { PlaybackOverlay } from '../components/playback-overlay'
@@ -58,6 +59,11 @@ export function ProjectPage() {
 
   const toastTimerRef = useRef(0)
   const exportRunRef = useRef(0)
+  const previewCanvasRef = useRef<HTMLCanvasElement | null>(null)
+
+  const bindPreviewCanvas = useCallback((element: HTMLCanvasElement | null) => {
+    previewCanvasRef.current = element
+  }, [])
 
   const [mode, setMode] = useState<ProjectMode>('record')
   const [onboardingOpen, setOnboardingOpen] = useState(() => !data.onboardingDismissed)
@@ -102,6 +108,7 @@ export function ProjectPage() {
       try {
         const result = await exportProject(clips, {
           audioContext,
+          getPreviewCanvas: () => previewCanvasRef.current,
           onProgress: (ratio) => {
             if (exportRunRef.current !== runId) return
             setExportState((current) =>
@@ -158,6 +165,7 @@ export function ProjectPage() {
   }
 
   const project = data.project
+  const exporting = exportState?.status === 'exporting'
   const overlayOpen = playing || exportState !== null || onboardingOpen
   const exportFilename = exportState?.result
     ? projectFilename(project.name, exportState.result.fileExtension)
@@ -165,7 +173,10 @@ export function ProjectPage() {
 
   return (
     <div className="screen project-screen">
-      {mode === 'record' ? (
+      {/* While exporting, the screens unmount entirely: the camera is
+          released (no dead preview burning battery behind the overlay) and
+          the full-screen progress takes over. */}
+      {exporting ? null : mode === 'record' ? (
         <RecordScreen
           project={project}
           clips={clips}
@@ -192,11 +203,17 @@ export function ProjectPage() {
 
       {playing ? <PlaybackOverlay clips={clips} onClose={() => setPlaying(false)} /> : null}
 
-      {exportState ? (
-        <ExportSheet
+      {exporting ? (
+        <ExportOverlay
           projectName={project.name}
+          progress={exportState?.progress ?? 0}
+          bindPreviewCanvas={bindPreviewCanvas}
+        />
+      ) : null}
+
+      {exportState && exportState.status !== 'exporting' ? (
+        <ExportSheet
           status={exportState.status}
-          progress={exportState.progress}
           error={exportState.error}
           notice={exportState.notice}
           canShare={

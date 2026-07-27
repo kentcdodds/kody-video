@@ -7,10 +7,10 @@ export default defineConfig({
     react(),
     VitePWA({
       registerType: 'autoUpdate',
-      includeAssets: ['favicon.svg', 'kody-mark.webp', 'art/*.webp'],
+      includeAssets: ['favicon.png', 'apple-touch-icon.png', 'kody-mark.webp', 'art/*.webp'],
       manifest: {
         name: 'Kody Video',
-        short_name: 'Kody',
+        short_name: 'Kody Video',
         description:
           'Hold anywhere to record clips. Kody Video keeps projects private on your device until you share.',
         theme_color: '#2F3E46',
@@ -30,13 +30,7 @@ export default defineConfig({
             type: 'image/png',
           },
           {
-            src: 'pwa-512.webp',
-            sizes: '512x512',
-            type: 'image/webp',
-            purpose: 'any',
-          },
-          {
-            src: 'pwa-512.png',
+            src: 'pwa-512-maskable.png',
             sizes: '512x512',
             type: 'image/png',
             purpose: 'maskable',

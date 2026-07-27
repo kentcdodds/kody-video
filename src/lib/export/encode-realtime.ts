@@ -1,6 +1,8 @@
 import { pickRecorderMimeType } from '../media'
 import { clampSegmentToMedia, type ExportPlan } from './plan'
 import {
+  PREVIEW_EVERY_N_FRAMES,
+  blitPreview,
   decodeClipAudio,
   drawCover,
   loadClipVideo,
@@ -17,6 +19,8 @@ export interface RealtimeExportOptions {
    */
   audioContext?: AudioContext
   onProgress?: (ratio: number) => void
+  /** Visible canvas to mirror sampled frames onto while exporting. */
+  getPreviewCanvas?: () => HTMLCanvasElement | null
 }
 
 /**
@@ -86,6 +90,7 @@ export async function exportRealtime(
   await wait(120)
 
   let paintedTotalMs = 0
+  const frameCounter = { count: 0 }
   try {
     for (const segment of plan.segments) {
       const loaded = await loadClipVideo(segment.clip.blob)
@@ -101,6 +106,8 @@ export async function exportRealtime(
           ctx,
           audioContext,
           dest,
+          frameCounter,
+          getPreviewCanvas: options.getPreviewCanvas,
           onElapsedMs: (elapsed) => {
             if (plan.totalMs > 0) {
               options.onProgress?.(Math.min(1, (paintedTotalMs + elapsed) / plan.totalMs))
@@ -150,6 +157,8 @@ interface PaintSegmentArgs {
   ctx: CanvasRenderingContext2D
   audioContext: AudioContext | null
   dest: MediaStreamAudioDestinationNode | null
+  frameCounter: { count: number }
+  getPreviewCanvas?: () => HTMLCanvasElement | null
   onElapsedMs: (elapsedMs: number) => void
 }
 
@@ -163,6 +172,8 @@ async function paintSegment({
   ctx,
   audioContext,
   dest,
+  frameCounter,
+  getPreviewCanvas,
   onElapsedMs,
 }: PaintSegmentArgs): Promise<number> {
   const segmentSec = endSec - startSec
@@ -226,6 +237,10 @@ async function paintSegment({
           return
         }
         drawCover(ctx, video, canvas.width, canvas.height)
+        if (frameCounter.count % PREVIEW_EVERY_N_FRAMES === 0) {
+          blitPreview(canvas, getPreviewCanvas?.())
+        }
+        frameCounter.count += 1
         onElapsedMs(Math.min(segmentSec, elapsed) * 1000)
         raf = requestAnimationFrame(draw)
       }

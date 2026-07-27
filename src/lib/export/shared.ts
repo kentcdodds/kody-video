@@ -166,6 +166,22 @@ export async function decodeClipAudio(
   }
 }
 
+/** How often the engines mirror an encoded frame to the UI preview canvas. */
+export const PREVIEW_EVERY_N_FRAMES = 10
+
+/** Mirror the engine's work canvas onto the visible preview canvas. */
+export function blitPreview(
+  source: HTMLCanvasElement,
+  target: HTMLCanvasElement | null | undefined,
+): void {
+  if (!target) return
+  if (target.width !== source.width || target.height !== source.height) {
+    target.width = source.width
+    target.height = source.height
+  }
+  target.getContext('2d')?.drawImage(source, 0, 0)
+}
+
 export function wait(ms: number): Promise<void> {
   return new Promise((resolve) => {
     window.setTimeout(resolve, ms)
