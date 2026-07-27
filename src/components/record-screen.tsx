@@ -491,6 +491,13 @@ export function RecordScreen({
             if (recordingMode === 'hands-free') void endRecord()
             return
           }
+          // Like a pointer hold: interrupt any zoom snap-back still easing
+          // and record from the deliberate baseline, not a mid-ramp value.
+          cancelAnimationFrame(zoomRestoreRafRef.current)
+          if (zoomRestoreActiveRef.current) {
+            zoomRestoreActiveRef.current = false
+            camera.setZoom(zoomBaselineRef.current ?? camera.zoom?.value ?? 1)
+          }
           spaceHeldRef.current = true
           keyboardTakeRef.current = true
           void beginRecord(null, 'hold').then((started) => {

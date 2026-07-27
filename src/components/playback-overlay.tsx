@@ -125,6 +125,8 @@ export function PlaybackOverlay({ clips, onClose }: PlaybackOverlayProps) {
         return
       case 'Space': {
         event.preventDefault()
+        // Auto-repeat while held must not rapid-toggle pause/resume.
+        if (event.repeat) return
         const video = videoRef.current
         if (!video) return
         if (video.paused) {
