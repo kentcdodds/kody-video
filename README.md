@@ -158,7 +158,10 @@ in-app About page has a link that pre-fills device details).
 
 ## Privacy
 
-- No analytics or accounts.
+- No accounts, no cookies, no cross-site tracking.
+- Page views are counted with [Fathom Analytics](https://usefathom.com)
+  (cookieless, anonymous, aggregate-only), loaded only on production
+  hostnames.
 - No clip upload endpoints exist in this app.
 - Share/export uses user-gesture download or the Web Share API only.
 - Network calls besides Stripe checkout (opened in the browser): the
