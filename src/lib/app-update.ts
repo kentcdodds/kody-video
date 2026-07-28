@@ -66,7 +66,12 @@ export async function checkForUpdates(): Promise<UpdateCheckResult> {
         return 'unavailable'
       }
     }
-    if (!reg.installing) break
+    if (!reg.installing) {
+      // A worker appeared but is neither installing nor waiting anymore:
+      // the install failed (worker went redundant). Don't claim "current".
+      if (!reg.waiting) return 'unavailable'
+      break
+    }
     await new Promise((resolve) => setTimeout(resolve, 200))
   }
   if (reg.waiting) {
