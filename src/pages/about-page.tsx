@@ -1,5 +1,8 @@
+import { useState } from 'react'
 import { Link } from 'react-router-dom'
 import { BrandMark } from '../components/brand-mark'
+import { checkForUpdates } from '../lib/app-update'
+import { buildDateLabel, shortVersion } from '../lib/build-info'
 
 /** Prefilled GitHub issue so bug reports arrive with device context attached. */
 function reportProblemUrl(): string {
@@ -19,8 +22,42 @@ function reportProblemUrl(): string {
   return `https://github.com/kentcdodds/kody-video/issues/new?${params}`
 }
 
+type UpdateStatus = 'idle' | 'checking' | 'current' | 'updating' | 'unavailable'
+
+const UPDATE_STATUS_LABEL: Record<Exclude<UpdateStatus, 'idle'>, string> = {
+  checking: 'Checking…',
+  current: "You're on the latest version.",
+  updating: 'Update found — reloading…',
+  unavailable: "Couldn't check right now (offline, or not running from a deployment).",
+}
+
 /** Credits, inspiration, and the open-source pointer. */
 export function AboutPage() {
+  const [updateStatus, setUpdateStatus] = useState<UpdateStatus>('idle')
+
+  const onCheckForUpdates = () => {
+    if (updateStatus === 'checking' || updateStatus === 'updating') return
+    setUpdateStatus('checking')
+    void checkForUpdates().then((result) => {
+      switch (result) {
+        case 'updated':
+          // checkForUpdates already applied it; the page is about to reload.
+          setUpdateStatus('updating')
+          return
+        case 'current':
+          setUpdateStatus('current')
+          return
+        case 'unavailable':
+          setUpdateStatus('unavailable')
+          return
+        default: {
+          const exhaustive: never = result
+          throw new Error(`Unhandled update result: ${String(exhaustive)}`)
+        }
+      }
+    })
+  }
+
   return (
     <div className="screen about-screen">
       <div className="about-top">
@@ -115,6 +152,27 @@ export function AboutPage() {
             Prefer email (or need help with a purchase)? Write to{' '}
             <a href="mailto:team@kody.video">team@kody.video</a>.
           </p>
+        </section>
+
+        <section className="about-section">
+          <h2>Version</h2>
+          <p>
+            <code>{shortVersion()}</code> · built {buildDateLabel()}
+            {' · '}
+            <button
+              type="button"
+              className="link-button"
+              onClick={onCheckForUpdates}
+              disabled={updateStatus === 'checking' || updateStatus === 'updating'}
+            >
+              Check for updates
+            </button>
+          </p>
+          {updateStatus !== 'idle' ? (
+            <p role="status" aria-live="polite">
+              {UPDATE_STATUS_LABEL[updateStatus]}
+            </p>
+          ) : null}
         </section>
 
         <section className="about-section">

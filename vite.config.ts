@@ -11,6 +11,7 @@ const sentryUpload = Boolean(process.env.SENTRY_AUTH_TOKEN)
 export default defineConfig({
   define: {
     __COMMIT_SHA__: JSON.stringify(commitSha),
+    __BUILD_DATE__: JSON.stringify(new Date().toISOString()),
   },
   build: {
     // Generated for Sentry upload, never referenced from the served bundles.

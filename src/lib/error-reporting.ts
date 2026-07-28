@@ -1,5 +1,6 @@
 import * as Sentry from '@sentry/react'
 import type { ErrorInfo } from 'react'
+import { COMMIT_SHA } from './build-info'
 
 /** Publishable client key for the kody-video Sentry project (not a secret). */
 const SENTRY_DSN =
@@ -38,8 +39,6 @@ type FilterableSentryEvent = {
   }
   message?: string
 }
-
-declare const __COMMIT_SHA__: string
 
 /** True for intentional monitoring self-test events (narrow signature only). */
 export function isMonitoringSelfTestEvent(event: FilterableSentryEvent): boolean {
@@ -113,7 +112,7 @@ export function initErrorReporting(): void {
   if (!REPORTING_HOSTNAMES.has(location.hostname)) return
   Sentry.init({
     dsn: SENTRY_DSN,
-    release: __COMMIT_SHA__,
+    release: COMMIT_SHA,
     environment: location.hostname === 'kody.video' ? 'production' : 'legacy-pages-dev',
     // Crash reports only: no tracing, no session replay, no PII. Clips and
     // media never leave the device — this reports errors and stack traces.

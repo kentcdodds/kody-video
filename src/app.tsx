@@ -1,12 +1,19 @@
 import { RouterProvider } from 'react-router-dom'
 import { useRegisterSW } from 'virtual:pwa-register/react'
+import { registerUpdateHandles } from './lib/app-update'
 import { router } from './router'
 
 export function App() {
   const {
     needRefresh: [needRefresh],
     updateServiceWorker,
-  } = useRegisterSW({ immediate: true })
+  } = useRegisterSW({
+    immediate: true,
+    onRegisteredSW(_url, registration) {
+      // Fires async, after this hook call settles — the closure is safe.
+      registerUpdateHandles(registration, (reload) => updateServiceWorker(reload))
+    },
+  })
 
   return (
     <div className="app-shell">
