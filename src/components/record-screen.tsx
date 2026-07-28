@@ -759,6 +759,15 @@ export function RecordScreen({
               Storage {formatStoragePercent(storage.ratio)} full
             </Link>
           ) : null}
+          {camera.micPermission === 'denied' && !recording ? (
+            <span
+              className="storage-pill is-critical"
+              role="status"
+              aria-label="Microphone blocked — recordings need sound"
+            >
+              Mic blocked — allow it in site settings
+            </span>
+          ) : null}
         </div>
         <div className="record-top-actions">
           {camera.torchAvailable ? (

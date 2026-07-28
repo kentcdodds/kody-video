@@ -4,6 +4,7 @@ import {
   listRearCameras,
   openCameraStream,
   openMicrophoneTrack,
+  primeMicrophonePermission,
   queryCameraPermission,
   stopAudioTracks,
   stopStream,
@@ -71,6 +72,8 @@ export interface UseCameraResult {
   zoom: CameraZoomRange | null
   torchAvailable: boolean
   torchOn: boolean
+  /** Mic permission state discovered by the startup priming prompt. */
+  micPermission: 'granted' | 'denied' | 'unknown'
   /** Number of rear camera devices (ultra-wide/tele are often separate). */
   rearLensCount: number
   /** Index of the active rear lens, when facing the environment. */
@@ -125,6 +128,8 @@ export function useCamera(): UseCameraResult {
   const [zoom, setZoomState] = useState<CameraZoomRange | null>(null)
   const [torchAvailable, setTorchAvailable] = useState(false)
   const [torchOn, setTorchOn] = useState(false)
+  const [micPermission, setMicPermission] = useState<'granted' | 'denied' | 'unknown'>('unknown')
+  const micPrimedRef = useRef(false)
   const [rearLensCount, setRearLensCount] = useState(0)
   const [rearLensIndex, setRearLensIndex] = useState(0)
   const rearLensesRef = useRef<string[]>([])
@@ -241,6 +246,13 @@ export function useCamera(): UseCameraResult {
         replaceStream(next)
         setCanFlip(await canFlipCamera())
         void syncRearLenses(next)
+        // One-time mic permission priming (see primeMicrophonePermission):
+        // asking mid-hold is silently denied by some browsers (Brave/Android
+        // never shows the prompt). Prompt now, at a normal moment.
+        if (!micPrimedRef.current) {
+          micPrimedRef.current = true
+          void primeMicrophonePermission().then(setMicPermission)
+        }
       } catch (err) {
         const message = permissionMessage(err)
         setPermission({ status: 'denied', message })
@@ -413,6 +425,8 @@ export function useCamera(): UseCameraResult {
         if (!streamRef.current?.getAudioTracks().some((track) => track.readyState === 'live')) {
           throw new Error('Microphone unavailable')
         }
+        // The user may have fixed a denied permission in site settings.
+        setMicPermission('granted')
       } catch (err) {
         throw new Error(permissionMessage(err))
       }
@@ -469,6 +483,7 @@ export function useCamera(): UseCameraResult {
     zoom,
     torchAvailable,
     torchOn,
+    micPermission,
     rearLensCount,
     rearLensIndex,
     switchRearLens,

@@ -155,6 +155,36 @@ export async function openMicrophoneTrack(): Promise<MediaStreamTrack> {
   return track
 }
 
+/**
+ * Ask for microphone permission once, up front, and release the track
+ * immediately (idle stays mic-free so Android voice-to-text keeps working).
+ *
+ * Requesting the mic only mid-gesture — while the user is already holding to
+ * record with a live camera — gets silently auto-denied by some browsers
+ * (Brave on Android never even shows the prompt, so the site's settings have
+ * no microphone entry to flip). Priming at camera startup shows a normal
+ * prompt at a normal moment; later per-take requests then resolve silently.
+ */
+export async function primeMicrophonePermission(): Promise<'granted' | 'denied' | 'unknown'> {
+  try {
+    const status = await navigator.permissions.query({
+      name: 'microphone' as PermissionName,
+    })
+    if (status.state === 'granted') return 'granted'
+    // A persisted denial can't prompt again — asking would fail silently.
+    if (status.state === 'denied') return 'denied'
+  } catch {
+    // Permission query unsupported — fall through and prompt directly.
+  }
+  try {
+    const track = await openMicrophoneTrack()
+    track.stop()
+    return 'granted'
+  } catch {
+    return 'denied'
+  }
+}
+
 function isOverconstrained(error: unknown): boolean {
   return error instanceof DOMException && error.name === 'OverconstrainedError'
 }
