@@ -238,16 +238,29 @@ export interface AddClipInput {
   createdAt?: number
 }
 
+/**
+ * Copy blob bytes into a fresh Blob before IndexedDB persistence.
+ * MediaRecorder / File-backed blobs can fail Chromium's object-store write
+ * with UnknownError ("Error preparing Blob/File data to be stored…") when
+ * the original backing store is ephemeral or already released.
+ */
+export async function toStoredBlob(blob: Blob): Promise<Blob> {
+  const buffer = await blob.arrayBuffer()
+  return new Blob([buffer], { type: blob.type || 'application/octet-stream' })
+}
+
 export async function addClip(input: AddClipInput): Promise<ClipRecord> {
   const db = await getDb()
-  const project = await db.get('projects', input.projectId)
-  if (!project) throw new Error('Project not found')
+  // Materialize before opening the transaction — awaiting inside a tx lets
+  // IndexedDB auto-commit and abort subsequent puts. Re-read the project
+  // inside the tx so overlapping saves cannot clobber fresher clipIds.
+  const durableBlob = await toStoredBlob(input.blob)
 
   const now = Date.now()
   const clip: ClipRecord = {
     id: newId('clip'),
     projectId: input.projectId,
-    blob: input.blob,
+    blob: durableBlob,
     mimeType: input.mimeType,
     durationMs: input.durationMs,
     trimStartMs: 0,
@@ -261,6 +274,11 @@ export async function addClip(input: AddClipInput): Promise<ClipRecord> {
   }
 
   const tx = db.transaction(['clips', 'projects'], 'readwrite')
+  const project = await tx.objectStore('projects').get(input.projectId)
+  if (!project) {
+    await tx.done.catch(() => undefined)
+    throw new Error('Project not found')
+  }
   await completeTransaction(
     [
       tx.objectStore('clips').put(clip),
@@ -286,6 +304,10 @@ export interface ClipThumbsInput {
 
 export async function updateClipThumbs(clipId: ClipId, input: ClipThumbsInput): Promise<void> {
   const db = await getDb()
+  const [thumbs, poster] = await Promise.all([
+    Promise.all(input.thumbs.map((thumb) => toStoredBlob(thumb))),
+    toStoredBlob(input.poster),
+  ])
   // Read + merge + write in one transaction so a concurrent trim/delete can
   // never be clobbered by a stale snapshot of the clip record.
   const tx = db.transaction('clips', 'readwrite')
@@ -296,8 +318,8 @@ export async function updateClipThumbs(clipId: ClipId, input: ClipThumbsInput): 
   }
   const updated: ClipRecord = {
     ...clip,
-    thumbs: input.thumbs,
-    poster: input.poster,
+    thumbs,
+    poster,
     thumbWidth: input.thumbWidth,
     thumbHeight: input.thumbHeight,
     width: clip.width ?? input.videoWidth,
@@ -357,24 +379,45 @@ export async function moveClip(
 
 export async function duplicateClip(clipId: ClipId): Promise<ClipRecord> {
   const db = await getDb()
-  const clip = await db.get('clips', clipId)
-  if (!clip) throw new Error('Clip not found')
-  const project = await db.get('projects', clip.projectId)
-  if (!project) throw new Error('Project not found')
+  const source = await db.get('clips', clipId)
+  if (!source) throw new Error('Clip not found')
+
+  const now = Date.now()
+  const [blob, thumbs, poster] = await Promise.all([
+    toStoredBlob(source.blob),
+    source.thumbs
+      ? Promise.all(source.thumbs.map((thumb) => toStoredBlob(thumb)))
+      : Promise.resolve(undefined),
+    source.poster ? toStoredBlob(source.poster) : Promise.resolve(undefined),
+  ])
+
+  const tx = db.transaction(['clips', 'projects'], 'readwrite')
+  const clip = await tx.objectStore('clips').get(clipId)
+  const project = clip
+    ? await tx.objectStore('projects').get(clip.projectId)
+    : undefined
+  if (!clip || !project) {
+    await tx.done.catch(() => undefined)
+    throw new Error(!clip ? 'Clip not found' : 'Project not found')
+  }
 
   const index = project.clipIds.indexOf(clipId)
-  const now = Date.now()
+  if (index < 0) {
+    await tx.done.catch(() => undefined)
+    throw new Error('Clip not in project')
+  }
+
   const copy: ClipRecord = {
     ...clip,
     id: newId('clip'),
     createdAt: now,
-    blob: clip.blob.slice(0, clip.blob.size, clip.blob.type),
+    blob,
+    thumbs,
+    poster,
   }
-
   const clipIds = [...project.clipIds]
   clipIds.splice(index + 1, 0, copy.id)
 
-  const tx = db.transaction(['clips', 'projects'], 'readwrite')
   await completeTransaction(
     [
       tx.objectStore('clips').put(copy),
