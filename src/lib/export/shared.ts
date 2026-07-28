@@ -1,4 +1,4 @@
-import { isMediaElementFailure, mediaErrorDetail } from './media-error'
+import { isMediaElementFailure, MediaElementFailureError } from './media-error'
 
 /** Helpers shared by the WebCodecs and realtime export engines. */
 
@@ -95,9 +95,7 @@ export function waitForMediaEvent(
     }
     const onErr = () => {
       cleanup()
-      reject(
-        new Error(`Media failed while waiting for "${event}"${mediaErrorDetail(target)}`),
-      )
+      reject(new MediaElementFailureError(event, target))
     }
     const cleanup = () => {
       window.clearTimeout(timer)

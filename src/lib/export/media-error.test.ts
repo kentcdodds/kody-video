@@ -1,5 +1,9 @@
 import { describe, expect, it } from 'vitest'
-import { isMediaElementFailure, mediaErrorDetail } from './media-error'
+import {
+  isMediaElementFailure,
+  MediaElementFailureError,
+  mediaErrorDetail,
+} from './media-error'
 
 describe('mediaErrorDetail', () => {
   it('returns empty when the element has no MediaError', () => {
@@ -18,18 +22,22 @@ describe('mediaErrorDetail', () => {
 })
 
 describe('isMediaElementFailure', () => {
-  it('matches the waitForMediaEvent failure signature only', () => {
+  it('matches the typed media-failure marker only', () => {
     expect(
-      isMediaElementFailure(new Error('Media failed while waiting for "loadedmetadata"')),
+      isMediaElementFailure(new MediaElementFailureError('loadedmetadata', {})),
     ).toBe(true)
     expect(
       isMediaElementFailure(
-        new Error('Media failed while waiting for "loadedmetadata" (MEDIA_ERR_DECODE)'),
+        new MediaElementFailureError('loadedmetadata', {
+          error: { code: 3, message: 'PIPELINE_ERROR_DECODE' },
+        }),
       ),
     ).toBe(true)
+    expect(isMediaElementFailure(new Error('Media failed while waiting for "loadedmetadata"'))).toBe(
+      false,
+    )
     expect(isMediaElementFailure(new Error('Timed out waiting for media "loadedmetadata"'))).toBe(
       false,
     )
-    expect(isMediaElementFailure('Media failed while waiting for "loadedmetadata"')).toBe(false)
   })
 })

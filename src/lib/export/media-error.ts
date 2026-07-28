@@ -15,6 +15,18 @@ const MEDIA_ERR_NAMES: Record<number, string> = {
   4: 'MEDIA_ERR_SRC_NOT_SUPPORTED',
 }
 
+/** Marker so retry/discard logic does not depend on Error.message wording. */
+export const MEDIA_ELEMENT_FAILURE = Symbol('kody.mediaElementFailure')
+
+export class MediaElementFailureError extends Error {
+  readonly [MEDIA_ELEMENT_FAILURE] = true as const
+
+  constructor(event: string, media: MediaElementLike) {
+    super(`Media failed while waiting for "${event}"${mediaErrorDetail(media)}`)
+    this.name = 'MediaElementFailureError'
+  }
+}
+
 /** Append browser MediaError details when an HTMLMediaElement reports failure. */
 export function mediaErrorDetail(media: MediaElementLike): string {
   const err = media.error
@@ -24,7 +36,12 @@ export function mediaErrorDetail(media: MediaElementLike): string {
   return message ? ` (${name}: ${message})` : ` (${name})`
 }
 
-/** True when loadClipVideo / waitForMediaEvent rejected on the media error path. */
+/** True when waitForMediaEvent rejected on the media error path. */
 export function isMediaElementFailure(error: unknown): boolean {
-  return error instanceof Error && error.message.startsWith('Media failed while waiting for')
+  return (
+    typeof error === 'object' &&
+    error !== null &&
+    MEDIA_ELEMENT_FAILURE in error &&
+    (error as { [MEDIA_ELEMENT_FAILURE]?: unknown })[MEDIA_ELEMENT_FAILURE] === true
+  )
 }

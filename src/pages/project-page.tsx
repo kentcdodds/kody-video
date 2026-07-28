@@ -136,14 +136,16 @@ export function ProjectPage() {
       watermarked,
     })
     void (async () => {
-      // Export unmounts record/editor so camera + preview video release.
-      // Wait two frames so those hardware decoder slots free before we open
-      // new ones — otherwise loadClipVideo can fail with a media error on
-      // Android (KODY-VIDEO-4).
-      await waitForNextPaint()
-      await waitForNextPaint()
-      if (exportRunRef.current !== runId) return
       try {
+        // Export unmounts record/editor so camera + preview video release.
+        // Wait two frames so those hardware decoder slots free before we open
+        // new ones — otherwise loadClipVideo can fail with a media error on
+        // Android (KODY-VIDEO-4). Kept inside try/finally so canceling during
+        // the wait still closes the tap-created AudioContext.
+        await waitForNextPaint()
+        await waitForNextPaint()
+        if (exportRunRef.current !== runId) return
+
         const result = await exportProject(clips, {
           audioContext,
           watermark: watermarked,
