@@ -16,7 +16,7 @@ const REPORTING_HOSTNAMES = new Set(['kody.video', 'kody-video.pages.dev'])
 const MONITORING_SELF_TEST_MARKER = 'KodyVideoMonitoringSelfTest'
 
 type FilterableSentryEvent = {
-  exception?: { values?: Array<{ value?: string }> }
+  exception?: { values?: Array<{ type?: string; value?: string }> }
   message?: string
 }
 
