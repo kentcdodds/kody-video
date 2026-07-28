@@ -181,7 +181,16 @@ export async function primeMicrophonePermission(): Promise<'granted' | 'denied' 
     track.stop()
     return 'granted'
   } catch {
-    return 'denied'
+    // Distinguish a persisted denial from a dismissed/interrupted prompt
+    // (e.g. the app was backgrounded mid-prompt): only the former is final.
+    try {
+      const status = await navigator.permissions.query({
+        name: 'microphone' as PermissionName,
+      })
+      return status.state === 'denied' ? 'denied' : 'unknown'
+    } catch {
+      return 'denied'
+    }
   }
 }
 

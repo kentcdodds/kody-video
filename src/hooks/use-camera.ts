@@ -246,12 +246,17 @@ export function useCamera(): UseCameraResult {
         replaceStream(next)
         setCanFlip(await canFlipCamera())
         void syncRearLenses(next)
-        // One-time mic permission priming (see primeMicrophonePermission):
-        // asking mid-hold is silently denied by some browsers (Brave/Android
-        // never shows the prompt). Prompt now, at a normal moment.
+        // Mic permission priming (see primeMicrophonePermission): asking
+        // mid-hold is silently denied by some browsers (Brave/Android never
+        // shows the prompt). Prompt now, at a normal moment. The claim is
+        // released when the outcome was ambiguous (prompt dismissed or
+        // interrupted by backgrounding) so the next camera start retries.
         if (!micPrimedRef.current) {
           micPrimedRef.current = true
-          void primeMicrophonePermission().then(setMicPermission)
+          void primeMicrophonePermission().then((state) => {
+            setMicPermission(state)
+            if (state === 'unknown') micPrimedRef.current = false
+          })
         }
       } catch (err) {
         const message = permissionMessage(err)
