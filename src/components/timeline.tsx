@@ -75,7 +75,13 @@ export function Timeline({ projectId, clips, selectedClipId, onSelect, refresh }
   selectedClipIdRef.current = selectedClipId
   const bindTrack = useCallback((element: HTMLDivElement | null) => {
     trackRef.current = element
-    if (!element || initialScrollDoneRef.current) return
+    if (!element) {
+      // The track detaches when the last clip is deleted (empty state) —
+      // re-arm so a later remount (undo) positions itself again.
+      initialScrollDoneRef.current = false
+      return
+    }
+    if (initialScrollDoneRef.current) return
     initialScrollDoneRef.current = true
     const selectedId = selectedClipIdRef.current
     const target = selectedId ? tileRefs.current.get(selectedId) : null
