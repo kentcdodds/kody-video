@@ -1,3 +1,4 @@
+import { isMediaElementFailure } from './export/media-error'
 import { measureBlobDuration, pickRecordingMimeType } from './media'
 
 export interface RecordingResult {
@@ -92,7 +93,14 @@ export class HoldRecorder {
               height,
             })
           })
-          .catch(() => {
+          .catch((error) => {
+            // A media-element failure means the browser cannot decode this
+            // take at all — keeping it would only fail again at export.
+            // Timeouts still fall back to wall-clock (streamy WebM).
+            if (isMediaElementFailure(error)) {
+              resolve(null)
+              return
+            }
             resolve({
               blob,
               mimeType: this.mimeType || blob.type || 'video/webm',

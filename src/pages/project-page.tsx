@@ -27,6 +27,20 @@ import {
 import { loadProjectPage, type ProjectLoaderData } from '../lib/project-actions'
 import { setOnboardingDismissed } from '../lib/storage'
 
+/** Resolve after the next animation frame (or a short timeout when rAF is busy). */
+function waitForNextPaint(): Promise<void> {
+  return new Promise((resolve) => {
+    let done = false
+    const finish = () => {
+      if (done) return
+      done = true
+      resolve()
+    }
+    requestAnimationFrame(() => finish())
+    window.setTimeout(finish, 50)
+  })
+}
+
 type ProjectMode = 'record' | 'editor'
 
 interface ToastState extends Partial<ToastAction> {
@@ -123,6 +137,15 @@ export function ProjectPage() {
     })
     void (async () => {
       try {
+        // Export unmounts record/editor so camera + preview video release.
+        // Wait two frames so those hardware decoder slots free before we open
+        // new ones — otherwise loadClipVideo can fail with a media error on
+        // Android (KODY-VIDEO-4). Kept inside try/finally so canceling during
+        // the wait still closes the tap-created AudioContext.
+        await waitForNextPaint()
+        await waitForNextPaint()
+        if (exportRunRef.current !== runId) return
+
         const result = await exportProject(clips, {
           audioContext,
           watermark: watermarked,
