@@ -38,7 +38,7 @@ export function TermsPage() {
             Watermark removal is a one-time $0.99 purchase that unlocks watermark-free exports for
             the browser profile where it&rsquo;s verified. You can restore the purchase on another
             device via the Stripe receipt link. Payments are handled by Stripe. For refunds or
-            purchase trouble, open a GitHub issue.
+            purchase trouble, email <a href="mailto:team@kody.video">team@kody.video</a>.
           </p>
         </section>
 

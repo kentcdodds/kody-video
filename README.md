@@ -151,6 +151,11 @@ sheet.
 Deployment requirement: set `STRIPE_SECRET_KEY` (a restricted key with
 Checkout Sessions read access is enough) on the Cloudflare Pages project.
 
+## Support
+
+Email [team@kody.video](mailto:team@kody.video) or open a GitHub issue (the
+in-app About page has a link that pre-fills device details).
+
 ## Privacy
 
 - No telemetry, analytics, or accounts.

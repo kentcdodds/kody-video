@@ -72,7 +72,7 @@ export function PrivacyPage() {
         <section className="about-section">
           <h2>Questions</h2>
           <p>
-            Open an issue at{' '}
+            Email <a href="mailto:team@kody.video">team@kody.video</a> or open an issue at{' '}
             <a
               href="https://github.com/kentcdodds/kody-video"
               target="_blank"
