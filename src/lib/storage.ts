@@ -249,11 +249,9 @@ export async function toStoredBlob(blob: Blob): Promise<Blob> {
 
 export async function addClip(input: AddClipInput): Promise<ClipRecord> {
   const db = await getDb()
-  const project = await db.get('projects', input.projectId)
-  if (!project) throw new Error('Project not found')
-
   // Materialize before opening the transaction — awaiting inside a tx lets
-  // IndexedDB auto-commit and abort subsequent puts.
+  // IndexedDB auto-commit and abort subsequent puts. Re-read the project
+  // inside the tx so overlapping saves cannot clobber fresher clipIds.
   const durableBlob = await toStoredBlob(input.blob)
 
   const now = Date.now()
@@ -274,6 +272,11 @@ export async function addClip(input: AddClipInput): Promise<ClipRecord> {
   }
 
   const tx = db.transaction(['clips', 'projects'], 'readwrite')
+  const project = await tx.objectStore('projects').get(input.projectId)
+  if (!project) {
+    await tx.done.catch(() => undefined)
+    throw new Error('Project not found')
+  }
   await completeTransaction(
     [
       tx.objectStore('clips').put(clip),
@@ -374,18 +377,34 @@ export async function moveClip(
 
 export async function duplicateClip(clipId: ClipId): Promise<ClipRecord> {
   const db = await getDb()
-  const clip = await db.get('clips', clipId)
-  if (!clip) throw new Error('Clip not found')
-  const project = await db.get('projects', clip.projectId)
-  if (!project) throw new Error('Project not found')
+  const source = await db.get('clips', clipId)
+  if (!source) throw new Error('Clip not found')
 
-  const index = project.clipIds.indexOf(clipId)
   const now = Date.now()
   const [blob, thumbs, poster] = await Promise.all([
-    toStoredBlob(clip.blob),
-    clip.thumbs ? Promise.all(clip.thumbs.map((thumb) => toStoredBlob(thumb))) : Promise.resolve(undefined),
-    clip.poster ? toStoredBlob(clip.poster) : Promise.resolve(undefined),
+    toStoredBlob(source.blob),
+    source.thumbs
+      ? Promise.all(source.thumbs.map((thumb) => toStoredBlob(thumb)))
+      : Promise.resolve(undefined),
+    source.poster ? toStoredBlob(source.poster) : Promise.resolve(undefined),
   ])
+
+  const tx = db.transaction(['clips', 'projects'], 'readwrite')
+  const clip = await tx.objectStore('clips').get(clipId)
+  const project = clip
+    ? await tx.objectStore('projects').get(clip.projectId)
+    : undefined
+  if (!clip || !project) {
+    await tx.done.catch(() => undefined)
+    throw new Error(!clip ? 'Clip not found' : 'Project not found')
+  }
+
+  const index = project.clipIds.indexOf(clipId)
+  if (index < 0) {
+    await tx.done.catch(() => undefined)
+    throw new Error('Clip not in project')
+  }
+
   const copy: ClipRecord = {
     ...clip,
     id: newId('clip'),
@@ -394,11 +413,9 @@ export async function duplicateClip(clipId: ClipId): Promise<ClipRecord> {
     thumbs,
     poster,
   }
-
   const clipIds = [...project.clipIds]
   clipIds.splice(index + 1, 0, copy.id)
 
-  const tx = db.transaction(['clips', 'projects'], 'readwrite')
   await completeTransaction(
     [
       tx.objectStore('clips').put(copy),
