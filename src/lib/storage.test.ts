@@ -15,6 +15,7 @@ import {
   moveClip,
   renameProject,
   setOnboardingDismissed,
+  toStoredBlob,
   undoDeleteLastClip,
   updateClipTrim,
 } from './storage'
@@ -124,5 +125,30 @@ describe('storage layer', () => {
     expect(await getClip(clip.id)).toBeUndefined()
     const remaining = await getClipsForProject(project.id)
     expect(remaining).toHaveLength(0)
+  })
+
+  it('toStoredBlob copies bytes into a fresh Blob', async () => {
+    const original = fakeBlob('recorder-bytes')
+    const copy = await toStoredBlob(original)
+    expect(copy).not.toBe(original)
+    expect(copy.type).toBe('video/webm')
+    expect(await copy.text()).toBe('recorder-bytes')
+  })
+
+  it('addClip persists a durable copy, not the caller Blob reference', async () => {
+    const project = await createProject('Durable')
+    const original = fakeBlob('take-1')
+    const clip = await addClip({
+      projectId: project.id,
+      blob: original,
+      mimeType: 'video/webm',
+      durationMs: 900,
+    })
+    expect(clip.blob).not.toBe(original)
+    expect(await clip.blob.text()).toBe('take-1')
+
+    const stored = await getClip(clip.id)
+    expect(stored?.blob).not.toBe(original)
+    expect(await stored!.blob.text()).toBe('take-1')
   })
 })

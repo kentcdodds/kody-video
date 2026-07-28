@@ -157,17 +157,22 @@ export async function deleteProject(id: ProjectId): Promise<void> {
   if (!project) return
 
   const tx = db.transaction(['projects', 'clips', 'undo', 'meta'], 'readwrite')
-  for (const clipId of project.clipIds) {
-    await tx.objectStore('clips').delete(clipId)
-  }
-  await tx.objectStore('undo').delete(id)
-  await tx.objectStore('projects').delete(id)
+  try {
+    for (const clipId of project.clipIds) {
+      await tx.objectStore('clips').delete(clipId)
+    }
+    await tx.objectStore('undo').delete(id)
+    await tx.objectStore('projects').delete(id)
 
-  const settings = await tx.objectStore('meta').get('settings')
-  if (settings?.lastOpenedProjectId === id) {
-    await tx.objectStore('meta').put({ ...settings, lastOpenedProjectId: null })
+    const settings = await tx.objectStore('meta').get('settings')
+    if (settings?.lastOpenedProjectId === id) {
+      await tx.objectStore('meta').put({ ...settings, lastOpenedProjectId: null })
+    }
+    await tx.done
+  } catch (error) {
+    await tx.done.catch(() => undefined)
+    throw error
   }
-  await tx.done
 }
 
 export async function touchProject(id: ProjectId): Promise<void> {
@@ -220,16 +225,31 @@ export interface AddClipInput {
   createdAt?: number
 }
 
+/**
+ * Copy blob bytes into a fresh Blob before IndexedDB persistence.
+ * MediaRecorder / File-backed blobs can fail Chromium's object-store write
+ * with UnknownError ("Error preparing Blob/File data to be stored…") when
+ * the original backing store is ephemeral or already released.
+ */
+export async function toStoredBlob(blob: Blob): Promise<Blob> {
+  const buffer = await blob.arrayBuffer()
+  return new Blob([buffer], { type: blob.type || 'application/octet-stream' })
+}
+
 export async function addClip(input: AddClipInput): Promise<ClipRecord> {
   const db = await getDb()
   const project = await db.get('projects', input.projectId)
   if (!project) throw new Error('Project not found')
 
+  // Materialize before opening the transaction — awaiting inside a tx lets
+  // IndexedDB auto-commit and abort subsequent puts.
+  const durableBlob = await toStoredBlob(input.blob)
+
   const now = Date.now()
   const clip: ClipRecord = {
     id: newId('clip'),
     projectId: input.projectId,
-    blob: input.blob,
+    blob: durableBlob,
     mimeType: input.mimeType,
     durationMs: input.durationMs,
     trimStartMs: 0,
@@ -243,13 +263,17 @@ export async function addClip(input: AddClipInput): Promise<ClipRecord> {
   }
 
   const tx = db.transaction(['clips', 'projects'], 'readwrite')
-  await tx.objectStore('clips').put(clip)
-  await tx.objectStore('projects').put({
-    ...project,
-    clipIds: [...project.clipIds, clip.id],
-    updatedAt: now,
-  })
-  await tx.done
+  // Always include tx.done so a failed put's abort cannot surface later as an
+  // unhandledrejection (KODY-VIDEO-2 / KODY-VIDEO-3).
+  await Promise.all([
+    tx.objectStore('clips').put(clip),
+    tx.objectStore('projects').put({
+      ...project,
+      clipIds: [...project.clipIds, clip.id],
+      updatedAt: now,
+    }),
+    tx.done,
+  ])
   return clip
 }
 
@@ -264,25 +288,33 @@ export interface ClipThumbsInput {
 
 export async function updateClipThumbs(clipId: ClipId, input: ClipThumbsInput): Promise<void> {
   const db = await getDb()
+  const [thumbs, poster] = await Promise.all([
+    Promise.all(input.thumbs.map((thumb) => toStoredBlob(thumb))),
+    toStoredBlob(input.poster),
+  ])
   // Read + merge + write in one transaction so a concurrent trim/delete can
   // never be clobbered by a stale snapshot of the clip record.
   const tx = db.transaction('clips', 'readwrite')
-  const clip = await tx.store.get(clipId)
-  if (!clip) {
-    await tx.done
-    return
+  try {
+    const clip = await tx.store.get(clipId)
+    if (!clip) {
+      await tx.done
+      return
+    }
+    const updated: ClipRecord = {
+      ...clip,
+      thumbs,
+      poster,
+      thumbWidth: input.thumbWidth,
+      thumbHeight: input.thumbHeight,
+      width: clip.width ?? input.videoWidth,
+      height: clip.height ?? input.videoHeight,
+    }
+    await Promise.all([tx.store.put(updated), tx.done])
+  } catch (error) {
+    await tx.done.catch(() => undefined)
+    throw error
   }
-  const updated: ClipRecord = {
-    ...clip,
-    thumbs: input.thumbs,
-    poster: input.poster,
-    thumbWidth: input.thumbWidth,
-    thumbHeight: input.thumbHeight,
-    width: clip.width ?? input.videoWidth,
-    height: clip.height ?? input.videoHeight,
-  }
-  await tx.store.put(updated)
-  await tx.done
 }
 
 export async function updateClipTrim(
@@ -343,24 +375,33 @@ export async function duplicateClip(clipId: ClipId): Promise<ClipRecord> {
 
   const index = project.clipIds.indexOf(clipId)
   const now = Date.now()
+  const [blob, thumbs, poster] = await Promise.all([
+    toStoredBlob(clip.blob),
+    clip.thumbs ? Promise.all(clip.thumbs.map((thumb) => toStoredBlob(thumb))) : Promise.resolve(undefined),
+    clip.poster ? toStoredBlob(clip.poster) : Promise.resolve(undefined),
+  ])
   const copy: ClipRecord = {
     ...clip,
     id: newId('clip'),
     createdAt: now,
-    blob: clip.blob.slice(0, clip.blob.size, clip.blob.type),
+    blob,
+    thumbs,
+    poster,
   }
 
   const clipIds = [...project.clipIds]
   clipIds.splice(index + 1, 0, copy.id)
 
   const tx = db.transaction(['clips', 'projects'], 'readwrite')
-  await tx.objectStore('clips').put(copy)
-  await tx.objectStore('projects').put({
-    ...project,
-    clipIds,
-    updatedAt: now,
-  })
-  await tx.done
+  await Promise.all([
+    tx.objectStore('clips').put(copy),
+    tx.objectStore('projects').put({
+      ...project,
+      clipIds,
+      updatedAt: now,
+    }),
+    tx.done,
+  ])
   return copy
 }
 
@@ -382,14 +423,16 @@ export async function deleteClip(clipId: ClipId): Promise<DeletedClipSnapshot | 
 
   const clipIds = project.clipIds.filter((id) => id !== clipId)
   const tx = db.transaction(['clips', 'projects', 'undo'], 'readwrite')
-  await tx.objectStore('clips').delete(clipId)
-  await tx.objectStore('projects').put({
-    ...project,
-    clipIds,
-    updatedAt: Date.now(),
-  })
-  await tx.objectStore('undo').put(snapshot)
-  await tx.done
+  await Promise.all([
+    tx.objectStore('clips').delete(clipId),
+    tx.objectStore('projects').put({
+      ...project,
+      clipIds,
+      updatedAt: Date.now(),
+    }),
+    tx.objectStore('undo').put(snapshot),
+    tx.done,
+  ])
   return snapshot
 }
 
@@ -411,14 +454,16 @@ export async function undoDeleteLastClip(projectId: ProjectId): Promise<ClipReco
   clipIds.splice(insertAt, 0, snapshot.clip.id)
 
   const tx = db.transaction(['clips', 'projects', 'undo'], 'readwrite')
-  await tx.objectStore('clips').put(snapshot.clip)
-  await tx.objectStore('projects').put({
-    ...project,
-    clipIds,
-    updatedAt: Date.now(),
-  })
-  await tx.objectStore('undo').delete(projectId)
-  await tx.done
+  await Promise.all([
+    tx.objectStore('clips').put(snapshot.clip),
+    tx.objectStore('projects').put({
+      ...project,
+      clipIds,
+      updatedAt: Date.now(),
+    }),
+    tx.objectStore('undo').delete(projectId),
+    tx.done,
+  ])
   return snapshot.clip
 }
 
