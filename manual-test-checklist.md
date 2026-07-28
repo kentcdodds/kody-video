@@ -8,6 +8,8 @@ Run locally with HTTPS or `localhost` (`npm run dev`). Camera/mic require a secu
 - [ ] Deny → clear denied panel with retry guidance
 - [ ] Allow → live rear-camera preview (or fallback)
 - [ ] Flip camera works when multiple cameras exist
+- [ ] Opening the camera prompts for the microphone too (one-time priming); the mic is NOT held while idle (no OS mic indicator)
+- [ ] If the mic is blocked in site settings, a red "Mic blocked" pill shows on the record screen (Brave/Android regression)
 - [ ] Torch toggle appears on devices with a flash; zoom chips appear when supported
 - [ ] Phones with multiple rear cameras show a lens chip (e.g. "1/3") that switches to the ultra-wide/telephoto; choice sticks across flips and restarts
 - [ ] Backgrounding the app releases camera/mic (green dot goes out); returning restarts the preview
