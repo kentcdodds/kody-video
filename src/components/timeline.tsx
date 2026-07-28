@@ -1,4 +1,4 @@
-import { useRef, useState, type PointerEvent as ReactPointerEvent } from 'react'
+import { useCallback, useRef, useState, type PointerEvent as ReactPointerEvent } from 'react'
 import { reorderClips } from '../lib/storage'
 import {
   effectiveDurationMs,
@@ -63,6 +63,29 @@ export function Timeline({ projectId, clips, selectedClipId, onSelect, refresh }
     const el = tileRefs.current.get(id)
     el?.scrollIntoView({ behavior: 'smooth', inline: 'nearest', block: 'nearest' })
   }
+
+  /**
+   * Open positioned at the selected clip (the most recent one by default) —
+   * editing usually means checking or adjusting the last thing recorded, so
+   * starting the strip at clip 1 constantly forced a scroll to the end.
+   * Runs once per mount; tile refs are already set (children bind first).
+   */
+  const initialScrollDoneRef = useRef(false)
+  const selectedClipIdRef = useRef(selectedClipId)
+  selectedClipIdRef.current = selectedClipId
+  const bindTrack = useCallback((element: HTMLDivElement | null) => {
+    trackRef.current = element
+    if (!element || initialScrollDoneRef.current) return
+    initialScrollDoneRef.current = true
+    const selectedId = selectedClipIdRef.current
+    const target = selectedId ? tileRefs.current.get(selectedId) : null
+    if (!target) return
+    const delta =
+      target.getBoundingClientRect().right - element.getBoundingClientRect().right
+    // Align the selected clip toward the right edge (with a little padding)
+    // so the tail of the project is in view; clamp handles short strips.
+    element.scrollLeft = Math.max(0, delta + 12)
+  }, [])
 
   if (clips.length === 0) {
     return (
@@ -247,7 +270,7 @@ export function Timeline({ projectId, clips, selectedClipId, onSelect, refresh }
       className={`timeline${draggingId !== null ? ' is-dragging' : ''}`}
       role="listbox"
       aria-label="Clip timeline"
-      ref={trackRef}
+      ref={bindTrack}
       onContextMenu={(event) => {
         // Android long-press opens a context menu and cancels the pointer
         // stream, which would kill the lift right as it begins.
