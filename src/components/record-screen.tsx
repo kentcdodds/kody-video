@@ -340,6 +340,8 @@ export function RecordScreen({
         })
         refresh()
       } catch (err) {
+        // Real store failures (quota, bad blob) must still reach Sentry as
+        // handled exceptions — without the twin unhandled AbortError from tx.done.
         reportError(err, 'save-clip')
         showToast(err instanceof Error ? err.message : 'Save failed')
       } finally {
