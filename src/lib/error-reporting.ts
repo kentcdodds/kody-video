@@ -1,4 +1,5 @@
 import * as Sentry from '@sentry/react'
+import type { ErrorInfo } from 'react'
 
 /** Publishable client key for the kody-video Sentry project (not a secret). */
 const SENTRY_DSN =
@@ -58,7 +59,7 @@ export function reportError(
 const captureUncaughtReactError = Sentry.reactErrorHandler()
 
 export const reactRootErrorHandlers = {
-  onUncaughtError: (error: unknown, errorInfo: React.ErrorInfo) => {
+  onUncaughtError: (error: unknown, errorInfo: ErrorInfo) => {
     console.error('Uncaught React error', error, errorInfo.componentStack)
     captureUncaughtReactError(error, errorInfo)
   },
