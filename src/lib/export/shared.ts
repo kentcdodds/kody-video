@@ -1,3 +1,5 @@
+import { isMediaElementFailure, mediaErrorDetail } from './media-error'
+
 /** Helpers shared by the WebCodecs and realtime export engines. */
 
 export interface LoadedClipVideo {
@@ -7,12 +9,28 @@ export interface LoadedClipVideo {
   release: () => void
 }
 
+/** Pause briefly so a previous video/camera can release a hardware decoder. */
+const MEDIA_LOAD_RETRY_DELAY_MS = 200
+
 /**
  * Load a clip blob into an off-DOM video element and resolve its real
  * duration. MediaRecorder WebM blobs report `Infinity` until you seek far
  * past the end, so that dance is handled here.
+ *
+ * Retries once on media-element failure: Android often rejects the first
+ * open when a just-unmounted preview/camera still holds a decoder slot.
  */
 export async function loadClipVideo(blob: Blob, timeoutMs = 8000): Promise<LoadedClipVideo> {
+  try {
+    return await loadClipVideoOnce(blob, timeoutMs)
+  } catch (error) {
+    if (!isMediaElementFailure(error)) throw error
+    await wait(MEDIA_LOAD_RETRY_DELAY_MS)
+    return loadClipVideoOnce(blob, timeoutMs)
+  }
+}
+
+async function loadClipVideoOnce(blob: Blob, timeoutMs: number): Promise<LoadedClipVideo> {
   const url = URL.createObjectURL(blob)
   const video = document.createElement('video')
   video.preload = 'auto'
@@ -77,7 +95,9 @@ export function waitForMediaEvent(
     }
     const onErr = () => {
       cleanup()
-      reject(new Error(`Media failed while waiting for "${event}"`))
+      reject(
+        new Error(`Media failed while waiting for "${event}"${mediaErrorDetail(target)}`),
+      )
     }
     const cleanup = () => {
       window.clearTimeout(timer)
