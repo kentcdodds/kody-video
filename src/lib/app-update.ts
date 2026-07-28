@@ -15,34 +15,68 @@ export function registerUpdateHandles(
   applyUpdate = apply
 }
 
-export type UpdateCheckResult = 'updated' | 'current' | 'unavailable'
+export type UpdateCheckResult = 'updated' | 'current' | 'downloading' | 'unavailable'
 
 /**
  * Ask the service worker for a new version right now. When one is found it
  * is applied immediately (the page reloads into the new version) — the user
- * explicitly asked, so no extra confirmation step.
+ * explicitly asked, so no extra confirmation step. A slow install that
+ * outlives the wait reports 'downloading'; the standard update toast offers
+ * it when it finishes.
  */
 export async function checkForUpdates(): Promise<UpdateCheckResult> {
-  if (!registration || !applyUpdate) return 'unavailable'
+  const reg = registration
+  const apply = applyUpdate
+  if (!reg || !apply) return 'unavailable'
   try {
-    await registration.update()
+    await reg.update()
   } catch {
     // Offline or the update request failed — report the truth: no update.
     return 'unavailable'
   }
-  // A found update passes through installing → waiting; give it a moment.
+  // update() can resolve before a found worker shows up on `installing` —
+  // give the updatefound event a grace window before concluding "current".
+  const workerAppeared =
+    Boolean(reg.installing || reg.waiting) ||
+    (await new Promise<boolean>((resolve) => {
+      const onFound = () => {
+        cleanup()
+        resolve(true)
+      }
+      const timer = setTimeout(() => {
+        cleanup()
+        resolve(false)
+      }, 1500)
+      const cleanup = () => {
+        reg.removeEventListener('updatefound', onFound)
+        clearTimeout(timer)
+      }
+      reg.addEventListener('updatefound', onFound)
+    }))
+  if (!workerAppeared) return 'current'
+
+  // Follow the install through to `waiting`, then apply.
   const deadline = Date.now() + 8000
   while (Date.now() < deadline) {
-    if (registration.waiting) {
-      await applyUpdate(true)
-      return 'updated'
+    if (reg.waiting) {
+      try {
+        await apply(true)
+        return 'updated'
+      } catch {
+        return 'unavailable'
+      }
     }
-    if (!registration.installing) break
+    if (!reg.installing) break
     await new Promise((resolve) => setTimeout(resolve, 200))
   }
-  if (registration.waiting) {
-    await applyUpdate(true)
-    return 'updated'
+  if (reg.waiting) {
+    try {
+      await apply(true)
+      return 'updated'
+    } catch {
+      return 'unavailable'
+    }
   }
+  if (reg.installing) return 'downloading'
   return 'current'
 }

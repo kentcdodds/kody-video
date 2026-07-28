@@ -22,12 +22,13 @@ function reportProblemUrl(): string {
   return `https://github.com/kentcdodds/kody-video/issues/new?${params}`
 }
 
-type UpdateStatus = 'idle' | 'checking' | 'current' | 'updating' | 'unavailable'
+type UpdateStatus = 'idle' | 'checking' | 'current' | 'updating' | 'downloading' | 'unavailable'
 
 const UPDATE_STATUS_LABEL: Record<Exclude<UpdateStatus, 'idle'>, string> = {
   checking: 'Checking…',
   current: "You're on the latest version.",
   updating: 'Update found — reloading…',
+  downloading: 'Update found — still downloading. It will offer itself when ready.',
   unavailable: "Couldn't check right now (offline, or not running from a deployment).",
 }
 
@@ -38,24 +39,29 @@ export function AboutPage() {
   const onCheckForUpdates = () => {
     if (updateStatus === 'checking' || updateStatus === 'updating') return
     setUpdateStatus('checking')
-    void checkForUpdates().then((result) => {
-      switch (result) {
-        case 'updated':
-          // checkForUpdates already applied it; the page is about to reload.
-          setUpdateStatus('updating')
-          return
-        case 'current':
-          setUpdateStatus('current')
-          return
-        case 'unavailable':
-          setUpdateStatus('unavailable')
-          return
-        default: {
-          const exhaustive: never = result
-          throw new Error(`Unhandled update result: ${String(exhaustive)}`)
+    void checkForUpdates()
+      .then((result) => {
+        switch (result) {
+          case 'updated':
+            // checkForUpdates already applied it; the page is about to reload.
+            setUpdateStatus('updating')
+            return
+          case 'current':
+            setUpdateStatus('current')
+            return
+          case 'downloading':
+            setUpdateStatus('downloading')
+            return
+          case 'unavailable':
+            setUpdateStatus('unavailable')
+            return
+          default: {
+            const exhaustive: never = result
+            throw new Error(`Unhandled update result: ${String(exhaustive)}`)
+          }
         }
-      }
-    })
+      })
+      .catch(() => setUpdateStatus('unavailable'))
   }
 
   return (
