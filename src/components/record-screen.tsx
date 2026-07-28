@@ -1,6 +1,7 @@
 import { useCallback, useLayoutEffect, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
 import type { CameraZoomRange, UseCameraResult } from '../hooks/use-camera'
+import { dragZoomValue } from '../lib/drag-zoom'
 import { getLocationFix, type LocationFix } from '../lib/location'
 import { reportError } from '../lib/error-reporting'
 import { appendRecording, removeClip, undoLastDelete } from '../lib/project-actions'
@@ -131,6 +132,7 @@ export function RecordScreen({
   const dragZoomPressYRef = useRef(0)
   const dragZoomStartValueRef = useRef(0)
   const dragZoomStageHeightRef = useRef(0)
+  const dragZoomStageTopRef = useRef(0)
   /** Whether the current hold actually changed zoom (gates the snap-back). */
   const dragZoomMovedRef = useRef(false)
   /** Last zoom value applied during the drag (ramp start for the snap-back). */
@@ -630,7 +632,9 @@ export function RecordScreen({
             zoomRestoreActiveRef.current = false
             camera.setZoom(dragZoomStartValueRef.current)
           }
-          dragZoomStageHeightRef.current = event.currentTarget.clientHeight
+          const stageRect = event.currentTarget.getBoundingClientRect()
+          dragZoomStageHeightRef.current = stageRect.height
+          dragZoomStageTopRef.current = stageRect.top
           event.currentTarget.setPointerCapture(event.pointerId)
           void beginRecord(event.pointerId, 'hold')
         }}
@@ -649,18 +653,18 @@ export function RecordScreen({
             }
             dragZoomPressYRef.current = event.clientY
           }
-          const stageHeight = dragZoomStageHeightRef.current || stageRef.current?.clientHeight || 1
-          // Multiplicative zoom: equal finger travel = equal zoom *ratio*
-          // (drag up to zoom in). Each ~28% of stage height doubles the zoom,
-          // so a full-stage drag covers ~3.5 doublings (≈11×) — quick enough
-          // to feel responsive, while the dead zone above still absorbs
-          // accidental finger drift.
-          const travelPerDoubling = stageHeight * 0.28
-          const deltaY = dragZoomPressYRef.current - event.clientY
-          const next = Math.min(
-            zoom.max,
-            Math.max(zoom.min, dragZoomStartValueRef.current * 2 ** (deltaY / travelPerDoubling)),
-          )
+          // Full-range mapping (see dragZoomValue): dragging up to the top
+          // of the stage reaches MAX zoom, down to the bottom reaches MIN —
+          // the whole range is always usable wherever the hold started.
+          const next = dragZoomValue({
+            anchorY: dragZoomPressYRef.current,
+            clientY: event.clientY,
+            stageTop: dragZoomStageTopRef.current,
+            stageHeight: dragZoomStageHeightRef.current || stageRef.current?.clientHeight || 1,
+            start: dragZoomStartValueRef.current,
+            min: zoom.min,
+            max: zoom.max,
+          })
           dragZoomMovedRef.current = true
           dragZoomLastValueRef.current = next
           camera.setZoom(next)

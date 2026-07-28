@@ -19,6 +19,7 @@ Run locally with HTTPS or `localhost` (`npm run dev`). Camera/mic require a secu
 - [ ] Press/hold anywhere on the preview starts recording (REC pill + elapsed)
 - [ ] Camera preview stays smooth while recording (no visible frame drops)
 - [ ] Dragging up/down during a hold zooms in/out (zoom-capable devices)
+- [ ] Dragging from the press point to the top of the preview reaches MAX zoom; to the bottom reaches MIN — regardless of where the hold started
 - [ ] Small finger tremble while holding (< ~14px) does not start zooming
 - [ ] Releasing the hold eases zoom back to the pre-take level (chip choice or 1×)
 - [ ] Release stops and appends a clip; filmstrip thumbnail appears shortly after
