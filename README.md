@@ -158,11 +158,15 @@ in-app About page has a link that pre-fills device details).
 
 ## Privacy
 
-- No telemetry, analytics, or accounts.
+- No analytics or accounts.
 - No clip upload endpoints exist in this app.
 - Share/export uses user-gesture download or the Web Share API only.
-- The only network call besides Stripe checkout (opened in the browser) is
-  the purchase-verification function above; it never sees media.
+- Network calls besides Stripe checkout (opened in the browser): the
+  purchase-verification function above (never sees media), and anonymous
+  Sentry crash reports (error + stack trace only, no PII, no media; only
+  from production hostnames — dev and tests never report). Every export or
+  import failure the UI softens into a toast is also captured with the step
+  name so real-device bugs surface.
 
 ## Scripts
 

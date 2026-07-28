@@ -26,6 +26,17 @@ export function PrivacyPage() {
         </section>
 
         <section className="about-section">
+          <h2>Anonymous crash reports</h2>
+          <p>
+            When the app itself breaks, an error report (the error message, a stack trace, browser
+            and OS names, and which step failed — e.g. &ldquo;export&rdquo;) is sent to Sentry so
+            bugs get found and fixed. Crash reports never contain your clips, audio, location, or
+            any account identifier, and no IP-based user profile is kept. This is the only data
+            the app sends anywhere on its own.
+          </p>
+        </section>
+
+        <section className="about-section">
           <h2>Camera &amp; microphone</h2>
           <p>
             The camera and microphone are used only while the app is open and you are recording.

@@ -15,6 +15,7 @@ import { RecordScreen, type ToastAction } from '../components/record-screen'
 import { useCamera } from '../hooks/use-camera'
 import { RestoreSheet } from '../components/restore-sheet'
 import { REMOVE_WATERMARK_LINK } from '../lib/entitlement'
+import { reportError } from '../lib/error-reporting'
 import { exportProject, type ExportResult } from '../lib/export'
 import {
   canShareFile,
@@ -146,6 +147,7 @@ export function ProjectPage() {
         })
       } catch (err) {
         if (exportRunRef.current !== runId) return
+        reportError(err, { where: 'export', clips: clips.length })
         setExportState({
           status: 'error',
           progress: 0,

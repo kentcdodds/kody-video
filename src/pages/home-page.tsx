@@ -15,6 +15,7 @@ import {
   serializeProject,
 } from '../lib/project-transfer'
 import { createProject, deleteProject, getClipsForProject, renameProject } from '../lib/storage'
+import { reportError } from '../lib/error-reporting'
 import { canPromptInstall, promptInstall, subscribeInstallPrompt } from '../lib/install-prompt'
 import {
   formatBytes,
@@ -137,6 +138,7 @@ export function HomePage() {
         // no dependence on the list revalidating behind the scenes.
         navigate(`/project/${project.id}`)
       } catch (err) {
+        reportError(err, { where: 'import' })
         setError(err instanceof Error ? err.message : 'Could not import that file')
       } finally {
         setImportProgress(null)
