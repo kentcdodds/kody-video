@@ -4,8 +4,8 @@ import { dragZoomValue } from './drag-zoom'
 const stage = { stageTop: 0, stageHeight: 800 }
 
 describe('dragZoomValue', () => {
-  it('reaches MAX zoom at the top of the stage regardless of press point', () => {
-    for (const anchorY of [700, 400, 200]) {
+  it('reaches MAX zoom at the top of the stage from any press ≥20% from the edge', () => {
+    for (const anchorY of [700, 400, 200, 160]) {
       const value = dragZoomValue({ ...stage, anchorY, clientY: 0, start: 1, min: 1, max: 8 })
       expect(value).toBe(8)
     }
@@ -58,12 +58,13 @@ describe('dragZoomValue', () => {
     expect(value).toBe(8)
   })
 
-  it('applies the travel floor for presses near an edge (no hair-trigger)', () => {
-    // Press 10px from the top: available up-travel is floored at 20% of the
-    // stage (160px), so 10px of travel must NOT already reach max.
+  it('near-edge presses keep the minimum ramp and cap partway at the edge', () => {
+    // Contract trade-off: pressed 10px from the top, the ramp is floored at
+    // 20% of the stage (160px), so reaching the edge covers t = 10/160 of
+    // the range — controllable, but deliberately NOT max at the edge.
     const value = dragZoomValue({ ...stage, anchorY: 10, clientY: 0, start: 1, min: 1, max: 8 })
+    expect(value).toBeCloseTo(8 ** (10 / 160), 5)
     expect(value).toBeLessThan(8)
-    expect(value).toBeGreaterThan(1)
   })
 
   it('supports sub-1x ranges (ultra-wide)', () => {

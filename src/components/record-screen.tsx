@@ -653,9 +653,10 @@ export function RecordScreen({
             }
             dragZoomPressYRef.current = event.clientY
           }
-          // Full-range mapping (see dragZoomValue): dragging up to the top
-          // of the stage reaches MAX zoom, down to the bottom reaches MIN —
-          // the whole range is always usable wherever the hold started.
+          // Range-anchored mapping (see dragZoomValue's contract): dragging
+          // to the top of the stage reaches MAX zoom, to the bottom reaches
+          // MIN — except presses within ~20% of an edge, which keep a
+          // minimum ramp for control and cap partway at that edge.
           const next = dragZoomValue({
             anchorY: dragZoomPressYRef.current,
             clientY: event.clientY,
