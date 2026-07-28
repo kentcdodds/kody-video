@@ -8,7 +8,31 @@ const SENTRY_DSN =
 /** Only real deployments report — dev servers and test runs stay silent. */
 const REPORTING_HOSTNAMES = new Set(['kody.video', 'kody-video.pages.dev'])
 
+/**
+ * Marker used by the monitoring setup agent when it throws a synthetic
+ * uncaught error to verify the DSN. Not app code — drop it so drills do not
+ * open triage issues.
+ */
+const MONITORING_SELF_TEST_MARKER = 'KodyVideoMonitoringSelfTest'
+
+type FilterableSentryEvent = {
+  exception?: { values?: Array<{ type?: string; value?: string }> }
+  message?: string
+}
+
 declare const __COMMIT_SHA__: string
+
+/** True for intentional monitoring self-test events (narrow signature only). */
+export function isMonitoringSelfTestEvent(event: FilterableSentryEvent): boolean {
+  const exceptionValues = event.exception?.values ?? []
+  for (const value of exceptionValues) {
+    if (value.value?.includes(MONITORING_SELF_TEST_MARKER)) return true
+  }
+  return (
+    typeof event.message === 'string' &&
+    event.message.includes(MONITORING_SELF_TEST_MARKER)
+  )
+}
 
 export function initErrorReporting(): void {
   if (!REPORTING_HOSTNAMES.has(location.hostname)) return
@@ -29,6 +53,7 @@ export function initErrorReporting(): void {
       // user) or request metadata (URL/headers).
       delete event.user
       delete event.request
+      if (isMonitoringSelfTestEvent(event)) return null
       return event
     },
   })
