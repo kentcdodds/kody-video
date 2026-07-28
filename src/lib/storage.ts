@@ -37,6 +37,22 @@ const DB_VERSION = 1
 
 let dbPromise: Promise<IDBPDatabase<ClipsDB>> | null = null
 
+/**
+ * Finish an explicit idb transaction without leaking AbortError.
+ *
+ * `tx.done` is created eagerly and rejects as soon as any request fails —
+ * often before a later `await tx.done` runs. Awaiting the requests and
+ * `tx.done` together keeps that rejection in the same catch path (see
+ * jakearchibald/idb#320). Otherwise Sentry sees `AbortError: AbortError`
+ * via `unhandledrejection` as a twin of the real store error.
+ */
+async function completeTransaction(
+  ops: Array<Promise<unknown>>,
+  tx: { done: Promise<void> },
+): Promise<void> {
+  await Promise.all([...ops, tx.done])
+}
+
 export function getDb(): Promise<IDBPDatabase<ClipsDB>> {
   if (!dbPromise) {
     dbPromise = openDB<ClipsDB>(DB_NAME, DB_VERSION, {
@@ -157,17 +173,19 @@ export async function deleteProject(id: ProjectId): Promise<void> {
   if (!project) return
 
   const tx = db.transaction(['projects', 'clips', 'undo', 'meta'], 'readwrite')
-  for (const clipId of project.clipIds) {
-    await tx.objectStore('clips').delete(clipId)
-  }
-  await tx.objectStore('undo').delete(id)
-  await tx.objectStore('projects').delete(id)
-
+  // Read meta before queueing writes so a failed delete cannot reject while
+  // we are still awaiting get — that would reintroduce the AbortError leak.
   const settings = await tx.objectStore('meta').get('settings')
+  const clips = tx.objectStore('clips')
+  const ops: Array<Promise<unknown>> = [
+    ...project.clipIds.map((clipId) => clips.delete(clipId)),
+    tx.objectStore('undo').delete(id),
+    tx.objectStore('projects').delete(id),
+  ]
   if (settings?.lastOpenedProjectId === id) {
-    await tx.objectStore('meta').put({ ...settings, lastOpenedProjectId: null })
+    ops.push(tx.objectStore('meta').put({ ...settings, lastOpenedProjectId: null }))
   }
-  await tx.done
+  await completeTransaction(ops, tx)
 }
 
 export async function touchProject(id: ProjectId): Promise<void> {
@@ -243,13 +261,17 @@ export async function addClip(input: AddClipInput): Promise<ClipRecord> {
   }
 
   const tx = db.transaction(['clips', 'projects'], 'readwrite')
-  await tx.objectStore('clips').put(clip)
-  await tx.objectStore('projects').put({
-    ...project,
-    clipIds: [...project.clipIds, clip.id],
-    updatedAt: now,
-  })
-  await tx.done
+  await completeTransaction(
+    [
+      tx.objectStore('clips').put(clip),
+      tx.objectStore('projects').put({
+        ...project,
+        clipIds: [...project.clipIds, clip.id],
+        updatedAt: now,
+      }),
+    ],
+    tx,
+  )
   return clip
 }
 
@@ -281,8 +303,7 @@ export async function updateClipThumbs(clipId: ClipId, input: ClipThumbsInput): 
     width: clip.width ?? input.videoWidth,
     height: clip.height ?? input.videoHeight,
   }
-  await tx.store.put(updated)
-  await tx.done
+  await completeTransaction([tx.store.put(updated)], tx)
 }
 
 export async function updateClipTrim(
@@ -354,13 +375,17 @@ export async function duplicateClip(clipId: ClipId): Promise<ClipRecord> {
   clipIds.splice(index + 1, 0, copy.id)
 
   const tx = db.transaction(['clips', 'projects'], 'readwrite')
-  await tx.objectStore('clips').put(copy)
-  await tx.objectStore('projects').put({
-    ...project,
-    clipIds,
-    updatedAt: now,
-  })
-  await tx.done
+  await completeTransaction(
+    [
+      tx.objectStore('clips').put(copy),
+      tx.objectStore('projects').put({
+        ...project,
+        clipIds,
+        updatedAt: now,
+      }),
+    ],
+    tx,
+  )
   return copy
 }
 
@@ -382,14 +407,18 @@ export async function deleteClip(clipId: ClipId): Promise<DeletedClipSnapshot | 
 
   const clipIds = project.clipIds.filter((id) => id !== clipId)
   const tx = db.transaction(['clips', 'projects', 'undo'], 'readwrite')
-  await tx.objectStore('clips').delete(clipId)
-  await tx.objectStore('projects').put({
-    ...project,
-    clipIds,
-    updatedAt: Date.now(),
-  })
-  await tx.objectStore('undo').put(snapshot)
-  await tx.done
+  await completeTransaction(
+    [
+      tx.objectStore('clips').delete(clipId),
+      tx.objectStore('projects').put({
+        ...project,
+        clipIds,
+        updatedAt: Date.now(),
+      }),
+      tx.objectStore('undo').put(snapshot),
+    ],
+    tx,
+  )
   return snapshot
 }
 
@@ -411,14 +440,18 @@ export async function undoDeleteLastClip(projectId: ProjectId): Promise<ClipReco
   clipIds.splice(insertAt, 0, snapshot.clip.id)
 
   const tx = db.transaction(['clips', 'projects', 'undo'], 'readwrite')
-  await tx.objectStore('clips').put(snapshot.clip)
-  await tx.objectStore('projects').put({
-    ...project,
-    clipIds,
-    updatedAt: Date.now(),
-  })
-  await tx.objectStore('undo').delete(projectId)
-  await tx.done
+  await completeTransaction(
+    [
+      tx.objectStore('clips').put(snapshot.clip),
+      tx.objectStore('projects').put({
+        ...project,
+        clipIds,
+        updatedAt: Date.now(),
+      }),
+      tx.objectStore('undo').delete(projectId),
+    ],
+    tx,
+  )
   return snapshot.clip
 }
 
