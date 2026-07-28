@@ -73,6 +73,42 @@ export function isCloudflareInsightsBeaconEvent(
   )
 }
 
+/** Marker set while an export runs; still present at boot = the page died
+ * mid-export (tab crash / out-of-memory kill — no JS error ever fires). */
+const EXPORT_MARKER_KEY = 'kodyVideo.exportInFlight'
+
+export function markExportStarted(info: Record<string, unknown>): void {
+  try {
+    sessionStorage.setItem(EXPORT_MARKER_KEY, JSON.stringify({ ...info, startedAt: Date.now() }))
+  } catch {
+    // Storage unavailable — we just lose this diagnostic.
+  }
+}
+
+export function clearExportMarker(): void {
+  try {
+    sessionStorage.removeItem(EXPORT_MARKER_KEY)
+  } catch {
+    // Ignore.
+  }
+}
+
+function reportExportSessionDeath(): void {
+  try {
+    const raw = sessionStorage.getItem(EXPORT_MARKER_KEY)
+    if (!raw) return
+    sessionStorage.removeItem(EXPORT_MARKER_KEY)
+    const info = JSON.parse(raw) as Record<string, unknown>
+    Sentry.captureMessage('Export session died (page reloaded mid-export, likely OOM/crash)', {
+      level: 'error',
+      tags: { step: 'export-crash' },
+      extra: info,
+    })
+  } catch {
+    // Ignore.
+  }
+}
+
 export function initErrorReporting(): void {
   if (!REPORTING_HOSTNAMES.has(location.hostname)) return
   Sentry.init({
@@ -97,6 +133,7 @@ export function initErrorReporting(): void {
       return event
     },
   })
+  reportExportSessionDeath()
 }
 
 /**
