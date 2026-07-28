@@ -15,8 +15,27 @@ const REPORTING_HOSTNAMES = new Set(['kody.video', 'kody-video.pages.dev'])
  */
 const MONITORING_SELF_TEST_MARKER = 'KodyVideoMonitoringSelfTest'
 
+/**
+ * Cloudflare Web Analytics injects this script on Pages/zone analytics.
+ * It is not app-owned; older browsers lacking Array.prototype.at throw inside
+ * it and pollute Sentry (e.g. KODY-VIDEO issues on beacon.min.js).
+ */
+const CLOUDFLARE_INSIGHTS_BEACON_URL_MARKER =
+  'static.cloudflareinsights.com/beacon.min.js'
+
+type FilterableStackFrame = {
+  filename?: string
+  abs_path?: string
+}
+
 type FilterableSentryEvent = {
-  exception?: { values?: Array<{ type?: string; value?: string }> }
+  exception?: {
+    values?: Array<{
+      type?: string
+      value?: string
+      stacktrace?: { frames?: FilterableStackFrame[] }
+    }>
+  }
   message?: string
 }
 
@@ -31,6 +50,26 @@ export function isMonitoringSelfTestEvent(event: FilterableSentryEvent): boolean
   return (
     typeof event.message === 'string' &&
     event.message.includes(MONITORING_SELF_TEST_MARKER)
+  )
+}
+
+function frameUrl(frame: FilterableStackFrame): string {
+  return frame.abs_path ?? frame.filename ?? ''
+}
+
+/**
+ * True when every stack frame we have is from Cloudflare Insights' beacon
+ * (no app frames). Narrow: mixed stacks still report.
+ */
+export function isCloudflareInsightsBeaconEvent(
+  event: FilterableSentryEvent,
+): boolean {
+  const frames = (event.exception?.values ?? []).flatMap(
+    (value) => value.stacktrace?.frames ?? [],
+  )
+  if (frames.length === 0) return false
+  return frames.every((frame) =>
+    frameUrl(frame).includes(CLOUDFLARE_INSIGHTS_BEACON_URL_MARKER),
   )
 }
 
@@ -54,6 +93,7 @@ export function initErrorReporting(): void {
       delete event.user
       delete event.request
       if (isMonitoringSelfTestEvent(event)) return null
+      if (isCloudflareInsightsBeaconEvent(event)) return null
       return event
     },
   })
