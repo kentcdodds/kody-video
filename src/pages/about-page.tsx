@@ -84,7 +84,8 @@ export function AboutPage() {
           <p>
             No accounts, no analytics, no uploads. Clips live in this browser&rsquo;s storage until
             you export and share them yourself. The only network calls are Stripe checkout and its
-            purchase verification if you buy the watermark removal.
+            purchase verification if you buy the watermark removal, plus anonymous crash reports
+            (error and stack trace only — never your media) when something breaks.
           </p>
         </section>
 

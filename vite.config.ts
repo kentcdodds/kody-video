@@ -1,10 +1,33 @@
 import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
 import { VitePWA } from 'vite-plugin-pwa'
+import { sentryVitePlugin } from '@sentry/vite-plugin'
+
+// Cloudflare Pages exposes the commit; local builds tag as 'dev'.
+const commitSha = process.env.CF_PAGES_COMMIT_SHA ?? 'dev'
+// Source maps upload only when the CI token is present (Cloudflare Pages env).
+const sentryUpload = Boolean(process.env.SENTRY_AUTH_TOKEN)
 
 export default defineConfig({
+  define: {
+    __COMMIT_SHA__: JSON.stringify(commitSha),
+  },
+  build: {
+    // Generated for Sentry upload, never referenced from the served bundles.
+    sourcemap: sentryUpload ? 'hidden' : false,
+  },
   plugins: [
     react(),
+    ...(sentryUpload
+      ? [
+          sentryVitePlugin({
+            org: 'kent-c-dodds-tech-llc',
+            project: 'kody-video',
+            release: { name: commitSha },
+            sourcemaps: { filesToDeleteAfterUpload: 'dist/**/*.map' },
+          }),
+        ]
+      : []),
     VitePWA({
       // Prompt-based updates: users see "new version ready — update" instead
       // of silently running stale code until some future reload.

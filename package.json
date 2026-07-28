@@ -13,6 +13,7 @@
     "lint": "tsc -b --pretty false"
   },
   "dependencies": {
+    "@sentry/react": "^10.68.0",
     "idb": "^8.0.3",
     "mp4-muxer": "^5.2.2",
     "react": "^19.1.0",
@@ -22,6 +23,7 @@
   },
   "devDependencies": {
     "@playwright/test": "^1.62.0",
+    "@sentry/vite-plugin": "^5.4.0",
     "@types/node": "^26.1.1",
     "@types/react": "^19.1.8",
     "@types/react-dom": "^19.1.6",

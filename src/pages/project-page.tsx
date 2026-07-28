@@ -15,6 +15,7 @@ import { RecordScreen, type ToastAction } from '../components/record-screen'
 import { useCamera } from '../hooks/use-camera'
 import { RestoreSheet } from '../components/restore-sheet'
 import { REMOVE_WATERMARK_LINK } from '../lib/entitlement'
+import { reportError } from '../lib/error-reporting'
 import { exportProject, type ExportResult } from '../lib/export'
 import {
   canShareFile,
@@ -145,6 +146,9 @@ export function ProjectPage() {
           watermarked,
         })
       } catch (err) {
+        // Report even when the run was abandoned (closed sheet / retry) —
+        // only the UI update is stale, the failure is real.
+        reportError(err, 'export', { clips: clips.length })
         if (exportRunRef.current !== runId) return
         setExportState({
           status: 'error',
