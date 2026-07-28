@@ -103,13 +103,15 @@ export function AboutPage() {
         </section>
 
         <section className="about-section">
-          <h2>Report a problem</h2>
+          <h2>Support</h2>
           <p>
             Hit a bug? Please{' '}
             <a href={reportProblemUrl()} target="_blank" rel="noreferrer noopener">
               open an issue on GitHub
             </a>{' '}
             — the link pre-fills your device details so you only have to describe what went wrong.
+            Prefer email (or need help with a purchase)? Write to{' '}
+            <a href="mailto:team@kody.video">team@kody.video</a>.
           </p>
         </section>
 
