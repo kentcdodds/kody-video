@@ -20,8 +20,21 @@ export function PrivacyPage() {
           <h2>Everything stays on your device</h2>
           <p>
             All recordings, projects, and edits live in this browser&rsquo;s on-device storage
-            (IndexedDB). Nothing is uploaded. There are no accounts, no analytics, no tracking, and
-            no cookies beyond what the browser itself does.
+            (IndexedDB). Nothing is uploaded. There are no accounts, no cookies, and no cross-site
+            tracking.
+          </p>
+        </section>
+
+        <section className="about-section">
+          <h2>Anonymous page-view counts</h2>
+          <p>
+            The app counts page views with{' '}
+            <a href="https://usefathom.com" target="_blank" rel="noreferrer noopener">
+              Fathom Analytics
+            </a>
+            , a privacy-first service: no cookies, no personal identifiers, no cross-site
+            tracking, and nothing that requires a consent banner. We only ever see aggregate
+            numbers like &ldquo;how many people opened the app today&rdquo;.
           </p>
         </section>
 
@@ -31,8 +44,8 @@ export function PrivacyPage() {
             When the app itself breaks, an error report (the error message, a stack trace, browser
             and OS names, and which step failed — e.g. &ldquo;export&rdquo;) is sent to Sentry so
             bugs get found and fixed. Crash reports never contain your clips, audio, location, or
-            any account identifier, and no IP-based user profile is kept. This is the only data
-            the app sends anywhere on its own.
+            any account identifier, and no IP-based user profile is kept. Page-view counts and
+            crash reports are the only data the app sends anywhere on its own.
           </p>
         </section>
 

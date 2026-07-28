@@ -82,10 +82,11 @@ export function AboutPage() {
         <section className="about-section">
           <h2>Private by design</h2>
           <p>
-            No accounts, no analytics, no uploads. Clips live in this browser&rsquo;s storage until
-            you export and share them yourself. The only network calls are Stripe checkout and its
-            purchase verification if you buy the watermark removal, plus anonymous crash reports
-            (error and stack trace only — never your media) when something breaks.
+            No accounts, no uploads, no cross-site tracking. Clips live in this browser&rsquo;s
+            storage until you export and share them yourself. The app&rsquo;s only own network
+            traffic: Stripe checkout and its purchase verification if you buy the watermark
+            removal, anonymous crash reports (error and stack trace only — never your media) when
+            something breaks, and cookieless page-view counts via Fathom Analytics.
           </p>
         </section>
 

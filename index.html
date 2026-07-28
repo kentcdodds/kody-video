@@ -34,6 +34,19 @@
     />
     <meta name="twitter:image" content="https://kody.video/og-image.png" />
     <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+    <script>
+      // Fathom Analytics (cookieless, anonymous page-view counts). Loaded
+      // only on real deployments so dev servers and test runs stay out of
+      // the stats; data-spa covers client-side route changes.
+      if (['kody.video', 'kody-video.pages.dev'].includes(location.hostname)) {
+        var fathomScript = document.createElement('script')
+        fathomScript.src = 'https://cdn.usefathom.com/script.js'
+        fathomScript.setAttribute('data-site', 'YKYNNRMZ')
+        fathomScript.setAttribute('data-spa', 'auto')
+        fathomScript.defer = true
+        document.head.appendChild(fathomScript)
+      }
+    </script>
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link
