@@ -35,3 +35,18 @@ export function initErrorReporting(): void {
 export function reportError(error: unknown, context?: Record<string, unknown>): void {
   Sentry.captureException(error, context ? { extra: context } : undefined)
 }
+
+/**
+ * React 19 routes uncaught render errors through createRoot options instead
+ * of window.onerror — without these, UI crashes would never reach Sentry.
+ * The console callbacks preserve React's default logging behavior.
+ */
+export const reactRootErrorHandlers = {
+  onUncaughtError: Sentry.reactErrorHandler((error, errorInfo) => {
+    console.error('Uncaught React error', error, errorInfo.componentStack)
+  }),
+  onCaughtError: Sentry.reactErrorHandler(),
+  onRecoverableError: Sentry.reactErrorHandler((error, errorInfo) => {
+    console.warn('Recoverable React error', error, errorInfo.componentStack)
+  }),
+}
