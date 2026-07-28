@@ -2,6 +2,7 @@ import { useCallback, useLayoutEffect, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
 import type { CameraZoomRange, UseCameraResult } from '../hooks/use-camera'
 import { getLocationFix, type LocationFix } from '../lib/location'
+import { reportError } from '../lib/error-reporting'
 import { appendRecording, removeClip, undoLastDelete } from '../lib/project-actions'
 import { HoldRecorder } from '../lib/recorder'
 import { setLocationTaggingEnabled } from '../lib/storage'
@@ -339,6 +340,9 @@ export function RecordScreen({
         })
         refresh()
       } catch (err) {
+        // Real store failures (quota, bad blob) must still reach Sentry as
+        // handled exceptions — without the twin unhandled AbortError from tx.done.
+        reportError(err, 'save-clip')
         showToast(err instanceof Error ? err.message : 'Save failed')
       } finally {
         endInFlightRef.current = false

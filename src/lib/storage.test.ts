@@ -125,4 +125,34 @@ describe('storage layer', () => {
     const remaining = await getClipsForProject(project.id)
     expect(remaining).toHaveLength(0)
   })
+
+  it('does not leak AbortError unhandled rejections when a clip put fails', async () => {
+    const project = await createProject('Fail put')
+    const unhandled: unknown[] = []
+    const onUnhandled = (reason: unknown) => {
+      unhandled.push(reason)
+    }
+    process.on('unhandledRejection', onUnhandled)
+    try {
+      // Functions are not structured-cloneable, so IndexedDB rejects the put.
+      await expect(
+        addClip({
+          projectId: project.id,
+          blob: fakeBlob('x'),
+          mimeType: 'video/webm',
+          durationMs: 1000,
+          lat: (() => 0) as unknown as number,
+        }),
+      ).rejects.toBeTruthy()
+      // Let any orphaned tx.done rejection surface if the leak regresses.
+      await new Promise<void>((resolve) => setTimeout(resolve, 0))
+      const abortLeaks = unhandled.filter(
+        (err) =>
+          (err instanceof DOMException || err instanceof Error) && err.name === 'AbortError',
+      )
+      expect(abortLeaks).toHaveLength(0)
+    } finally {
+      process.off('unhandledRejection', onUnhandled)
+    }
+  })
 })
