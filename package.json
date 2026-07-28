@@ -16,6 +16,7 @@
     "@sentry/react": "^10.68.0",
     "idb": "^8.0.3",
     "mp4-muxer": "^5.2.2",
+    "mp4box": "^2.4.1",
     "react": "^19.1.0",
     "react-dom": "^19.1.0",
     "react-router-dom": "^7.6.3",

@@ -1,3 +1,4 @@
+import { reportError } from '../error-reporting'
 import { isMediaElementFailure, MediaElementFailureError } from './media-error'
 
 /** Helpers shared by the WebCodecs and realtime export engines. */
@@ -171,6 +172,8 @@ export function pickOutputSize(sourceWidth: number, sourceHeight: number): {
 }
 
 /** Decode a clip's audio track at the given sample rate. Null when it has none. */
+let audioDecodeFailureReported = false
+
 export async function decodeClipAudio(
   blob: Blob,
   sampleRate = 48000,
@@ -180,6 +183,23 @@ export async function decodeClipAudio(
     const ctx = new OfflineAudioContext(2, 1, sampleRate)
     return await ctx.decodeAudioData(bytes)
   } catch {
+    // Safari's MediaRecorder writes fragmented MP4, which decodeAudioData
+    // rejects — demux + AudioDecoder covers it (silent export otherwise).
+    if (/mp4/i.test(blob.type)) {
+      try {
+        const { decodeMp4AudioWithWebCodecs } = await import('./mp4-audio')
+        const decoded = await decodeMp4AudioWithWebCodecs(blob, sampleRate)
+        if (decoded) return decoded
+      } catch {
+        // Fall through to the failure report below.
+      }
+    }
+    if (!audioDecodeFailureReported) {
+      audioDecodeFailureReported = true
+      reportError(new Error('Clip audio decode failed — export audio will be silent'), 'export-audio', {
+        mimeType: blob.type,
+      })
+    }
     return null
   }
 }
