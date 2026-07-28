@@ -146,8 +146,10 @@ export function ProjectPage() {
           watermarked,
         })
       } catch (err) {
+        // Report even when the run was abandoned (closed sheet / retry) —
+        // only the UI update is stale, the failure is real.
+        reportError(err, 'export', { clips: clips.length })
         if (exportRunRef.current !== runId) return
-        reportError(err, { where: 'export', clips: clips.length })
         setExportState({
           status: 'error',
           progress: 0,

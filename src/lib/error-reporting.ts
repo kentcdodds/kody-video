@@ -17,23 +17,33 @@ export function initErrorReporting(): void {
     environment: location.hostname === 'kody.video' ? 'production' : 'legacy-pages-dev',
     // Crash reports only: no tracing, no session replay, no PII. Clips and
     // media never leave the device — this reports errors and stack traces.
+    // These settings ENFORCE the privacy-page wording ("error message, stack
+    // trace, browser/OS, failed step — nothing else"); keep them in sync.
     sendDefaultPii: false,
     tracesSampleRate: 0,
+    maxBreadcrumbs: 0,
+    beforeBreadcrumb: () => null,
     beforeSend(event) {
-      // Belt and braces: never attach user context (Sentry would otherwise
-      // infer an IP-based user for browser events).
+      // Never attach user context (Sentry would otherwise infer an IP-based
+      // user) or request metadata (URL/headers).
       delete event.user
+      delete event.request
       return event
     },
   })
 }
 
 /**
- * Explicit capture for errors we catch and soften into toasts (export or
- * import failures, …) — the user sees a friendly message, we see the cause.
+ * Explicit capture for errors we catch and surface as in-app messages
+ * (export error sheet, import error banner, …) — the user sees a friendly
+ * message, we see the cause. The step lands as a searchable Sentry tag.
  */
-export function reportError(error: unknown, context?: Record<string, unknown>): void {
-  Sentry.captureException(error, context ? { extra: context } : undefined)
+export function reportError(
+  error: unknown,
+  step: string,
+  extra?: Record<string, unknown>,
+): void {
+  Sentry.captureException(error, { tags: { step }, ...(extra ? { extra } : {}) })
 }
 
 /**

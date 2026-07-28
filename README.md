@@ -163,10 +163,11 @@ in-app About page has a link that pre-fills device details).
 - Share/export uses user-gesture download or the Web Share API only.
 - Network calls besides Stripe checkout (opened in the browser): the
   purchase-verification function above (never sees media), and anonymous
-  Sentry crash reports (error + stack trace only, no PII, no media; only
-  from production hostnames — dev and tests never report). Every export or
-  import failure the UI softens into a toast is also captured with the step
-  name so real-device bugs surface.
+  Sentry crash reports (error + stack trace only — breadcrumbs and request
+  metadata are stripped in the SDK config; no PII, no media; only from
+  production hostnames — dev and tests never report). Export and import
+  failures the UI surfaces as friendly messages are also captured, tagged
+  with the failing step, so real-device bugs surface.
 
 ## Scripts
 

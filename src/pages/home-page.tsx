@@ -138,7 +138,7 @@ export function HomePage() {
         // no dependence on the list revalidating behind the scenes.
         navigate(`/project/${project.id}`)
       } catch (err) {
-        reportError(err, { where: 'import' })
+        reportError(err, 'import')
         setError(err instanceof Error ? err.message : 'Could not import that file')
       } finally {
         setImportProgress(null)
