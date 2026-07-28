@@ -61,12 +61,35 @@ try {
     await sleep(1600)
   }
   await page.getByRole('button', { name: /open editor/i }).click()
-  await page.locator('[data-clip-id]').first().waitFor()
+  // 'attached', not 'visible': the strip now opens scrolled to the end, so
+  // the first tile can be out of view.
+  await page.locator('[data-clip-id]').first().waitFor({ state: 'attached' })
   await sleep(800)
 
   const timeline = page.locator('.timeline')
   const overflow = await timeline.evaluate((el) => el.scrollWidth - el.clientWidth)
   check('timeline overflows viewport', overflow > 0, `overflow=${overflow}px`)
+
+  // The editor opens positioned at the most recent clip (selected by default).
+  const initialScroll = await timeline.evaluate((el) => el.scrollLeft)
+  const lastTileVisible = await page.evaluate(() => {
+    const track = document.querySelector('.timeline')
+    const tiles = document.querySelectorAll('[data-clip-id]')
+    const last = tiles[tiles.length - 1]
+    const trackRect = track.getBoundingClientRect()
+    const lastRect = last.getBoundingClientRect()
+    return lastRect.right <= trackRect.right + 1 && lastRect.left >= trackRect.left - 1
+  })
+  check(
+    'editor opens scrolled to the most recent clip',
+    initialScroll > 0 && lastTileVisible,
+    `scrollLeft=${initialScroll} lastVisible=${lastTileVisible}`,
+  )
+  // The remaining gesture checks assume a strip parked at the start.
+  await timeline.evaluate((el) => {
+    el.scrollLeft = 0
+  })
+  await sleep(200)
   const orderBefore = await page.$$eval('[data-clip-id]', (els) => els.map((e) => e.dataset.clipId))
   const selectedBefore = await page.$$eval('[data-clip-id]', (els) =>
     els.findIndex((e) => e.classList.contains('selected')),
