@@ -39,7 +39,18 @@ export async function exportRealtime(
   const { width, height } = pickOutputSize(probe.video.videoWidth, probe.video.videoHeight)
   probe.release()
 
-  const canvas = document.createElement('canvas')
+  // Encode from the overlay's on-DOM canvas whenever possible: iOS Safari's
+  // canvas.captureStream() delivers BLACK frames for canvases that aren't
+  // attached to the document (the preview looked fine — it was a different,
+  // visible canvas — while the detached encode canvas produced a black
+  // export). Rendering into the visible canvas fixes that and makes the
+  // preview show every frame. The overlay mounts a tick after the export
+  // starts, so wait briefly for it before falling back.
+  let canvas = await waitForPreviewCanvas(options.getPreviewCanvas)
+  const encodingIntoPreview = canvas !== null
+  if (!canvas) {
+    canvas = document.createElement('canvas')
+  }
   canvas.width = width
   canvas.height = height
   const ctx = canvas.getContext('2d', { alpha: false })
@@ -110,7 +121,8 @@ export async function exportRealtime(
           audioContext,
           dest,
           frameCounter,
-          getPreviewCanvas: options.getPreviewCanvas,
+          // No mirroring needed when the encode canvas is the preview.
+          getPreviewCanvas: encodingIntoPreview ? undefined : options.getPreviewCanvas,
           watermarkImage: options.watermarkImage ?? null,
           onElapsedMs: (elapsed) => {
             if (plan.totalMs > 0) {
@@ -273,6 +285,20 @@ async function paintSegment({
       // already ended
     }
     bufferSource?.disconnect()
+  }
+}
+
+/** The export overlay mounts just after the export starts — wait briefly. */
+async function waitForPreviewCanvas(
+  getPreviewCanvas: (() => HTMLCanvasElement | null) | undefined,
+): Promise<HTMLCanvasElement | null> {
+  if (!getPreviewCanvas) return null
+  const deadline = performance.now() + 1500
+  for (;;) {
+    const canvas = getPreviewCanvas()
+    if (canvas?.isConnected) return canvas
+    if (performance.now() > deadline) return null
+    await wait(50)
   }
 }
 

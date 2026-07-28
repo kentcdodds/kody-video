@@ -15,7 +15,7 @@ import { RecordScreen, type ToastAction } from '../components/record-screen'
 import { useCamera } from '../hooks/use-camera'
 import { RestoreSheet } from '../components/restore-sheet'
 import { REMOVE_WATERMARK_LINK } from '../lib/entitlement'
-import { reportError } from '../lib/error-reporting'
+import { clearExportMarker, markExportStarted, reportError } from '../lib/error-reporting'
 import { exportProject, type ExportResult } from '../lib/export'
 import {
   canShareFile,
@@ -146,6 +146,9 @@ export function ProjectPage() {
         await waitForNextPaint()
         if (exportRunRef.current !== runId) return
 
+        // If the page dies mid-export (tab crash / OOM — no JS error fires),
+        // this marker survives the reload and reports the death at next boot.
+        markExportStarted({ clips: clips.length })
         const result = await exportProject(clips, {
           audioContext,
           watermark: watermarked,
@@ -182,6 +185,8 @@ export function ProjectPage() {
           watermarked,
         })
       } finally {
+        // The export ended in this session (success or error) — it did not die.
+        clearExportMarker()
         // The realtime engine closes the context it used; when WebCodecs
         // handled the export, release the unused tap-unlocked context.
         if (audioContext && audioContext.state !== 'closed') {
