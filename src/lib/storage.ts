@@ -173,13 +173,15 @@ export async function deleteProject(id: ProjectId): Promise<void> {
   if (!project) return
 
   const tx = db.transaction(['projects', 'clips', 'undo', 'meta'], 'readwrite')
+  // Read meta before queueing writes so a failed delete cannot reject while
+  // we are still awaiting get — that would reintroduce the AbortError leak.
+  const settings = await tx.objectStore('meta').get('settings')
   const clips = tx.objectStore('clips')
   const ops: Array<Promise<unknown>> = [
     ...project.clipIds.map((clipId) => clips.delete(clipId)),
     tx.objectStore('undo').delete(id),
     tx.objectStore('projects').delete(id),
   ]
-  const settings = await tx.objectStore('meta').get('settings')
   if (settings?.lastOpenedProjectId === id) {
     ops.push(tx.objectStore('meta').put({ ...settings, lastOpenedProjectId: null }))
   }
