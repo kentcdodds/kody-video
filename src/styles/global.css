@@ -260,8 +260,10 @@ a {
   height: 84px;
   min-width: 84px;
   border-radius: 50%;
+  /* White specular in BOTH themes — via --bg-elevated it was white in light
+   * (the look we want) but a murky dark smudge in dark mode. */
   background:
-    radial-gradient(circle at 34% 28%, color-mix(in srgb, var(--bg-elevated) 72%, transparent), transparent 18%),
+    radial-gradient(circle at 34% 28%, rgba(255, 255, 255, 0.72), transparent 18%),
     linear-gradient(145deg, var(--accent), var(--ok));
   color: var(--ink-strong);
   border: 4px solid color-mix(in srgb, var(--bg-elevated) 72%, transparent);
@@ -271,17 +273,6 @@ a {
   font-weight: 700;
   letter-spacing: -0.04em;
   transition: transform 160ms ease, opacity 160ms ease;
-}
-
-/* The dark-mode flare uses --bg-elevated (a dark dimple that reads as a
- * specular). In light mode that token is pure white and painted a harsh
- * blob — use a soft white highlight instead so the green stays saturated. */
-@media (prefers-color-scheme: light) {
-  .go-button {
-    background:
-      radial-gradient(circle at 34% 28%, rgba(255, 255, 255, 0.32), transparent 18%),
-      linear-gradient(145deg, var(--accent), var(--ok));
-  }
 }
 
 .go-button:active {
