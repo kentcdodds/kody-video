@@ -119,7 +119,7 @@ export async function parseProjectBackup(file: Blob): Promise<ParsedBackup> {
   const clips: ParsedBackup['clips'] = []
   for (const clip of manifest.clips) {
     if (
-      !Number.isFinite(clip.byteLength) ||
+      !Number.isInteger(clip.byteLength) ||
       clip.byteLength <= 0 ||
       offset + clip.byteLength > file.size
     ) {
