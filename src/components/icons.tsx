@@ -218,3 +218,14 @@ export function IconLens({ size = 22 }: IconProps) {
     </svg>
   )
 }
+
+/** Monitor with a record dot: screen recording. */
+export function IconScreen({ size = 22, on = false }: IconProps & { on?: boolean }) {
+  return (
+    <svg {...baseProps(size)}>
+      <rect x="3" y="4.5" width="18" height="12.5" rx="2" />
+      <path d="M9 20.5h6" />
+      <circle cx="12" cy="10.75" r="2.4" fill={on ? 'currentColor' : 'none'} />
+    </svg>
+  )
+}

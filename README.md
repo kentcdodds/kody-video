@@ -132,10 +132,21 @@ Kody Video is designed as a mobile camera app, but desktop gets first-class
 keyboard support (hints appear automatically on fine-pointer devices):
 
 - **Camera:** hold `Space` to record (release to stop), `F` flip, `T`
-  self-timer, `E` editor, `P` play preview, `Delete` remove last clip.
+  self-timer, `S` screen recording, `E` editor, `P` play preview, `Delete`
+  remove last clip.
 - **Editor:** `←`/`→` select clip, `Alt`+arrows reorder, `T` trim, `D`
   duplicate, `Delete` delete, `P` play, `Esc` back to camera (or exit trim).
 - **Playback:** `←`/`→` skip clips, `Space` pause/resume, `Esc` close.
+
+## Screen recording (desktop)
+
+The monitor button on the camera view (or `S`) records a screen, window, or
+tab as a regular clip — pick the surface, narrate over your mic (mixed with
+shared tab/system audio when you opt in), then tap the preview or the button
+to stop and the take lands on the filmstrip like any camera clip. Desktop
+browsers only: `getDisplayMedia` does not exist on iOS or Android, so on
+phones use the OS screen recorder instead. The button hides itself where the
+API is missing.
 
 ## Remove Watermark purchase
 
@@ -184,5 +195,6 @@ in-app About page has a link that pre-fills device details).
 | `node scripts/probe-export-chrome.mjs` | Export validation in Chrome stable (real codecs) |
 | `node scripts/probe-keyboard.mjs`    | Desktop keyboard flows (record/edit/playback) |
 | `node scripts/probe-rear-lens.mjs`   | Rear lens switching (ultra-wide) with fake cameras |
+| `node scripts/probe-screen-record.mjs` | Desktop screen recording lands as a clip |
 | `node scripts/probe-touch-timeline.mjs` | Touch timeline gestures (scroll, long-press lift) |
 | `node scripts/probe-webkit.mjs`      | WebKit engine sanity + feature matrix (iOS proxy, not a substitute for a real device) |
