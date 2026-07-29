@@ -29,7 +29,6 @@
   --radius: 18px;
   --safe-top: env(safe-area-inset-top, 0px);
   --safe-bottom: env(safe-area-inset-bottom, 0px);
-  --app-height: 100dvh;
   --tap: 44px;
 }
 
@@ -63,22 +62,21 @@
   }
 }
 
-@supports not (height: 100dvh) {
-  :root {
-    --app-height: 100vh;
-  }
-}
-
 * {
   box-sizing: border-box;
 }
 
+/* Percentage heights, not dvh: the initial containing block is always the
+ * real viewport — including inside in-app browsers (the X iOS WebView
+ * under-reports dvh on first layout, which squeezed the app into the top
+ * half of the screen over a black void). On modern iOS Safari the ICB is
+ * dynamic, so 100% tracks the toolbar exactly like dvh did. */
 html,
 body,
 #root {
   margin: 0;
-  min-height: var(--app-height);
-  height: var(--app-height);
+  min-height: 100%;
+  height: 100%;
 }
 
 body {
@@ -116,7 +114,7 @@ a {
 }
 
 .app-shell {
-  height: var(--app-height);
+  height: 100%;
   max-width: 480px;
   margin: 0 auto;
   position: relative;
@@ -125,7 +123,7 @@ a {
 
 .screen {
   height: 100%;
-  max-height: var(--app-height);
+  max-height: 100%;
   display: flex;
   flex-direction: column;
   min-height: 0;
