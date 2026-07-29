@@ -215,6 +215,66 @@ export function reportSilentExportAudio(context: Record<string, unknown>): void 
   )
 }
 
+/** The export overlay mounts just after the export starts — wait briefly.
+ * Encoding into the on-DOM overlay canvas (instead of a detached one) is
+ * load-bearing on Safari, which renders detached canvases as black in
+ * captureStream and related paths. */
+export async function waitForPreviewCanvas(
+  getPreviewCanvas: (() => HTMLCanvasElement | null) | undefined,
+): Promise<HTMLCanvasElement | null> {
+  if (!getPreviewCanvas) return null
+  const deadline = performance.now() + 1500
+  for (;;) {
+    const canvas = getPreviewCanvas()
+    if (canvas?.isConnected) return canvas
+    if (performance.now() > deadline) return null
+    await wait(50)
+  }
+}
+
+/** Video-side twin of the audio diagnostics: sampled encode-canvas luma.
+ * A black exported video with no error is otherwise invisible remotely. */
+let videoLumaSamples: number[] = []
+let videoSampleCanvas: HTMLCanvasElement | null = null
+
+export function resetVideoDiagnostics(): void {
+  videoLumaSamples = []
+}
+
+/** Downsample the encode canvas to 8×8 and record the frame's mean luma. */
+export function recordVideoLumaSample(source: HTMLCanvasElement): void {
+  try {
+    if (!videoSampleCanvas) {
+      videoSampleCanvas = document.createElement('canvas')
+      videoSampleCanvas.width = 8
+      videoSampleCanvas.height = 8
+    }
+    const ctx = videoSampleCanvas.getContext('2d', { willReadFrequently: true })
+    if (!ctx) return
+    ctx.drawImage(source, 0, 0, 8, 8)
+    const { data } = ctx.getImageData(0, 0, 8, 8)
+    let total = 0
+    for (let i = 0; i < data.length; i += 4) {
+      total += 0.299 * data[i] + 0.587 * data[i + 1] + 0.114 * data[i + 2]
+    }
+    videoLumaSamples.push(total / (data.length / 4))
+  } catch {
+    // Sampling must never break an export.
+  }
+}
+
+/** One tagged Sentry report when the export's frames were all near-black. */
+export function reportBlackExportVideo(context: Record<string, unknown>): void {
+  if (videoLumaSamples.length < 3) return
+  const maxLuma = Math.max(...videoLumaSamples)
+  if (maxLuma >= 10) return
+  reportError(new Error('Export video: sampled frames are all near-black'), 'export-video', {
+    ...context,
+    samples: videoLumaSamples.length,
+    maxLuma: Number(maxLuma.toFixed(2)),
+  })
+}
+
 function audioBufferPeak(buffer: AudioBuffer): number {
   let peak = 0
   for (let ch = 0; ch < buffer.numberOfChannels; ch += 1) {

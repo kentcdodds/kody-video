@@ -4,8 +4,10 @@ import { exportWithWebCodecs, supportsWebCodecsExport } from './encode-webcodecs
 import { planExport } from './plan'
 import {
   loadWatermarkImage,
+  reportBlackExportVideo,
   reportSilentExportAudio,
   resetAudioDiagnostics,
+  resetVideoDiagnostics,
   type ExportResult,
 } from './shared'
 
@@ -46,6 +48,7 @@ export async function exportProject(
   const watermarkImage = options.watermark === false ? null : await loadWatermarkImage()
 
   resetAudioDiagnostics()
+  resetVideoDiagnostics()
   if (supportsWebCodecsExport()) {
     try {
       const result = await exportWithWebCodecs(
@@ -55,10 +58,12 @@ export async function exportProject(
         watermarkImage,
       )
       reportSilentExportAudio({ engine: 'webcodecs', outputMime: result.mimeType })
+      reportBlackExportVideo({ engine: 'webcodecs', outputMime: result.mimeType })
       return result
     } catch (error) {
       console.warn('WebCodecs export failed; falling back to realtime stitcher', error)
       resetAudioDiagnostics()
+      resetVideoDiagnostics()
     }
   }
 
@@ -69,5 +74,6 @@ export async function exportProject(
     watermarkImage,
   })
   reportSilentExportAudio({ engine: 'realtime', outputMime: result.mimeType })
+  reportBlackExportVideo({ engine: 'realtime', outputMime: result.mimeType })
   return result
 }

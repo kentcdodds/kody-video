@@ -18,7 +18,9 @@ import {
   drawWatermark,
   loadClipVideo,
   pickOutputSize,
+  recordVideoLumaSample,
   seekTo,
+  waitForPreviewCanvas,
   type ExportResult,
 } from './shared'
 
@@ -142,7 +144,15 @@ export async function exportWithWebCodecs(
     throw new Error('No supported export codec')
   }
 
-  const canvas = document.createElement('canvas')
+  // Draw into the on-DOM overlay canvas when available: Safari-family
+  // engines have a history of treating detached canvases as black (see the
+  // realtime engine's captureStream fix) — and it doubles as a per-frame
+  // live preview. Falls back to a detached canvas (fine on Chromium).
+  let canvas = await waitForPreviewCanvas(getPreviewCanvas)
+  const encodingIntoPreview = canvas !== null
+  if (!canvas) {
+    canvas = document.createElement('canvas')
+  }
   canvas.width = width
   canvas.height = height
   const ctx = canvas.getContext('2d', { alpha: false })
@@ -257,7 +267,8 @@ export async function exportWithWebCodecs(
           ctx,
           videoEncoder,
           state,
-          getPreviewCanvas,
+          // No mirroring needed when the encode canvas is the preview.
+          getPreviewCanvas: encodingIntoPreview ? undefined : getPreviewCanvas,
           watermarkImage,
           hasError: () => encoderError !== null,
           onElapsedMs: (elapsed) => {
@@ -403,6 +414,9 @@ async function pumpSegmentVideo({
     state.lastVideoTsUs = tsUs
     if (state.frameCount % PREVIEW_EVERY_N_FRAMES === 0) {
       blitPreview(canvas, getPreviewCanvas?.())
+    }
+    if (state.frameCount % 30 === 0) {
+      recordVideoLumaSample(canvas)
     }
     state.frameCount += 1
   }
