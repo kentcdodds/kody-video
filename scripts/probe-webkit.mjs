@@ -39,8 +39,8 @@ try {
   await page.goto(BASE, { waitUntil: 'networkidle' })
   check('home renders in WebKit', (await page.locator('.home-screen').count()) > 0)
   check(
-    'iOS experimental note shows',
-    await page.locator('.home-ios-note').isVisible().catch(() => false),
+    'no iOS experimental note (removed by design)',
+    (await page.locator('.home-ios-note').count()) === 0,
   )
 
   // Feature detection matrix the app's code paths depend on.
