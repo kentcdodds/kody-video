@@ -190,6 +190,26 @@ export function IconUndo({ size = 22 }: IconProps) {
   )
 }
 
+/** The iOS share glyph: box with an arrow rising out of it. */
+export function IconShareIos({ size = 22 }: IconProps) {
+  return (
+    <svg {...baseProps(size)}>
+      <path d="M8 8H6a1 1 0 00-1 1v11a1 1 0 001 1h12a1 1 0 001-1V9a1 1 0 00-1-1h-2" />
+      <path d="M12 14V3" />
+      <path d="M8.5 6.5L12 3l3.5 3.5" />
+    </svg>
+  )
+}
+
+export function IconClose({ size = 22 }: IconProps) {
+  return (
+    <svg {...baseProps(size)}>
+      <path d="M6 6l12 12" />
+      <path d="M18 6L6 18" />
+    </svg>
+  )
+}
+
 export function IconLens({ size = 22 }: IconProps) {
   return (
     <svg {...baseProps(size)}>
