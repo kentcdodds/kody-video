@@ -78,7 +78,7 @@ export function ExportSheet({
             {notice ? <p className="sheet-message">{notice}</p> : null}
             <div className="sheet-actions">
               {canShare ? (
-                <button type="button" className="btn btn-primary" onClick={onShare}>
+                <button type="button" className="btn btn-primary" onClick={onShare} disabled={busy}>
                   Share
                 </button>
               ) : null}
@@ -86,6 +86,7 @@ export function ExportSheet({
                 type="button"
                 className={`btn ${canShare ? 'btn-secondary' : 'btn-primary'}`}
                 onClick={onSave}
+                disabled={busy}
               >
                 Save
               </button>
@@ -122,7 +123,7 @@ export function ExportSheet({
               <button type="button" className="btn btn-primary" onClick={onRetry}>
                 Try again
               </button>
-              <button type="button" className="btn btn-secondary" onClick={onSaveClips}>
+              <button type="button" className="btn btn-secondary" onClick={onSaveClips} disabled={busy}>
                 Save clips instead
               </button>
               <button type="button" className="btn btn-ghost" onClick={onClose}>

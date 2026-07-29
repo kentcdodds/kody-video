@@ -39,9 +39,13 @@ export function EditorClipPreview({ clip, apiRef }: EditorClipPreviewProps) {
   // still-loading clip must act instead of silently no-oping (#58).
   const durationMsRef = useRef(clip.durationMs)
   durationMsRef.current = clip.durationMs
+  /** An explicit seek before loadeddata must not be snapped back to the trim
+   * start when the metadata arrives. */
+  const explicitSeekRef = useRef(false)
   const bindVideo = useCallback(
     (video: HTMLVideoElement | null) => {
       mediaRef.current = video
+      explicitSeekRef.current = false
       if (!apiRef) return
       if (!video) {
         apiRef.current = null
@@ -51,6 +55,7 @@ export function EditorClipPreview({ clip, apiRef }: EditorClipPreviewProps) {
         seekToMs: (timeMs: number) => {
           const el = mediaRef.current
           if (!el) return
+          explicitSeekRef.current = true
           el.pause()
           setPlaying(false)
           const sec = Math.max(0, Math.min(timeMs, durationMsRef.current)) / 1000
@@ -104,6 +109,8 @@ export function EditorClipPreview({ clip, apiRef }: EditorClipPreviewProps) {
         preload="auto"
         onLoadedData={(event) => {
           const video = event.currentTarget
+          // Don't clobber a seek the user already made while loading.
+          if (explicitSeekRef.current) return
           if (Math.abs(video.currentTime - startSec) > 0.04) {
             video.currentTime = startSec
             return

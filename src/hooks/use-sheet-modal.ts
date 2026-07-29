@@ -36,7 +36,12 @@ export function useSheetModal({ onDismiss, busy }: SheetModalOptions): RefCallba
         'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])',
       ),
     ].filter((candidate) => !candidate.hasAttribute('disabled'))
-    if (focusables.length === 0) return
+    if (focusables.length === 0) {
+      // Everything is disabled mid-action: hold focus in place rather than
+      // letting Tab escape behind the modal.
+      event.preventDefault()
+      return
+    }
     const first = focusables[0]
     const last = focusables[focusables.length - 1]
     const active = document.activeElement instanceof HTMLElement ? document.activeElement : null
