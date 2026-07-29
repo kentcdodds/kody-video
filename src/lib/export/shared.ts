@@ -174,6 +174,60 @@ export function pickOutputSize(sourceWidth: number, sourceHeight: number): {
 /** Decode a clip's audio track at the given sample rate. Null when it has none. */
 let audioDecodeFailureReported = false
 
+/** Per-export audio observations, evaluated once by reportSilentExportAudio.
+ * Debugging silent exports remotely needs to know two things per clip: which
+ * decode path ran, and whether the decoded audio carried any actual signal
+ * (a perfect pipeline still exports silence when the mic recorded none). */
+interface ClipAudioObservation {
+  path: 'native' | 'fallback' | 'failed'
+  peak: number
+  mimeType: string
+}
+
+let audioObservations: ClipAudioObservation[] = []
+
+export function resetAudioDiagnostics(): void {
+  audioObservations = []
+}
+
+/** Fires a single tagged Sentry report when an export's audio looks wrong —
+ * every clip failed to decode, or nothing above the near-silence floor. */
+export function reportSilentExportAudio(context: Record<string, unknown>): void {
+  if (audioObservations.length === 0) return
+  const maxPeak = Math.max(...audioObservations.map((o) => o.peak))
+  const allFailed = audioObservations.every((o) => o.path === 'failed')
+  if (!allFailed && maxPeak >= 0.005) return
+  reportError(
+    new Error(
+      allFailed
+        ? 'Export audio: every clip failed to decode'
+        : 'Export audio: decoded clips are silent (mic likely recorded nothing)',
+    ),
+    'export-audio',
+    {
+      ...context,
+      clips: audioObservations.map((o) => ({
+        path: o.path,
+        peak: Number(o.peak.toFixed(4)),
+        mimeType: o.mimeType,
+      })),
+    },
+  )
+}
+
+function audioBufferPeak(buffer: AudioBuffer): number {
+  let peak = 0
+  for (let ch = 0; ch < buffer.numberOfChannels; ch += 1) {
+    const data = buffer.getChannelData(ch)
+    const stride = Math.max(1, Math.floor(data.length / 4000))
+    for (let i = 0; i < data.length; i += stride) {
+      const value = Math.abs(data[i])
+      if (value > peak) peak = value
+    }
+  }
+  return peak
+}
+
 export async function decodeClipAudio(
   blob: Blob,
   sampleRate = 48000,
@@ -181,7 +235,9 @@ export async function decodeClipAudio(
   try {
     const bytes = await blob.arrayBuffer()
     const ctx = new OfflineAudioContext(2, 1, sampleRate)
-    return await ctx.decodeAudioData(bytes)
+    const decoded = await ctx.decodeAudioData(bytes)
+    audioObservations.push({ path: 'native', peak: audioBufferPeak(decoded), mimeType: blob.type })
+    return decoded
   } catch {
     // Safari's MediaRecorder writes fragmented MP4, which decodeAudioData
     // rejects — demux + AudioDecoder covers it (silent export otherwise).
@@ -189,11 +245,19 @@ export async function decodeClipAudio(
       try {
         const { decodeMp4AudioWithWebCodecs } = await import('./mp4-audio')
         const decoded = await decodeMp4AudioWithWebCodecs(blob, sampleRate)
-        if (decoded) return decoded
+        if (decoded) {
+          audioObservations.push({
+            path: 'fallback',
+            peak: audioBufferPeak(decoded),
+            mimeType: blob.type,
+          })
+          return decoded
+        }
       } catch {
         // Fall through to the failure report below.
       }
     }
+    audioObservations.push({ path: 'failed', peak: 0, mimeType: blob.type })
     if (!audioDecodeFailureReported) {
       audioDecodeFailureReported = true
       reportError(new Error('Clip audio decode failed — export audio will be silent'), 'export-audio', {

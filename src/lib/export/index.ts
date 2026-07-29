@@ -2,7 +2,12 @@ import type { ClipRecord } from '../types'
 import { exportRealtime } from './encode-realtime'
 import { exportWithWebCodecs, supportsWebCodecsExport } from './encode-webcodecs'
 import { planExport } from './plan'
-import { loadWatermarkImage, type ExportResult } from './shared'
+import {
+  loadWatermarkImage,
+  reportSilentExportAudio,
+  resetAudioDiagnostics,
+  type ExportResult,
+} from './shared'
 
 export type { ExportResult } from './shared'
 export { planExport, type ExportPlan, type PlannedSegment } from './plan'
@@ -40,23 +45,29 @@ export async function exportProject(
 
   const watermarkImage = options.watermark === false ? null : await loadWatermarkImage()
 
+  resetAudioDiagnostics()
   if (supportsWebCodecsExport()) {
     try {
-      return await exportWithWebCodecs(
+      const result = await exportWithWebCodecs(
         plan,
         options.onProgress,
         options.getPreviewCanvas,
         watermarkImage,
       )
+      reportSilentExportAudio({ engine: 'webcodecs', outputMime: result.mimeType })
+      return result
     } catch (error) {
       console.warn('WebCodecs export failed; falling back to realtime stitcher', error)
+      resetAudioDiagnostics()
     }
   }
 
-  return exportRealtime(plan, {
+  const result = await exportRealtime(plan, {
     audioContext: options.audioContext,
     onProgress: options.onProgress,
     getPreviewCanvas: options.getPreviewCanvas,
     watermarkImage,
   })
+  reportSilentExportAudio({ engine: 'realtime', outputMime: result.mimeType })
+  return result
 }
