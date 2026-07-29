@@ -1,4 +1,4 @@
-import { useRef, useState, type MutableRefObject } from 'react'
+import { useCallback, useRef, useState, type MutableRefObject } from 'react'
 import { BlobVideo } from './blob-video'
 import { IconPause, IconPlay } from './icons'
 import type { ClipRecord } from '../lib/types'
@@ -34,34 +34,42 @@ export function EditorClipPreview({ clip, apiRef }: EditorClipPreviewProps) {
   const mediaRef = useRef<HTMLVideoElement | null>(null)
   const [playing, setPlaying] = useState(false)
 
-  const bindVideo = (video: HTMLVideoElement | null) => {
-    mediaRef.current = video
-    if (!apiRef) return
-    if (!video) {
-      apiRef.current = null
-      return
-    }
-    apiRef.current = {
-      seekToMs: (timeMs: number) => {
-        const el = mediaRef.current
-        if (!el) return
-        el.pause()
-        setPlaying(false)
-        const sec = Math.max(0, Math.min(timeMs, clip.durationMs)) / 1000
-        if (Math.abs(el.currentTime - sec) > 0.02) {
-          el.currentTime = sec
-        } else {
-          nudgeFrame(el)
-        }
-      },
-      pause: () => {
-        const el = mediaRef.current
-        if (!el) return
-        el.pause()
-        setPlaying(false)
-      },
-    }
-  }
+  // Bound to the element's mount/unmount (not the first media event) so the
+  // imperative handle works immediately — early pause()/seekToMs() calls on a
+  // still-loading clip must act instead of silently no-oping (#58).
+  const durationMsRef = useRef(clip.durationMs)
+  durationMsRef.current = clip.durationMs
+  const bindVideo = useCallback(
+    (video: HTMLVideoElement | null) => {
+      mediaRef.current = video
+      if (!apiRef) return
+      if (!video) {
+        apiRef.current = null
+        return
+      }
+      apiRef.current = {
+        seekToMs: (timeMs: number) => {
+          const el = mediaRef.current
+          if (!el) return
+          el.pause()
+          setPlaying(false)
+          const sec = Math.max(0, Math.min(timeMs, durationMsRef.current)) / 1000
+          if (Math.abs(el.currentTime - sec) > 0.02) {
+            el.currentTime = sec
+          } else {
+            nudgeFrame(el)
+          }
+        },
+        pause: () => {
+          const el = mediaRef.current
+          if (!el) return
+          el.pause()
+          setPlaying(false)
+        },
+      }
+    },
+    [apiRef],
+  )
 
   const togglePlayback = () => {
     const video = mediaRef.current
@@ -90,12 +98,12 @@ export function EditorClipPreview({ clip, apiRef }: EditorClipPreviewProps) {
       <BlobVideo
         key={remountKey}
         blob={clip.blob}
+        videoRef={bindVideo}
         className="editor-clip-preview"
         playsInline
         preload="auto"
         onLoadedData={(event) => {
           const video = event.currentTarget
-          bindVideo(video)
           if (Math.abs(video.currentTime - startSec) > 0.04) {
             video.currentTime = startSec
             return
@@ -103,12 +111,10 @@ export function EditorClipPreview({ clip, apiRef }: EditorClipPreviewProps) {
           nudgeFrame(video)
         }}
         onSeeked={(event) => {
-          bindVideo(event.currentTarget)
           if (event.currentTarget.paused) nudgeFrame(event.currentTarget)
         }}
         onTimeUpdate={(event) => {
           const video = event.currentTarget
-          bindVideo(video)
           if (!video.paused && video.currentTime >= endSec - 0.02) {
             video.pause()
             video.currentTime = endSec

@@ -93,6 +93,8 @@ export function ProjectPage() {
   const [toast, setToast] = useState<ToastState | null>(null)
   const [exportState, setExportState] = useState<ExportUiState | null>(null)
   const [restoring, setRestoring] = useState(false)
+  /** A share/save is in flight — the export sheet must not dismiss under it. */
+  const [exportActionBusy, setExportActionBusy] = useState(false)
 
   const refresh = useCallback(() => {
     startTransition(() => {
@@ -278,6 +280,7 @@ export function ProjectPage() {
           notice={exportState.notice}
           watermarked={exportState.watermarked}
           purchased={data.watermarkRemoved}
+          busy={exportActionBusy}
           onRemoveWatermark={() => {
             window.open(REMOVE_WATERMARK_LINK, '_blank', 'noopener')
           }}
@@ -292,6 +295,7 @@ export function ProjectPage() {
           onShare={() => {
             const result = exportState.result
             if (!result || !exportFilename) return
+            setExportActionBusy(true)
             void shareFile(result.blob, exportFilename)
               .then((outcome) => {
                 // A cancel (AbortError → 'cancelled') is a routine user action,
@@ -301,18 +305,31 @@ export function ProjectPage() {
               .catch(() => {
                 setExportNotice('Sharing failed — try Save instead.')
               })
+              .finally(() => setExportActionBusy(false))
           }}
           onSave={() => {
             const result = exportState.result
             if (!result || !exportFilename) return
-            void downloadBlob(result.blob, exportFilename).then(() => {
-              setExportNotice('Saved — check your downloads.')
-            })
+            setExportActionBusy(true)
+            void downloadBlob(result.blob, exportFilename)
+              .then(() => {
+                setExportNotice('Saved — check your downloads.')
+              })
+              .catch(() => {
+                setExportNotice('Saving failed — try again.')
+              })
+              .finally(() => setExportActionBusy(false))
           }}
           onSaveClips={() => {
-            void downloadClipsAsSeparateFiles(clips, project.name).then(() => {
-              setExportNotice('Saving original clips — allow multiple downloads if asked.')
-            })
+            setExportActionBusy(true)
+            void downloadClipsAsSeparateFiles(clips, project.name)
+              .then(() => {
+                setExportNotice('Saving original clips — allow multiple downloads if asked.')
+              })
+              .catch(() => {
+                setExportNotice('Saving failed — try again.')
+              })
+              .finally(() => setExportActionBusy(false))
           }}
           onRetry={startExport}
           onClose={closeExport}

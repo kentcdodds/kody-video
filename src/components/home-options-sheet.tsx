@@ -1,3 +1,5 @@
+import { useSheetModal } from '../hooks/use-sheet-modal'
+
 interface HomeOptionsSheetProps {
   projectName: string
   onOpen: () => void
@@ -16,10 +18,17 @@ export function HomeOptionsSheet({
   onDelete,
   onClose,
 }: HomeOptionsSheetProps) {
+  const bindSheet = useSheetModal({ onDismiss: onClose })
   return (
     <>
       <div className="sheet-backdrop" onClick={onClose} />
-      <div className="sheet home-options-sheet" role="dialog" aria-label={`Options for ${projectName}`}>
+      <div
+        className="sheet home-options-sheet"
+        role="dialog"
+        aria-modal="true"
+        aria-label={`Options for ${projectName}`}
+        ref={bindSheet}
+      >
         <h3>{projectName}</h3>
         <p className="sheet-lede muted">What do you want to do?</p>
         <div className="home-options-list">

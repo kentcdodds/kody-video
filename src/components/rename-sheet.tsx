@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { useSheetModal } from '../hooks/use-sheet-modal'
 
 interface RenameSheetProps {
   initialName: string
@@ -19,6 +20,7 @@ export function RenameSheet({
   const [name, setName] = useState(initialName)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const bindSheet = useSheetModal({ onDismiss: onClose, busy })
 
   return (
     <>
@@ -28,7 +30,7 @@ export function RenameSheet({
           if (!busy) onClose()
         }}
       />
-      <div className="sheet" role="dialog" aria-label={title}>
+      <div className="sheet" role="dialog" aria-modal="true" aria-label={title} ref={bindSheet}>
         <h3>{title}</h3>
         <div className="field">
           <label htmlFor="project-name">Name</label>
