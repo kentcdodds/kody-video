@@ -6,6 +6,11 @@ import { getLocationFix, type LocationFix } from '../lib/location'
 import { reportError } from '../lib/error-reporting'
 import { appendRecording, removeClip, undoLastDelete } from '../lib/project-actions'
 import { HoldRecorder } from '../lib/recorder'
+import {
+  isScreenRecordingSupported,
+  startScreenRecording,
+  type ScreenRecordingSession,
+} from '../lib/screen-recorder'
 import { setLocationTaggingEnabled } from '../lib/storage'
 import {
   formatStoragePercent,
@@ -21,6 +26,7 @@ import {
   IconLens,
   IconLocation,
   IconPlay,
+  IconScreen,
   IconTimer,
   IconTorch,
 } from './icons'
@@ -144,13 +150,20 @@ export function RecordScreen({
   const zoomRestoreActiveRef = useRef(false)
   const stageRef = useRef<HTMLDivElement | null>(null)
 
+  const screenSessionRef = useRef<ScreenRecordingSession | null>(null)
+  /** True while the surface picker or a save is in flight. */
+  const screenBusyRef = useRef(false)
+
   const [recording, setRecording] = useState(false)
   const [recordingMode, setRecordingMode] = useState<RecordingMode | null>(null)
   const [recordStartedAt, setRecordStartedAt] = useState(0)
   const [countdown, setCountdown] = useState<number | null>(null)
+  const [screenRecording, setScreenRecording] = useState(false)
+  const [screenRecordStartedAt, setScreenRecordStartedAt] = useState(0)
   const [locationTagging, setLocationTagging] = useState(locationTaggingEnabled)
   locationTaggingRef.current = locationTagging
 
+  const screenRecordingSupported = isScreenRecordingSupported()
   const totalDurationMs = clips.reduce((sum, clip) => sum + effectiveDurationMs(clip), 0)
   const zoomLevels = camera.zoom ? zoomChipLevels(camera.zoom) : []
   const activeZoomLevel =
@@ -213,6 +226,60 @@ export function RecordScreen({
     wakeLockRef.current = null
   }, [])
 
+  /** Stops the active screen capture and appends it as a clip. Idempotent. */
+  const finishScreenRecord = useCallback(async () => {
+    const session = screenSessionRef.current
+    if (!session) return
+    screenSessionRef.current = null
+    screenBusyRef.current = true
+    setScreenRecording(false)
+    try {
+      const result = await session.stop()
+      if (!result) {
+        showToast('Screen take was too short')
+        return
+      }
+      await appendRecording(project.id, result)
+      refresh()
+      showToast('Screen clip added')
+    } catch (err) {
+      reportError(err, 'screen-record')
+      showToast('Could not save the screen recording')
+    } finally {
+      screenBusyRef.current = false
+    }
+  }, [project.id, refresh, showToast])
+
+  const startScreenRecord = useCallback(() => {
+    void (async () => {
+      if (
+        screenSessionRef.current ||
+        screenBusyRef.current ||
+        recorderRef.current.isRecording ||
+        lockedRef.current ||
+        countdown !== null
+      ) {
+        return
+      }
+      screenBusyRef.current = true
+      try {
+        const session = await startScreenRecording()
+        screenSessionRef.current = session
+        setScreenRecordStartedAt(performance.now())
+        setScreenRecording(true)
+        // The browser's own "Stop sharing" control must save too.
+        session.setOnEnded(() => void finishScreenRecord())
+      } catch (err) {
+        // Cancelling the surface picker is a decision, not an error.
+        if (!(err instanceof DOMException && err.name === 'NotAllowedError')) {
+          showToast(err instanceof Error ? err.message : 'Screen recording failed')
+        }
+      } finally {
+        screenBusyRef.current = false
+      }
+    })()
+  }, [countdown, finishScreenRecord, showToast])
+
   const beginRecord = useCallback(
     async (pointerId: number | null, nextRecordingMode: RecordingMode): Promise<boolean> => {
       if (
@@ -222,6 +289,10 @@ export function RecordScreen({
         lockedRef.current ||
         countdown !== null
       ) {
+        return false
+      }
+      if (screenSessionRef.current) {
+        showToast('Stop the screen recording first')
         return false
       }
       if (!camera.getStream() || !camera.isReady) {
@@ -362,6 +433,7 @@ export function RecordScreen({
 
   const startSelfTimer = useCallback(() => {
     if (recording || lockedRef.current || countdown !== null) return
+    if (screenSessionRef.current) return
     if (!camera.getStream() || !camera.isReady) {
       showToast('Camera not ready')
       return
@@ -441,8 +513,10 @@ export function RecordScreen({
     clearCountdown()
     cancelAnimationFrame(zoomRestoreRafRef.current)
     recorderRef.current.cancel()
+    // Leaving the screen mustn't lose an active screen take — save it.
+    void finishScreenRecord()
     releaseWakeLock()
-  }, [clearCountdown, releaseWakeLock])
+  }, [clearCountdown, finishScreenRecord, releaseWakeLock])
 
   // Release the camera whenever the app leaves the foreground — Android keeps
   // the privacy indicator (green dot) lit as long as any track is live. An
@@ -544,6 +618,12 @@ export function RecordScreen({
           if (!recording && countdown === null) startSelfTimer()
           return
         }
+        case 'KeyS': {
+          if (recording || countdown !== null) return
+          if (screenSessionRef.current) void finishScreenRecord()
+          else if (screenRecordingSupported) startScreenRecord()
+          return
+        }
         case 'Backspace':
         case 'Delete': {
           // Without this, Backspace can also trigger history navigation.
@@ -605,6 +685,12 @@ export function RecordScreen({
         className="record-stage"
         onPointerDown={(event) => {
           if (event.button !== 0) return
+          // While recording the screen, the whole stage is the stop button
+          // (matching the hands-free "tap to stop" language).
+          if (screenSessionRef.current) {
+            void finishScreenRecord()
+            return
+          }
           if (countdown !== null) {
             clearCountdown()
             showToast('Timer canceled')
@@ -713,13 +799,23 @@ export function RecordScreen({
           </div>
         ) : null}
 
+        {screenRecording ? (
+          <div className="record-overlay">
+            <div className="record-pill" aria-live="polite">
+              <span className="record-dot" />
+              <span className="record-pill-label">SCREEN — TAP TO STOP</span>
+              <RecordTimer startedAt={screenRecordStartedAt} className="record-elapsed" />
+            </div>
+          </div>
+        ) : null}
+
         {countdown !== null ? (
           <div className="countdown-overlay" aria-live="assertive">
             <span className="countdown-number">{countdown}</span>
           </div>
         ) : null}
 
-        {!recording && countdown === null && camera.isReady ? (
+        {!recording && !screenRecording && countdown === null && camera.isReady ? (
           <div className={`hold-hint${clips.length > 0 ? ' hold-hint-subtle' : ''}`}>
             <strong>Hold anywhere</strong>
             <span>release to stop</span>
@@ -770,6 +866,21 @@ export function RecordScreen({
           ) : null}
         </div>
         <div className="record-top-actions">
+          {screenRecordingSupported ? (
+            <button
+              type="button"
+              className={`btn-icon${screenRecording ? ' is-active' : ''}`}
+              aria-label={screenRecording ? 'Stop screen recording' : 'Record your screen'}
+              aria-pressed={screenRecording}
+              disabled={recording || countdown !== null}
+              onClick={() => {
+                if (screenSessionRef.current) void finishScreenRecord()
+                else startScreenRecord()
+              }}
+            >
+              <IconScreen on={screenRecording} />
+            </button>
+          ) : null}
           {camera.torchAvailable ? (
             <button
               type="button"
@@ -846,8 +957,13 @@ export function RecordScreen({
       ) : null}
 
       <div className="key-hints" aria-hidden="true">
-        Hold <kbd>Space</kbd> record · <kbd>F</kbd> flip · <kbd>T</kbd> timer · <kbd>E</kbd> editor ·{' '}
-        <kbd>P</kbd> play · <kbd>⌫</kbd> delete last
+        Hold <kbd>Space</kbd> record · <kbd>F</kbd> flip · <kbd>T</kbd> timer ·{' '}
+        {screenRecordingSupported ? (
+          <>
+            <kbd>S</kbd> screen ·{' '}
+          </>
+        ) : null}
+        <kbd>E</kbd> editor · <kbd>P</kbd> play · <kbd>⌫</kbd> delete last
       </div>
 
       <div className="record-dock">
@@ -856,7 +972,7 @@ export function RecordScreen({
             type="button"
             className="btn-icon"
             aria-label="Open editor"
-            disabled={recording}
+            disabled={recording || screenRecording}
             onClick={() => {
               camera.releaseMic()
               onOpenEditor()
@@ -868,7 +984,7 @@ export function RecordScreen({
             type="button"
             className="btn-icon"
             aria-label="Self-timer"
-            disabled={recording || countdown !== null}
+            disabled={recording || screenRecording || countdown !== null}
             onClick={startSelfTimer}
           >
             <IconTimer />
@@ -887,7 +1003,7 @@ export function RecordScreen({
             type="button"
             className="btn-icon"
             aria-label="Play project preview"
-            disabled={recording || clips.length === 0}
+            disabled={recording || screenRecording || clips.length === 0}
             onClick={onPlay}
           >
             <IconPlay />
@@ -896,7 +1012,7 @@ export function RecordScreen({
             type="button"
             className="btn-icon"
             aria-label="Delete last clip"
-            disabled={recording || clips.length === 0}
+            disabled={recording || screenRecording || clips.length === 0}
             onClick={deleteLastClip}
           >
             <IconDeleteLast />
@@ -905,7 +1021,7 @@ export function RecordScreen({
         <button
           type="button"
           className="go-button"
-          disabled={clips.length === 0 || recording}
+          disabled={clips.length === 0 || recording || screenRecording}
           onClick={onOpenExport}
         >
           Go

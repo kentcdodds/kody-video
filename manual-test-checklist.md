@@ -30,6 +30,15 @@ Run locally with HTTPS or `localhost` (`npm run dev`). Camera/mic require a secu
 - [ ] Multiple holds create multiple clips; total duration in the top bar updates
 - [ ] Backspace button deletes the last clip; toast offers Undo
 
+## Screen recording (desktop only)
+- [ ] Monitor button (and `S`) appears on desktop browsers; absent on Android/iOS
+- [ ] Picking a surface starts the take; the "SCREEN — TAP TO STOP" pill shows with elapsed time
+- [ ] Tapping the preview, the monitor button, `S`, or the browser's own "Stop sharing" all save the clip
+- [ ] Mic narration is recorded (and mixed with tab/system audio when shared); a denied mic still records video
+- [ ] Cancelling the surface picker shows no error
+- [ ] Hold-to-record, self-timer, editor, play, and Go are blocked while a screen take runs
+- [ ] Leaving the camera view mid-take saves the clip
+
 ## Editor
 - [ ] Scissors button opens the editor; stage shows the selected clip
 - [ ] Timeline tiles are wider for longer clips and show real thumbnails
