@@ -28,10 +28,6 @@ import { MAX_PROJECTS, formatDuration, type ClipRecord } from '../lib/types'
 /** Android share targets get flaky well below this; bigger backups download. */
 const SHARE_BACKUP_LIMIT_BYTES = 50 * 1024 * 1024
 
-function isIOS(): boolean {
-  return /iPad|iPhone|iPod/.test(navigator.userAgent)
-}
-
 /** The pre-custom-domain deployment; nudge people to migrate to kody.video. */
 function isLegacyOrigin(): boolean {
   return location.hostname === 'kody-video.pages.dev'
@@ -255,13 +251,6 @@ export function HomePage() {
           ),
         )}
       </section>
-
-      {isIOS() ? (
-        <p className="home-ios-note">
-          Heads up: iPhone/iPad support is experimental — Kody Video works best in Chrome on
-          Android.
-        </p>
-      ) : null}
 
       <p className="home-privacy">
         Clips stay on this phone until you share.
