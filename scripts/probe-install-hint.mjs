@@ -18,11 +18,17 @@ const base = 'http://localhost:4183'
 const browser = await chromium.launch()
 const failures = []
 
-async function hintVisible(ua, setup) {
+async function hintVisible(ua, { standalone = false } = {}) {
   const context = await browser.newContext({ userAgent: ua, viewport: { width: 390, height: 844 } })
   const page = await context.newPage()
+  if (standalone) {
+    // Must be registered before navigation: HomePage checks eligibility
+    // during its first render.
+    await page.addInitScript(() => {
+      Object.defineProperty(navigator, 'standalone', { get: () => true })
+    })
+  }
   await page.goto(base)
-  if (setup) await setup(page)
   const visible = await page
     .locator('.home-install-hint')
     .isVisible()
@@ -34,6 +40,9 @@ async function hintVisible(ua, setup) {
 if (!(await hintVisible(IOS_SAFARI_UA))) failures.push('iOS Safari should show the hint')
 if (await hintVisible(ANDROID_UA)) failures.push('Android should not show the hint')
 if (await hintVisible(IOS_WEBVIEW_UA)) failures.push('iOS bare WebView should not show the hint')
+if (await hintVisible(IOS_SAFARI_UA, { standalone: true })) {
+  failures.push('installed (standalone) app should not show the hint')
+}
 
 {
   const context = await browser.newContext({
