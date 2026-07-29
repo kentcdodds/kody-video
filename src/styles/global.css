@@ -32,6 +32,20 @@
   --tap: 44px;
 }
 
+/* iOS 26.1 WebKit regression (bug #301994): env(safe-area-inset-top) reports
+   0px inside installed home-screen apps, so everything padded by --safe-top
+   slides under the status bar / Dynamic Island. Enforce a status-bar-sized
+   floor there. 59px clears the Dynamic Island; max() defers to the real
+   env() value the moment Apple fixes it. Scoped to iOS (touch-callout) in
+   standalone display so browsers, Android, and desktop PWAs are untouched. */
+@supports (-webkit-touch-callout: none) {
+  @media (display-mode: standalone) and (pointer: coarse) {
+    :root {
+      --safe-top: max(env(safe-area-inset-top, 0px), 59px);
+    }
+  }
+}
+
 @media (prefers-color-scheme: light) {
   :root {
     color-scheme: light;
