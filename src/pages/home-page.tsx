@@ -4,7 +4,7 @@ import { BlobImage } from '../components/blob-image'
 import { BrandMark } from '../components/brand-mark'
 import { ConfirmSheet } from '../components/confirm-sheet'
 import { HomeOptionsSheet } from '../components/home-options-sheet'
-import { IconMore, IconPlus } from '../components/icons'
+import { IconClose, IconMore, IconPlus, IconShareIos } from '../components/icons'
 import { RenameSheet } from '../components/rename-sheet'
 import { downloadBlob, shareOrDownload } from '../lib/media'
 import { loadHomePage, type HomeLoaderData, type ProjectSummary } from '../lib/project-actions'
@@ -17,6 +17,7 @@ import {
 import { createProject, deleteProject, getClipsForProject, renameProject } from '../lib/storage'
 import { reportError } from '../lib/error-reporting'
 import { canPromptInstall, promptInstall, subscribeInstallPrompt } from '../lib/install-prompt'
+import { dismissIosInstallHint, shouldShowIosInstallHint } from '../lib/install-hint'
 import {
   formatBytes,
   formatStoragePercent,
@@ -48,6 +49,7 @@ export function HomePage() {
   const [busy, setBusy] = useState(false)
   const [notice, setNotice] = useState<string | null>(null)
   const [importProgress, setImportProgress] = useState<string | null>(null)
+  const [showInstallHint, setShowInstallHint] = useState(shouldShowIosInstallHint)
   // Prefetched when the options sheet opens so the Save-backup tap keeps its
   // user activation (Web Share needs it; an IndexedDB read can outlive it).
   const prefetchedClipsRef = useRef<{ projectId: string; clips: Promise<ClipRecord[]> } | null>(
@@ -191,6 +193,30 @@ export function HomePage() {
               ? ` Free space fast: delete an old project (⋯ on “${oldestProject.name}”, then Delete).`
               : ' Free space by clearing other site data or files on this device.'}
           </span>
+        </div>
+      ) : null}
+
+      {showInstallHint ? (
+        <div className="home-install-hint">
+          <span className="install-hint-icon" aria-hidden="true">
+            <IconShareIos size={18} />
+          </span>
+          <span>
+            Install Kody Video: tap <strong>Share</strong>, then{' '}
+            <strong>Add to Home Screen</strong> — full screen, and your clips are safer from
+            Safari&rsquo;s storage cleanup.
+          </span>
+          <button
+            type="button"
+            className="install-hint-dismiss"
+            aria-label="Dismiss install tip"
+            onClick={() => {
+              dismissIosInstallHint()
+              setShowInstallHint(false)
+            }}
+          >
+            <IconClose size={16} />
+          </button>
         </div>
       ) : null}
 
