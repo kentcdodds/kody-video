@@ -90,7 +90,7 @@ export function ExportSheet({
               >
                 Save
               </button>
-              <button type="button" className="btn btn-ghost" onClick={onClose}>
+              <button type="button" className="btn btn-ghost" onClick={onClose} disabled={busy}>
                 Done
               </button>
             </div>
@@ -126,7 +126,7 @@ export function ExportSheet({
               <button type="button" className="btn btn-secondary" onClick={onSaveClips} disabled={busy}>
                 Save clips instead
               </button>
-              <button type="button" className="btn btn-ghost" onClick={onClose}>
+              <button type="button" className="btn btn-ghost" onClick={onClose} disabled={busy}>
                 Close
               </button>
             </div>
