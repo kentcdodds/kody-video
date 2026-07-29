@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { Link } from 'react-router-dom'
+import { IconBack } from '../components/icons'
 import { BrandMark } from '../components/brand-mark'
 import { checkForUpdates } from '../lib/app-update'
 import { buildDateLabel, shortVersion } from '../lib/build-info'
@@ -68,7 +69,7 @@ export function AboutPage() {
     <div className="screen about-screen">
       <div className="about-top">
         <Link to="/" className="btn-icon" aria-label="Back to projects">
-          ←
+          <IconBack />
         </Link>
         <strong>About</strong>
         <span className="about-top-spacer" aria-hidden="true" />
