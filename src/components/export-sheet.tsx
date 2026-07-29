@@ -120,7 +120,7 @@ export function ExportSheet({
             <p className="sheet-message is-error">{error ?? 'Something went wrong.'}</p>
             {notice ? <p className="sheet-message">{notice}</p> : null}
             <div className="sheet-actions">
-              <button type="button" className="btn btn-primary" onClick={onRetry}>
+              <button type="button" className="btn btn-primary" onClick={onRetry} disabled={busy}>
                 Try again
               </button>
               <button type="button" className="btn btn-secondary" onClick={onSaveClips} disabled={busy}>
