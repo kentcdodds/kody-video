@@ -294,7 +294,9 @@ export function ProjectPage() {
             if (!result || !exportFilename) return
             void shareFile(result.blob, exportFilename)
               .then((outcome) => {
-                setExportNotice(outcome === 'shared' ? 'Shared!' : 'Share canceled.')
+                // A cancel (AbortError → 'cancelled') is a routine user action,
+                // not something worth announcing — only confirm real shares.
+                if (outcome === 'shared') setExportNotice('Shared!')
               })
               .catch(() => {
                 setExportNotice('Sharing failed — try Save instead.')
