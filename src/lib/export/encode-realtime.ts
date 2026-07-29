@@ -8,8 +8,10 @@ import {
   drawWatermark,
   loadClipVideo,
   pickOutputSize,
+  recordVideoLumaSample,
   seekTo,
   wait,
+  waitForPreviewCanvas,
   type ExportResult,
 } from './shared'
 
@@ -264,6 +266,9 @@ async function paintSegment({
         if (frameCounter.count % PREVIEW_EVERY_N_FRAMES === 0) {
           blitPreview(canvas, getPreviewCanvas?.())
         }
+        if (frameCounter.count % 30 === 0) {
+          recordVideoLumaSample(canvas)
+        }
         frameCounter.count += 1
         onElapsedMs(Math.min(segmentSec, elapsed) * 1000)
         raf = requestAnimationFrame(draw)
@@ -285,20 +290,6 @@ async function paintSegment({
       // already ended
     }
     bufferSource?.disconnect()
-  }
-}
-
-/** The export overlay mounts just after the export starts — wait briefly. */
-async function waitForPreviewCanvas(
-  getPreviewCanvas: (() => HTMLCanvasElement | null) | undefined,
-): Promise<HTMLCanvasElement | null> {
-  if (!getPreviewCanvas) return null
-  const deadline = performance.now() + 1500
-  for (;;) {
-    const canvas = getPreviewCanvas()
-    if (canvas?.isConnected) return canvas
-    if (performance.now() > deadline) return null
-    await wait(50)
   }
 }
 
