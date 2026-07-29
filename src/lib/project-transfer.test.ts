@@ -102,6 +102,39 @@ describe('project backup round trip', () => {
     await expect(parseProjectBackup(truncated)).rejects.toThrow(/damaged/i)
   })
 
+  it('rejects a manifest with a non-integer clip byteLength', async () => {
+    // A fractional byteLength would pass a Number.isFinite check but make the
+    // clip byte offsets drift, misaligning (and silently corrupting) every
+    // subsequent clip instead of failing cleanly.
+    const manifest = {
+      version: 1,
+      app: 'kody-video',
+      exportedAt: 1,
+      projectName: 'Fractional',
+      clips: [
+        {
+          mimeType: 'video/mp4',
+          durationMs: 1500,
+          trimStartMs: 0,
+          trimEndMs: 1500,
+          createdAt: 1,
+          byteLength: 4.5,
+        },
+      ],
+    }
+    const manifestBytes = new TextEncoder().encode(JSON.stringify(manifest))
+    const magic = new TextEncoder().encode('KODYVID1')
+    const header = new Uint8Array(magic.byteLength + 4)
+    header.set(magic, 0)
+    new DataView(header.buffer).setUint32(magic.byteLength, manifestBytes.byteLength)
+    // Provide plenty of media bytes so the offset + byteLength <= size guard
+    // passes and the integer check is what does the rejecting.
+    const media = new TextEncoder().encode('AAAAAAAA')
+    const backup = new Blob([header, manifestBytes, media])
+
+    await expect(parseProjectBackup(backup)).rejects.toThrow(/damaged/i)
+  })
+
   it('builds a sensible filename', () => {
     expect(projectBackupFilename('Röad Trip!!')).toBe('r-ad-trip.kodyvideo')
     expect(projectBackupFilename('   ')).toBe('project.kodyvideo')
