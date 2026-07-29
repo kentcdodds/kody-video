@@ -6,6 +6,10 @@ interface SheetModalOptions {
   busy?: boolean
 }
 
+/** Mounted sheets, in stacking order — only the topmost owns the keyboard
+ * (RestoreSheet opens on top of ExportSheet; Escape must peel one layer). */
+const sheetStack: HTMLElement[] = []
+
 /**
  * Modal behavior for bottom sheets: Escape dismisses (unless busy), Tab is
  * trapped inside the sheet, initial focus lands on `[data-sheet-focus]` (or
@@ -23,6 +27,9 @@ export function useSheetModal({ onDismiss, busy }: SheetModalOptions): RefCallba
   const onKeyDown = useCallback((event: KeyboardEvent) => {
     const element = elementRef.current
     if (!element) return
+    // Stacked sheets: only the topmost handles keys (the lower sheet's
+    // listener must neither trap Tab nor dismiss on the same Escape).
+    if (sheetStack[sheetStack.length - 1] !== element) return
     if (event.key === 'Escape') {
       // Capture-phase stop: the sheet's Escape must never also trigger
       // screen-level shortcuts (e.g. the editor's back-to-camera).
@@ -64,6 +71,7 @@ export function useSheetModal({ onDismiss, busy }: SheetModalOptions): RefCallba
     (element: HTMLElement | null) => {
       if (element) {
         elementRef.current = element
+        sheetStack.push(element)
         previousFocusRef.current =
           document.activeElement instanceof HTMLElement ? document.activeElement : null
         window.addEventListener('keydown', onKeyDown, true)
@@ -74,6 +82,8 @@ export function useSheetModal({ onDismiss, busy }: SheetModalOptions): RefCallba
           )
         initial?.focus()
       } else {
+        const index = elementRef.current ? sheetStack.indexOf(elementRef.current) : -1
+        if (index >= 0) sheetStack.splice(index, 1)
         elementRef.current = null
         window.removeEventListener('keydown', onKeyDown, true)
         previousFocusRef.current?.focus()
