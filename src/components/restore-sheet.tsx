@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { useSheetModal } from '../hooks/use-sheet-modal'
 import { extractSessionId, verifyPurchaseSession } from '../lib/entitlement'
 
 interface RestoreSheetProps {
@@ -14,6 +15,7 @@ export function RestoreSheet({ onRestored, onClose }: RestoreSheetProps) {
   const [value, setValue] = useState('')
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const bindSheet = useSheetModal({ onDismiss: onClose, busy })
 
   return (
     <>
@@ -23,7 +25,7 @@ export function RestoreSheet({ onRestored, onClose }: RestoreSheetProps) {
           if (!busy) onClose()
         }}
       />
-      <div className="sheet" role="dialog" aria-label="Restore purchase">
+      <div className="sheet" role="dialog" aria-modal="true" aria-label="Restore purchase" ref={bindSheet}>
         <h3>Restore purchase</h3>
         <p className="muted sheet-lede">
           Paste the confirmation link from your Stripe receipt email (or the checkout session id

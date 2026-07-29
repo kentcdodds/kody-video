@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { useSheetModal } from '../hooks/use-sheet-modal'
 
 interface ConfirmSheetProps {
   title: string
@@ -19,6 +20,7 @@ export function ConfirmSheet({
   onClose,
 }: ConfirmSheetProps) {
   const [busy, setBusy] = useState(false)
+  const bindSheet = useSheetModal({ onDismiss: onClose, busy })
 
   return (
     <>
@@ -28,11 +30,24 @@ export function ConfirmSheet({
           if (!busy) onClose()
         }}
       />
-      <div className="sheet confirm-sheet" role="dialog" aria-label={title}>
+      <div
+        className="sheet confirm-sheet"
+        role="dialog"
+        aria-modal="true"
+        aria-label={title}
+        ref={bindSheet}
+      >
         <h3>{title}</h3>
         <p className="sheet-lede muted">{message}</p>
         <div className="sheet-actions">
-          <button type="button" className="btn btn-ghost" onClick={onClose} disabled={busy}>
+          {/* Destructive dialog: initial focus lands on the safe action. */}
+          <button
+            type="button"
+            className="btn btn-ghost"
+            onClick={onClose}
+            disabled={busy}
+            data-sheet-focus
+          >
             {cancelLabel}
           </button>
           <button

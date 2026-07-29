@@ -1,3 +1,4 @@
+import { useSheetModal } from '../hooks/use-sheet-modal'
 import { BrandMark } from './brand-mark'
 
 export type ExportStatus = 'exporting' | 'ready' | 'error'
@@ -16,6 +17,8 @@ interface ExportSheetProps {
   watermarked: boolean
   /** True when the removal purchase is unlocked (may change mid-sheet). */
   purchased: boolean
+  /** A share/save is in flight — dismissal would drop its result notice. */
+  busy: boolean
   onShare: () => void
   onSave: () => void
   onSaveClips: () => void
@@ -39,6 +42,7 @@ export function ExportSheet({
   notice,
   watermarked,
   purchased,
+  busy,
   onShare,
   onSave,
   onSaveClips,
@@ -47,10 +51,22 @@ export function ExportSheet({
   onRetry,
   onClose,
 }: ExportSheetProps) {
+  const bindSheet = useSheetModal({ onDismiss: onClose, busy })
   return (
     <>
-      <div className="sheet-backdrop" onClick={onClose} />
-      <div className="sheet export-sheet" role="dialog" aria-label="Share project">
+      <div
+        className="sheet-backdrop"
+        onClick={() => {
+          if (!busy) onClose()
+        }}
+      />
+      <div
+        className="sheet export-sheet"
+        role="dialog"
+        aria-modal="true"
+        aria-label="Share project"
+        ref={bindSheet}
+      >
         {status === 'ready' ? (
           <>
             <BrandMark size={84} className="export-celebrate-art" variant="share" />
@@ -62,7 +78,7 @@ export function ExportSheet({
             {notice ? <p className="sheet-message">{notice}</p> : null}
             <div className="sheet-actions">
               {canShare ? (
-                <button type="button" className="btn btn-primary" onClick={onShare}>
+                <button type="button" className="btn btn-primary" onClick={onShare} disabled={busy}>
                   Share
                 </button>
               ) : null}
@@ -70,10 +86,11 @@ export function ExportSheet({
                 type="button"
                 className={`btn ${canShare ? 'btn-secondary' : 'btn-primary'}`}
                 onClick={onSave}
+                disabled={busy}
               >
                 Save
               </button>
-              <button type="button" className="btn btn-ghost" onClick={onClose}>
+              <button type="button" className="btn btn-ghost" onClick={onClose} disabled={busy}>
                 Done
               </button>
             </div>
@@ -103,13 +120,13 @@ export function ExportSheet({
             <p className="sheet-message is-error">{error ?? 'Something went wrong.'}</p>
             {notice ? <p className="sheet-message">{notice}</p> : null}
             <div className="sheet-actions">
-              <button type="button" className="btn btn-primary" onClick={onRetry}>
+              <button type="button" className="btn btn-primary" onClick={onRetry} disabled={busy}>
                 Try again
               </button>
-              <button type="button" className="btn btn-secondary" onClick={onSaveClips}>
+              <button type="button" className="btn btn-secondary" onClick={onSaveClips} disabled={busy}>
                 Save clips instead
               </button>
-              <button type="button" className="btn btn-ghost" onClick={onClose}>
+              <button type="button" className="btn btn-ghost" onClick={onClose} disabled={busy}>
                 Close
               </button>
             </div>

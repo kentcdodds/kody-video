@@ -93,6 +93,11 @@ export function ProjectPage() {
   const [toast, setToast] = useState<ToastState | null>(null)
   const [exportState, setExportState] = useState<ExportUiState | null>(null)
   const [restoring, setRestoring] = useState(false)
+  /** In-flight share/save COUNT (concurrent actions must not clear each
+   * other's busy state) — the export sheet must not dismiss while > 0. */
+  const [exportActionCount, setExportActionCount] = useState(0)
+  const beginExportAction = () => setExportActionCount((count) => count + 1)
+  const endExportAction = () => setExportActionCount((count) => Math.max(0, count - 1))
 
   const refresh = useCallback(() => {
     startTransition(() => {
@@ -278,6 +283,7 @@ export function ProjectPage() {
           notice={exportState.notice}
           watermarked={exportState.watermarked}
           purchased={data.watermarkRemoved}
+          busy={exportActionCount > 0}
           onRemoveWatermark={() => {
             window.open(REMOVE_WATERMARK_LINK, '_blank', 'noopener')
           }}
@@ -292,6 +298,7 @@ export function ProjectPage() {
           onShare={() => {
             const result = exportState.result
             if (!result || !exportFilename) return
+            beginExportAction()
             void shareFile(result.blob, exportFilename)
               .then((outcome) => {
                 // A cancel (AbortError → 'cancelled') is a routine user action,
@@ -301,18 +308,31 @@ export function ProjectPage() {
               .catch(() => {
                 setExportNotice('Sharing failed — try Save instead.')
               })
+              .finally(endExportAction)
           }}
           onSave={() => {
             const result = exportState.result
             if (!result || !exportFilename) return
-            void downloadBlob(result.blob, exportFilename).then(() => {
-              setExportNotice('Saved — check your downloads.')
-            })
+            beginExportAction()
+            void downloadBlob(result.blob, exportFilename)
+              .then(() => {
+                setExportNotice('Saved — check your downloads.')
+              })
+              .catch(() => {
+                setExportNotice('Saving failed — try again.')
+              })
+              .finally(endExportAction)
           }}
           onSaveClips={() => {
-            void downloadClipsAsSeparateFiles(clips, project.name).then(() => {
-              setExportNotice('Saving original clips — allow multiple downloads if asked.')
-            })
+            beginExportAction()
+            void downloadClipsAsSeparateFiles(clips, project.name)
+              .then(() => {
+                setExportNotice('Saving original clips — allow multiple downloads if asked.')
+              })
+              .catch(() => {
+                setExportNotice('Saving failed — try again.')
+              })
+              .finally(endExportAction)
           }}
           onRetry={startExport}
           onClose={closeExport}
