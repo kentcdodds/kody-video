@@ -16,10 +16,10 @@ export interface MicLevelMonitor {
 
 /**
  * Watches the stream's audio track through an AnalyserNode (a passive extra
- * consumer — MediaRecorder is unaffected). Calls onSilent once when the
- * take has run past the grace period without any signal above the floor,
- * and onSound if a signal shows up after that (mic recovered / warmed up).
- * Best-effort: any Web Audio failure just means no warning.
+ * consumer — MediaRecorder is unaffected). Calls onSilent when the take has
+ * gone a full grace period without any signal above the floor — whether from
+ * the start or because the mic died mid-take — and onSound whenever signal
+ * (re)appears. Best-effort: any Web Audio failure just means no warning.
  */
 export function startMicLevelMonitor(
   stream: MediaStream,
@@ -62,7 +62,10 @@ export function startMicLevelMonitor(
   }
 
   const samples = new Float32Array(analyser.fftSize)
-  let maxPeak = 0
+  /** When signal was last heard; silence is judged on a rolling window so a
+   * mic dying mid-take gets flagged too, not just one that was dead at the
+   * start. */
+  let lastSoundAt: number | null = null
   let verdict: 'pending' | 'silent' | 'sound' = 'pending'
   startedAt = performance.now()
 
@@ -82,11 +85,14 @@ export function startMicLevelMonitor(
       stop()
       return
     }
+    let tickPeak = 0
     for (let i = 0; i < samples.length; i += 4) {
       const value = Math.abs(samples[i]!)
-      if (value > maxPeak) maxPeak = value
+      if (value > tickPeak) tickPeak = value
     }
-    if (maxPeak >= SILENT_PEAK) {
+    const now = performance.now()
+    if (tickPeak >= SILENT_PEAK) {
+      lastSoundAt = now
       // Signal clears immediately — including a warning a previous take set.
       if (verdict !== 'sound') {
         verdict = 'sound'
@@ -94,8 +100,8 @@ export function startMicLevelMonitor(
       }
       return
     }
-    if (performance.now() - startedAt < GRACE_MS) return
-    if (verdict === 'pending') {
+    if (now - (lastSoundAt ?? startedAt) < GRACE_MS) return
+    if (verdict !== 'silent') {
       verdict = 'silent'
       handlers.onSilent()
     }

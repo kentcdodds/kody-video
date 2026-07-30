@@ -225,6 +225,12 @@ export function useCamera(): UseCameraResult {
       setStream(next)
       attachToVideo(next)
       readTrackCapabilities(next)
+      // iOS: every (re)open is a combined request, so the adopted stream's
+      // audio presence is the freshest mic-permission signal — including
+      // after flips and lens switches.
+      if (HOLD_MIC_WITH_CAMERA) {
+        setMicPermission(next.getAudioTracks().length > 0 ? 'granted' : 'denied')
+      }
       setIsReady(true)
     },
     [attachToVideo, readTrackCapabilities],
@@ -269,9 +275,6 @@ export function useCamera(): UseCameraResult {
         const rememberedLens =
           facingRef.current === 'environment' ? await resolveRememberedLens() : undefined
         const next = await openCombinedOrVideoStream(facingRef.current, rememberedLens)
-        if (HOLD_MIC_WITH_CAMERA) {
-          setMicPermission(next.getAudioTracks().length > 0 ? 'granted' : 'denied')
-        }
         setPermission({ status: 'granted' })
         replaceStream(next)
         setCanFlip(await canFlipCamera())
@@ -432,12 +435,38 @@ export function useCamera(): UseCameraResult {
       return
     }
 
+    /**
+     * iOS-only recovery for a preview that opened without audio (mic was
+     * denied at start, later granted in settings): reopen camera + mic as
+     * one combined request and adopt it. Attaching a separately-acquired
+     * audio track here would recreate the muted-track pattern this module
+     * exists to avoid.
+     */
+    const reopenCombinedStream = async (): Promise<void> => {
+      const current = streamRef.current
+      if (!current) throw new Error('Camera not ready')
+      const epoch = cameraEpochRef.current
+      const deviceId = current.getVideoTracks()[0]?.getSettings().deviceId
+      const next = await openCameraStream(facingRef.current, { audio: true, deviceId })
+      // The camera may have been stopped or swapped while the permission
+      // prompt was open — never adopt into that lifecycle's back.
+      if (cameraEpochRef.current !== epoch || streamRef.current !== current) {
+        stopStream(next)
+        throw new Error('Camera changed while enabling microphone')
+      }
+      replaceStream(next)
+    }
+
     const attachToCurrentStream = async (attempt = 0): Promise<void> => {
       const current = streamRef.current
       if (!current) {
         throw new Error('Camera not ready')
       }
       if (current.getAudioTracks().some((track) => track.readyState === 'live')) return
+      if (HOLD_MIC_WITH_CAMERA) {
+        await reopenCombinedStream()
+        return
+      }
 
       const audioTrack = await openMicrophoneTrack()
       const latest = streamRef.current
@@ -476,7 +505,7 @@ export function useCamera(): UseCameraResult {
     } finally {
       micInFlightRef.current = null
     }
-  }, [])
+  }, [replaceStream])
 
   const stop = useCallback(() => {
     cameraEpochRef.current += 1
