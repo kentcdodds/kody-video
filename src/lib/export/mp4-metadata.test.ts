@@ -2,7 +2,13 @@ import { execFileSync } from 'node:child_process'
 import { existsSync, mkdtempSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { ArrayBufferTarget, Muxer } from 'mp4-muxer'
+import {
+  BufferTarget,
+  EncodedPacket,
+  EncodedVideoPacketSource,
+  Mp4OutputFormat,
+  Output,
+} from 'mediabunny'
 import { describe, expect, it } from 'vitest'
 import { formatIso6709, injectMp4Metadata, type Mp4Chapter } from './mp4-metadata'
 
@@ -13,13 +19,15 @@ const AVC_DESC = new Uint8Array([
   0xf6, 0x01, 0x00, 0x04, 0x68, 0xce, 0x38, 0x80,
 ])
 
-function buildTinyMp4(): ArrayBuffer {
-  const target = new ArrayBufferTarget()
-  const muxer = new Muxer({
+async function buildTinyMp4(): Promise<ArrayBuffer> {
+  const target = new BufferTarget()
+  const output = new Output({
+    format: new Mp4OutputFormat({ fastStart: false }),
     target,
-    video: { codec: 'avc', width: 64, height: 64 },
-    fastStart: false,
   })
+  const source = new EncodedVideoPacketSource('avc')
+  output.addVideoTrack(source)
+  await output.start()
   const meta = {
     decoderConfig: {
       codec: 'avc1.42001e',
@@ -28,9 +36,15 @@ function buildTinyMp4(): ArrayBuffer {
       description: AVC_DESC,
     },
   }
-  muxer.addVideoChunkRaw(new Uint8Array([0, 0, 0, 1, 0x65, 1, 2, 3]), 'key', 0, 33333, meta)
-  muxer.addVideoChunkRaw(new Uint8Array([0, 0, 0, 1, 0x41, 1, 2, 3]), 'delta', 33333, 33333)
-  muxer.finalize()
+  await source.add(
+    new EncodedPacket(new Uint8Array([0, 0, 0, 1, 0x65, 1, 2, 3]), 'key', 0, 0.033333),
+    meta,
+  )
+  await source.add(
+    new EncodedPacket(new Uint8Array([0, 0, 0, 1, 0x41, 1, 2, 3]), 'delta', 0.033333, 0.033333),
+  )
+  await output.finalize()
+  if (!target.buffer) throw new Error('mux produced no buffer')
   return target.buffer
 }
 
@@ -115,14 +129,14 @@ function resolveFfmpeg(): string | null {
 }
 
 describe('injectMp4Metadata', () => {
-  it('returns the buffer unchanged when there is nothing to inject', () => {
-    const src = buildTinyMp4()
+  it('returns the buffer unchanged when there is nothing to inject', async () => {
+    const src = await buildTinyMp4()
     const out = injectMp4Metadata(src, { chapters: [] })
     expect(new Uint8Array(out)).toEqual(new Uint8Array(src))
   })
 
-  it('returns the buffer unchanged when moov is not the last top-level box', () => {
-    const src = new Uint8Array(buildTinyMp4())
+  it('returns the buffer unchanged when moov is not the last top-level box', async () => {
+    const src = new Uint8Array(await buildTinyMp4())
     const free = new Uint8Array([0, 0, 0, 8, 0x66, 0x72, 0x65, 0x65]) // 'free'
     const withTrailer = new Uint8Array(src.byteLength + free.byteLength)
     withTrailer.set(src, 0)
@@ -134,14 +148,14 @@ describe('injectMp4Metadata', () => {
     expect(new Uint8Array(out)).toEqual(withTrailer)
   })
 
-  it('appends udta/chpl/©xyz with ffmpeg-compatible bytes', () => {
+  it('appends udta/chpl/©xyz with ffmpeg-compatible bytes', async () => {
     const chapters: Mp4Chapter[] = [
       { startMs: 0, title: 'Clip One' },
       { startMs: 1500, title: 'Clip Two' },
     ]
     const location = { lat: 37.7749, lng: -122.4194 }
     const out = new Uint8Array(
-      injectMp4Metadata(buildTinyMp4(), { chapters, location }),
+      injectMp4Metadata(await buildTinyMp4(), { chapters, location }),
     )
 
     const moov = findBox(out, fourCC('moov'))
@@ -182,7 +196,7 @@ describe('injectMp4Metadata', () => {
     expect(iso).toBe('+37.7749-122.4194/')
   })
 
-  it('is validated by ffmpeg when an MP4-capable binary is available', () => {
+  it('is validated by ffmpeg when an MP4-capable binary is available', async () => {
     const ffmpeg = resolveFfmpeg()
     if (!ffmpeg) {
       // Playwright build ships without an MP4 demuxer; skip rather than fail.
@@ -191,7 +205,7 @@ describe('injectMp4Metadata', () => {
 
     const title = 'Morning Walk'
     const location = { lat: 37.7749, lng: -122.4194 }
-    const injected = injectMp4Metadata(buildTinyMp4(), {
+    const injected = injectMp4Metadata(await buildTinyMp4(), {
       chapters: [
         { startMs: 0, title },
         { startMs: 2000, title: 'Later' },
