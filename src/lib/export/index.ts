@@ -63,14 +63,18 @@ export async function exportProject(
       )
       reportSilentExportAudio({ engine: 'webcodecs', outputMime: result.mimeType })
       reportBlackExportVideo({ engine: 'webcodecs', outputMime: result.mimeType })
-      // A mux fault (broken AAC framing, a mangled sample timeline, …)
-      // produces a silent file with no error at any stage. Verify what was
-      // actually written; the realtime engine muxes through MediaRecorder
-      // and is immune, so silent output here means fall back, not fail.
+      // A mux fault (broken AAC framing, a mangled sample timeline, a bad
+      // decoder config, …) produces a silent file with no error at any
+      // stage. Verify what was actually written; the realtime engine muxes
+      // through MediaRecorder (platform-native) and is immune, so both a
+      // provably silent output AND an output this device cannot decode at
+      // all (Chrome always decodes its own files; iOS was observed
+      // rejecting ours while playing its own recordings fine) mean fall
+      // back, not fail.
       const verification = await verifyOutputAudio(result, 'webcodecs')
       maybeReportAudioSeamDiagnostics(result, verification)
-      if (verification === 'silent') {
-        throw new Error('WebCodecs export produced silent audio')
+      if (verification === 'silent' || verification === 'undecodable') {
+        throw new Error(`WebCodecs export audio ${verification} — re-exporting`)
       }
       return result
     } catch (error) {
@@ -102,13 +106,15 @@ export async function exportProject(
 async function verifyOutputAudio(
   result: ExportResult,
   engine: 'webcodecs' | 'realtime',
-): Promise<'ok' | 'silent' | 'unknown'> {
+): Promise<'ok' | 'silent' | 'undecodable' | 'unknown'> {
   const inputPeak = decodedAudioMaxPeak()
   if (inputPeak < AUDIO_SILENCE_PEAK) return 'unknown'
   const measured = await measureBlobAudioPeak(result.blob)
   if (measured.peak === null) {
-    // Verification is blind here — silence would go unnoticed. Report so
-    // remote failures on decode-limited platforms are still attributable.
+    // Verification is blind here — report so remote failures on
+    // decode-limited platforms are still attributable. A file too large to
+    // decode is genuinely unknown; a file this very device REFUSES to
+    // decode right after writing it is evidence of a malformed track.
     reportError(
       new Error('Export output audio could not be verified'),
       'export-audio-verify',
@@ -120,7 +126,7 @@ async function verifyOutputAudio(
         ...(result.audioDiagnostics ?? {}),
       },
     )
-    return 'unknown'
+    return measured.failure === 'too large to verify' ? 'unknown' : 'undecodable'
   }
   if (measured.peak >= AUDIO_SILENCE_PEAK) return 'ok'
   reportError(
@@ -144,7 +150,7 @@ async function verifyOutputAudio(
 let audioSeamReported = false
 function maybeReportAudioSeamDiagnostics(
   result: ExportResult,
-  verification: 'ok' | 'silent' | 'unknown',
+  verification: 'ok' | 'silent' | 'undecodable' | 'unknown',
 ): void {
   const diagnostics = result.audioDiagnostics
   if (!diagnostics) return

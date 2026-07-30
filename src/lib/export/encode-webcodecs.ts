@@ -220,6 +220,8 @@ export async function exportWithWebCodecs(
     injectedDescription: false,
     adtsStripped: 0,
     timestampOverrides: 0,
+    encoderDescriptionHex: null,
+    firstChunkPrefixHex: null,
   }
   const audioEncoder = new AudioEncoder({
     output: (chunk, meta) => {
@@ -349,6 +351,8 @@ export async function exportWithWebCodecs(
       injectedDescription: aacDiagnostics.injectedDescription,
       adtsStripped: aacDiagnostics.adtsStripped,
       timestampOverrides: aacDiagnostics.timestampOverrides,
+      encoderDescriptionHex: aacDiagnostics.encoderDescriptionHex,
+      firstChunkPrefixHex: aacDiagnostics.firstChunkPrefixHex,
     },
   }
 }
