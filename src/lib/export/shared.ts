@@ -469,5 +469,7 @@ export interface ExportResult {
     injectedDescription: boolean
     adtsStripped: number
     timestampOverrides: number
+    encoderDescriptionHex: string | null
+    firstChunkPrefixHex: string | null
   }
 }

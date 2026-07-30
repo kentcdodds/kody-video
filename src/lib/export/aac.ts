@@ -65,6 +65,24 @@ export interface AacChunkDiagnostics {
   injectedDescription: boolean
   adtsStripped: number
   timestampOverrides: number
+  /** Hex of the description the ENCODER provided when it differs from the
+   * synthesized one — evidence of what the platform actually emits. */
+  encoderDescriptionHex: string | null
+  /** Hex prefix of the first chunk's payload (framing forensics: raw AAC
+   * usually starts 0x21/0xDE…, ADTS 0xFFFx, LATM/LOAS 0x56Ex/0x47…). */
+  firstChunkPrefixHex: string | null
+}
+
+function toHex(bytes: Uint8Array, limit: number): string {
+  return [...bytes.subarray(0, limit)].map((b) => b.toString(16).padStart(2, '0')).join('')
+}
+
+function descriptionBytes(description: AllowSharedBufferSource): Uint8Array {
+  if (description instanceof Uint8Array) return description
+  if (ArrayBuffer.isView(description)) {
+    return new Uint8Array(description.buffer, description.byteOffset, description.byteLength)
+  }
+  return new Uint8Array(description as ArrayBuffer)
 }
 
 /** Samples per AAC access unit — fixed by the codec. */
@@ -116,6 +134,7 @@ export function normalizeAacChunk(
   let outChunk = chunk
   const data = new Uint8Array(chunk.byteLength)
   chunk.copyTo(data)
+  if (isFirstChunk) diagnostics.firstChunkPrefixHex = toHex(data, 8)
   const raw = isAdtsFramed(data) ? stripAdtsFrames(data) : null
   if (raw) diagnostics.adtsStripped += 1
 
@@ -131,13 +150,25 @@ export function normalizeAacChunk(
     })
   }
 
+  // ALWAYS pin our own AudioSpecificConfig: the encoder settings (AAC-LC,
+  // rate, channels) fully determine the correct bytes, Chrome's description
+  // matches them exactly, and an encoder-provided description of any other
+  // shape muxed verbatim into esds yields a track Apple's strict decoder
+  // plays as silence (observed from iOS: healthy chunks in, undecodable
+  // audio out). The bytes the platform DID provide are kept as evidence.
   let outMeta = meta
-  const description = meta?.decoderConfig?.description
-  if (description && description.byteLength > 0) {
+  const synthesized = aacAudioSpecificConfig(sampleRate, channels)
+  const provided = meta?.decoderConfig?.description
+  if (provided && provided.byteLength > 0) {
     diagnostics.describedByEncoder = true
-  } else if (isFirstChunk) {
-    // Pin the config explicitly instead of leaving mp4-muxer to guess one
-    // (5.x guesses correctly for AAC-LC; older versions wrote it empty).
+    const bytes = descriptionBytes(provided)
+    const matches =
+      bytes.length === synthesized.length && bytes.every((b, i) => b === synthesized[i])
+    if (!matches && !diagnostics.encoderDescriptionHex) {
+      diagnostics.encoderDescriptionHex = `${bytes.byteLength}:${toHex(bytes, 16)}`
+    }
+  }
+  if (isFirstChunk) {
     diagnostics.injectedDescription = true
     outMeta = {
       ...meta,
@@ -146,7 +177,7 @@ export function normalizeAacChunk(
         sampleRate,
         numberOfChannels: channels,
         ...meta?.decoderConfig,
-        description: aacAudioSpecificConfig(sampleRate, channels),
+        description: synthesized,
       },
     }
   }
