@@ -130,6 +130,39 @@ export async function listRearCameras(): Promise<string[]> {
   }
 }
 
+/**
+ * iOS exposes every physical rear lens AND virtual composites ("Back Dual
+ * Wide Camera", "Back Triple Camera") as separate devices — six on recent
+ * iPhones. The composites hand lens switching to the OS: one device whose
+ * zoom constraint spans 0.5× to max seamlessly, exactly like the native
+ * camera app. Prefer them; cycling raw devices (the Android pattern) is
+ * confusing there and records at surprising resolutions. Labels are only
+ * populated once camera permission is granted; undefined falls back to the
+ * default facing-mode camera.
+ */
+export async function preferredIosRearCameraId(): Promise<string | undefined> {
+  if (!navigator.mediaDevices?.enumerateDevices) return undefined
+  try {
+    const devices = await navigator.mediaDevices.enumerateDevices()
+    const rear = devices.filter(
+      (device) => device.kind === 'videoinput' && /\bback\b/i.test(device.label),
+    )
+    const byPreference = [
+      /back triple camera/i,
+      /back dual wide camera/i,
+      /back dual camera/i,
+      /^back camera$/i,
+    ]
+    for (const pattern of byPreference) {
+      const match = rear.find((device) => pattern.test(device.label))
+      if (match?.deviceId) return match.deviceId
+    }
+  } catch {
+    // Fall through to the default camera.
+  }
+  return undefined
+}
+
 /** Grab a mic track only for the duration of a recording. */
 export async function openMicrophoneTrack(): Promise<MediaStreamTrack> {
   // Camera-app audio, not voice-call audio: echoCancellation/noiseSuppression/

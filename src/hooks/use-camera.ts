@@ -5,6 +5,7 @@ import {
   listRearCameras,
   openCameraStream,
   openMicrophoneTrack,
+  preferredIosRearCameraId,
   primeMicrophonePermission,
   queryCameraPermission,
   queryMicrophonePermission,
@@ -73,8 +74,12 @@ function rememberRearLens(lens: RememberedLens | null): void {
 }
 
 /** Resolve a remembered lens against the current enumeration: exact id when
- * still valid, otherwise the same position, otherwise nothing. */
-async function resolveRememberedLens(): Promise<string | undefined> {
+ * still valid, otherwise the same position, otherwise nothing. On iOS the
+ * lens choice belongs to the OS instead (see preferredIosRearCameraId) —
+ * the virtual composite camera covers all lenses through zoom, and any
+ * remembered raw lens from before is ignored. */
+async function resolveRearLens(): Promise<string | undefined> {
+  if (isIosBrowser()) return preferredIosRearCameraId()
   const remembered = rememberedRearLens()
   if (!remembered) return undefined
   const lenses = await listRearCameras()
@@ -240,9 +245,12 @@ export function useCamera(): UseCameraResult {
     [attachToVideo, readTrackCapabilities],
   )
 
-  /** Discover rear lenses and locate the active one (post-permission only). */
+  /** Discover rear lenses and locate the active one (post-permission only).
+   * Not on iOS: the OS handles lens switching through the virtual composite
+   * camera's zoom range, and offering six raw devices (physical lenses plus
+   * composites) as a cycling chip is confusing noise there. */
   const syncRearLenses = useCallback(async (active: MediaStream) => {
-    if (facingRef.current !== 'environment') {
+    if (facingRef.current !== 'environment' || isIosBrowser()) {
       rearLensesRef.current = []
       setRearLensCount(0)
       setRearLensIndex(0)
@@ -277,9 +285,28 @@ export function useCamera(): UseCameraResult {
 
       try {
         const rememberedLens =
-          facingRef.current === 'environment' ? await resolveRememberedLens() : undefined
-        const next = await openCombinedOrVideoStream(facingRef.current, rememberedLens)
+          facingRef.current === 'environment' ? await resolveRearLens() : undefined
+        let next = await openCombinedOrVideoStream(facingRef.current, rememberedLens)
         setPermission({ status: 'granted' })
+        // iOS first run: device labels are empty before the permission grant,
+        // so the preferred multi-lens camera can't be resolved until now.
+        // Re-resolve and reopen once so 0.5× works from the very first
+        // session, not just after a restart.
+        if (isIosBrowser() && !rememberedLens && facingRef.current === 'environment') {
+          const preferred = await preferredIosRearCameraId()
+          const activeId = next.getVideoTracks()[0]?.getSettings().deviceId
+          if (preferred && preferred !== activeId) {
+            const epoch = cameraEpochRef.current
+            // iOS camera access is exclusive — release before reopening.
+            stopStream(next)
+            const reopened = await openCombinedOrVideoStream(facingRef.current, preferred)
+            if (cameraEpochRef.current !== epoch) {
+              stopStream(reopened)
+              return
+            }
+            next = reopened
+          }
+        }
         replaceStream(next)
         setCanFlip(await canFlipCamera())
         void syncRearLenses(next)
@@ -321,7 +348,7 @@ export function useCamera(): UseCameraResult {
     setError(null)
     try {
       const rememberedLens =
-        nextFacing === 'environment' ? await resolveRememberedLens() : undefined
+        nextFacing === 'environment' ? await resolveRearLens() : undefined
       const next = await openCombinedOrVideoStream(nextFacing, rememberedLens)
       replaceStream(next)
       void syncRearLenses(next)

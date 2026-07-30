@@ -210,7 +210,18 @@ export function RecordScreen({
     zoomRestoreRafRef.current = requestAnimationFrame(tick)
   }, [camera])
 
+  const releaseWakeLock = useCallback(() => {
+    wakeLockGenRef.current += 1
+    void wakeLockRef.current?.release().catch(() => undefined)
+    wakeLockRef.current = null
+  }, [])
+
   const acquireWakeLock = useCallback(() => {
+    // A successor take can start while the previous take's save is still in
+    // flight (its cleanup defers to us) — release the previous sentinel
+    // before acquiring ours, or it would be overwritten and leak, keeping
+    // the screen awake indefinitely.
+    releaseWakeLock()
     const generation = wakeLockGenRef.current
     void navigator.wakeLock
       ?.request('screen')
@@ -223,13 +234,7 @@ export function RecordScreen({
         wakeLockRef.current = sentinel
       })
       .catch(() => undefined)
-  }, [])
-
-  const releaseWakeLock = useCallback(() => {
-    wakeLockGenRef.current += 1
-    void wakeLockRef.current?.release().catch(() => undefined)
-    wakeLockRef.current = null
-  }, [])
+  }, [releaseWakeLock])
 
   /** Stops the active screen capture and appends it as a clip. Idempotent. */
   const finishScreenRecord = useCallback(async () => {
@@ -360,7 +365,15 @@ export function RecordScreen({
         }
         return true
       } catch (err) {
-        if (!recorderRef.current.isRecording) camera.releaseMic()
+        if (!recorderRef.current.isRecording) {
+          camera.releaseMic()
+          // A previous take whose deferred cleanup we pre-empted (its
+          // finally saw our beginInFlight and skipped) must not leak its
+          // monitor or wake lock when we then fail to start.
+          micMonitorRef.current?.stop()
+          micMonitorRef.current = null
+          releaseWakeLock()
+        }
         showToast(err instanceof Error ? err.message : 'Could not start recording')
         pointerIdRef.current = null
         setRecordingMode(null)
@@ -369,7 +382,7 @@ export function RecordScreen({
         beginInFlightRef.current = false
       }
     },
-    [acquireWakeLock, camera, countdown, recording, showToast, storageState],
+    [acquireWakeLock, camera, countdown, recording, releaseWakeLock, showToast, storageState],
   )
 
   const endRecord = useCallback(
@@ -398,8 +411,6 @@ export function RecordScreen({
       endInFlightRef.current = true
       pointerIdRef.current = null
       keyboardTakeRef.current = false
-      micMonitorRef.current?.stop()
-      micMonitorRef.current = null
       setRecording(false)
       setRecordingMode(null)
       // Detach this take's fix before any await so a quick next hold can own the ref.
@@ -437,8 +448,13 @@ export function RecordScreen({
         endInFlightRef.current = false
         // stop() resolves only after the blob's duration is measured, so a
         // quick next hold may already be recording (or acquiring the mic) by
-        // now — never strip the mic or wake lock from that newer session.
+        // now — never strip the mic, monitor, or wake lock from that newer
+        // session. Tearing the monitor down only after the encoder flushed
+        // matters too: audio-graph churn while MediaRecorder still owned
+        // the tracks flashed the preview black on some Androids.
         if (!recorderRef.current.isRecording && !beginInFlightRef.current) {
+          micMonitorRef.current?.stop()
+          micMonitorRef.current = null
           camera.releaseMic()
           releaseWakeLock()
         }

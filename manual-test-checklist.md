@@ -13,7 +13,9 @@ Run locally with HTTPS or `localhost` (`npm run dev`). Camera/mic require a secu
 - [ ] A take with a dead/covered mic shows the red "Mic isn't picking up sound" pill after ~2.5s; a take with sound clears it
 - [ ] If the mic is blocked in site settings, a red "Mic blocked" pill shows on the record screen (Brave/Android regression)
 - [ ] Torch toggle appears on devices with a flash; zoom chips appear when supported
-- [ ] Phones with multiple rear cameras show a lens chip (e.g. "1/3") that switches to the ultra-wide/telephoto; choice sticks across flips and restarts
+- [ ] Phones with multiple rear cameras show a lens chip (e.g. "1/3") that switches to the ultra-wide/telephoto; choice sticks across flips and restarts (Android only)
+- [ ] iOS: NO lens chip; on multi-lens iPhones the camera opens as the virtual multi-lens device (Back Dual Wide/Triple) so zoom spans 0.5× to max seamlessly (single-lens iPhones use the plain back camera — no 0.5×)
+- [ ] Ending a take does not flash the camera preview black (Android regression check)
 - [ ] Backgrounding the app releases camera/mic (green dot goes out); returning restarts the preview
 - [ ] Backgrounding mid-recording still saves the take
 - [ ] Screen off → on while on the camera view: preview is live again, not frozen; recording works
