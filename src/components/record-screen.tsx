@@ -398,8 +398,6 @@ export function RecordScreen({
       endInFlightRef.current = true
       pointerIdRef.current = null
       keyboardTakeRef.current = false
-      micMonitorRef.current?.stop()
-      micMonitorRef.current = null
       setRecording(false)
       setRecordingMode(null)
       // Detach this take's fix before any await so a quick next hold can own the ref.
@@ -437,8 +435,13 @@ export function RecordScreen({
         endInFlightRef.current = false
         // stop() resolves only after the blob's duration is measured, so a
         // quick next hold may already be recording (or acquiring the mic) by
-        // now — never strip the mic or wake lock from that newer session.
+        // now — never strip the mic, monitor, or wake lock from that newer
+        // session. Tearing the monitor down only after the encoder flushed
+        // matters too: audio-graph churn while MediaRecorder still owned
+        // the tracks flashed the preview black on some Androids.
         if (!recorderRef.current.isRecording && !beginInFlightRef.current) {
+          micMonitorRef.current?.stop()
+          micMonitorRef.current = null
           camera.releaseMic()
           releaseWakeLock()
         }

@@ -15,6 +15,25 @@ export interface MicLevelMonitor {
 }
 
 /**
+ * One shared AudioContext for all takes, suspended between them. Creating
+ * and closing a context around every take churns the platform audio graph
+ * while MediaRecorder still owns the tracks — observed on Android as the
+ * camera preview flashing black right after a take ends.
+ */
+let sharedContext: AudioContext | null = null
+
+function acquireContext(): AudioContext | null {
+  if (typeof AudioContext === 'undefined') return null
+  try {
+    sharedContext ??= new AudioContext()
+    void sharedContext.resume().catch(() => undefined)
+    return sharedContext
+  } catch {
+    return null
+  }
+}
+
+/**
  * Watches the stream's audio track through an AnalyserNode (a passive extra
  * consumer — MediaRecorder is unaffected). Calls onSilent when the take has
  * gone a full grace period without any signal above the floor — whether from
@@ -26,11 +45,12 @@ export function startMicLevelMonitor(
   handlers: { onSilent: () => void; onSound: () => void },
 ): MicLevelMonitor {
   const track = stream.getAudioTracks().find((t) => t.readyState === 'live')
-  if (!track || typeof AudioContext === 'undefined') {
+  const context = track ? acquireContext() : null
+  if (!track || !context) {
     return { stop: () => undefined }
   }
 
-  let context: AudioContext | null = null
+  let source: MediaStreamAudioSourceNode | null = null
   let analyser: AnalyserNode | null = null
   let timer = 0
   let startedAt = 0
@@ -39,20 +59,20 @@ export function startMicLevelMonitor(
     window.clearInterval(timer)
     timer = 0
     try {
+      source?.disconnect()
       analyser?.disconnect()
     } catch {
       // Already torn down.
     }
-    void context?.close().catch(() => undefined)
-    context = null
+    source = null
     analyser = null
+    // Suspend (never close) the shared context — see acquireContext.
+    void sharedContext?.suspend().catch(() => undefined)
   }
 
   try {
-    context = new AudioContext()
-    void context.resume().catch(() => undefined)
     // A dedicated audio-only stream keeps Safari's MediaStreamSource happy.
-    const source = context.createMediaStreamSource(new MediaStream([track]))
+    source = context.createMediaStreamSource(new MediaStream([track]))
     analyser = context.createAnalyser()
     analyser.fftSize = 2048
     source.connect(analyser)
