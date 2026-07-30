@@ -447,29 +447,27 @@ async function pumpSegmentVideo({
   await seekTo(video, startSec)
 
   const emit = makeFrameSink(shared)
-  let pumpError: unknown = null
-  // Adds are serialized through a chain: rVFC callbacks are synchronous,
-  // and the encoder (faster than 1× playback) drains the chain as it goes.
-  let addChain: Promise<void> = Promise.resolve()
-  const emitAt = (mediaTimeSec: number) => {
-    addChain = addChain
-      .then(() =>
-        emit((ctx, width, height) => {
-          const vw = video.videoWidth || width
-          const vh = video.videoHeight || height
-          const scale = Math.max(width / vw, height / vh)
-          ctx.fillStyle = '#000'
-          ctx.fillRect(0, 0, width, height)
-          ctx.drawImage(video, (width - vw * scale) / 2, (height - vh * scale) / 2, vw * scale, vh * scale)
-        }, mediaTimeSec),
+  // The draw happens SYNCHRONOUSLY at callback time (frame and timestamp
+  // must belong together); the returned promise carries encoder
+  // backpressure and paces when the next frame is processed.
+  const emitAt = (mediaTimeSec: number): Promise<void> =>
+    emit((ctx, width, height) => {
+      const vw = video.videoWidth || width
+      const vh = video.videoHeight || height
+      const scale = Math.max(width / vw, height / vh)
+      ctx.fillStyle = '#000'
+      ctx.fillRect(0, 0, width, height)
+      ctx.drawImage(
+        video,
+        (width - vw * scale) / 2,
+        (height - vh * scale) / 2,
+        vw * scale,
+        vh * scale,
       )
-      .catch((err) => {
-        pumpError ??= err
-      })
-  }
+    }, mediaTimeSec)
 
   // Guarantee at least one frame per segment, even if playback ends instantly.
-  emitAt(startSec)
+  await emitAt(startSec)
 
   const supportsRvfc = typeof video.requestVideoFrameCallback === 'function'
 
@@ -502,10 +500,6 @@ async function pumpSegmentVideo({
 
       const handleFrame = (mediaTimeSec: number) => {
         if (finished) return
-        if (pumpError) {
-          abort(pumpError instanceof Error ? pumpError : new Error('Export encoder failed'))
-          return
-        }
         if (mediaTimeSec > lastMediaTime + 0.001) {
           lastMediaTime = mediaTimeSec
           lastProgressAt = performance.now()
@@ -515,8 +509,15 @@ async function pumpSegmentVideo({
           return
         }
         if (mediaTimeSec > startSec) {
-          emitAt(mediaTimeSec)
+          // Draw now (synchronously — this frame belongs to this timestamp),
+          // then let the encoder's backpressure pace the next callback.
+          // While it drains, playback continues and frames are skipped —
+          // realtime-fallback semantics, same as pausing would produce.
           onElapsedMs((mediaTimeSec - startSec) * 1000)
+          emitAt(mediaTimeSec).then(scheduleNext, (err) => {
+            abort(err instanceof Error ? err : new Error('Export encoder failed'))
+          })
+          return
         }
         scheduleNext()
       }
@@ -543,10 +544,6 @@ async function pumpSegmentVideo({
       }, 1000)
       scheduleNext()
     })
-    await addChain
-    if (pumpError) {
-      throw pumpError instanceof Error ? pumpError : new Error('Export encoder failed')
-    }
   } finally {
     video.onended = null
     video.onerror = null
