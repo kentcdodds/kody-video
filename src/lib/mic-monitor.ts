@@ -81,6 +81,10 @@ export function startMicLevelMonitor(
     return { stop: () => undefined }
   }
 
+  // A released mic reads all-zero — a leaked monitor sampling a dead track
+  // must never fire a false "mic silent" warning.
+  track.addEventListener('ended', stop)
+
   const samples = new Float32Array(analyser.fftSize)
   /** When signal was last heard; silence is judged on a rolling window so a
    * mic dying mid-take gets flagged too, not just one that was dead at the

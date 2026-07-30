@@ -286,8 +286,27 @@ export function useCamera(): UseCameraResult {
       try {
         const rememberedLens =
           facingRef.current === 'environment' ? await resolveRearLens() : undefined
-        const next = await openCombinedOrVideoStream(facingRef.current, rememberedLens)
+        let next = await openCombinedOrVideoStream(facingRef.current, rememberedLens)
         setPermission({ status: 'granted' })
+        // iOS first run: device labels are empty before the permission grant,
+        // so the preferred multi-lens camera can't be resolved until now.
+        // Re-resolve and reopen once so 0.5× works from the very first
+        // session, not just after a restart.
+        if (isIosBrowser() && !rememberedLens && facingRef.current === 'environment') {
+          const preferred = await preferredIosRearCameraId()
+          const activeId = next.getVideoTracks()[0]?.getSettings().deviceId
+          if (preferred && preferred !== activeId) {
+            const epoch = cameraEpochRef.current
+            // iOS camera access is exclusive — release before reopening.
+            stopStream(next)
+            const reopened = await openCombinedOrVideoStream(facingRef.current, preferred)
+            if (cameraEpochRef.current !== epoch) {
+              stopStream(reopened)
+              return
+            }
+            next = reopened
+          }
+        }
         replaceStream(next)
         setCanFlip(await canFlipCamera())
         void syncRearLenses(next)
