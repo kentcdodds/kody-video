@@ -178,10 +178,18 @@ export function ProjectPage() {
     })
     // Long exports must survive the screen dimming: without a wake lock the
     // OS suspends the tab mid-export and the user returns to a restart.
-    const wakeLockRef: { current: WakeLockSentinel | null } = { current: null }
+    const wakeLockRef: { current: WakeLockSentinel | null; released: boolean } = {
+      current: null,
+      released: false,
+    }
     void navigator.wakeLock
       ?.request('screen')
       .then((sentinel) => {
+        if (wakeLockRef.released) {
+          // The export finished before the request resolved — never leak.
+          void sentinel.release().catch(() => undefined)
+          return
+        }
         wakeLockRef.current = sentinel
       })
       .catch(() => undefined)
@@ -248,6 +256,7 @@ export function ProjectPage() {
       } finally {
         // The export ended in this session (success or error) — it did not die.
         clearExportMarker()
+        wakeLockRef.released = true
         void wakeLockRef.current?.release().catch(() => undefined)
         wakeLockRef.current = null
         // The realtime engine closes the context it used; when WebCodecs

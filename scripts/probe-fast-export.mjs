@@ -62,7 +62,11 @@ try {
   await page.route('**/__test-clip.mp4', (route) => route.fulfill({ path: CLIP_PATH }))
   const warnings = []
   page.on('console', (msg) => {
-    if (/falling back to realtime|encoder failure/i.test(msg.text())) warnings.push(msg.text())
+    // Any fallback defeats the probe's purpose: the whole-export realtime
+    // stitcher, a per-clip element pump, or an encoder failure.
+    if (/falling back to realtime|segment video path: element|encoder failure/i.test(msg.text())) {
+      warnings.push(msg.text())
+    }
   })
 
   await page.goto(BASE, { waitUntil: 'networkidle' })

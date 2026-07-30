@@ -535,9 +535,8 @@ interface DecodedPumpArgs extends PumpSharedArgs {
  * frames were encoded must abort the whole export instead — falling back
  * then would duplicate content.
  *
- * Note: samples are fed in presentation order, which equals decode order
- * for MediaRecorder output (no B-frames). A clip that somehow carries
- * B-frames fails decode cleanly and takes the element pump.
+ * Samples are fed in DECODE order exactly as demuxed (B-frame safe); trim
+ * filtering happens on the decoder's presentation-ordered output frames.
  */
 async function pumpSegmentVideoDecoded({
   demuxed,
@@ -633,12 +632,18 @@ async function pumpSegmentVideoDecoded({
 
     for (let i = firstIndex; i <= lastIndex; i += 1) {
       const sample = samples[i]!
+      // Stall guard: waitForDequeue always resolves within its safety
+      // timeout, so a wedged codec would otherwise spin here forever.
+      const stallDeadline = performance.now() + 30_000
       while (
         !pumpError &&
         !hasError() &&
         (decoder.decodeQueueSize > DECODE_QUEUE_LIMIT ||
           videoEncoder.encodeQueueSize > ENCODE_QUEUE_LIMIT)
       ) {
+        if (performance.now() > stallDeadline) {
+          throw new Error('Export codec stalled (queues never drained)')
+        }
         await waitForDequeue(decoder, videoEncoder)
       }
       if (pumpError || hasError()) break
@@ -653,7 +658,13 @@ async function pumpSegmentVideoDecoded({
     }
 
     if (!pumpError && !hasError()) {
-      await decoder.flush().catch((err) => {
+      // A wedged decoder can also hang flush() itself.
+      await Promise.race([
+        decoder.flush(),
+        new Promise((_, reject) => {
+          window.setTimeout(() => reject(new Error('Export decoder flush stalled')), 30_000)
+        }),
+      ]).catch((err) => {
         pumpError ??= err
       })
     }

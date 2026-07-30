@@ -48,6 +48,9 @@ describe('storage layer', () => {
   it('creates and lists projects newest-first', async () => {
     await markWatermarkRemoved('cs_test_storage')
     const a = await createProject('Alpha')
+    // createdAt ties (same-millisecond creations) make newest-first
+    // ordering ambiguous — keep the assertion deterministic.
+    await new Promise((resolve) => setTimeout(resolve, 2))
     const b = await createProject('Beta')
     const list = await listProjects()
     expect(list.map((p) => p.id)).toEqual([b.id, a.id])
