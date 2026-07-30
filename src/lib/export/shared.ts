@@ -344,25 +344,38 @@ export async function decodeClipAudio(
  * Returns null when the output can't be decoded here (verification unknown,
  * not proof of silence). Never pushes per-clip observations.
  */
-export async function measureBlobAudioPeak(blob: Blob, sampleRate = 48000): Promise<number | null> {
+export interface BlobAudioMeasurement {
+  peak: number | null
+  /** Why the peak is unknown, when it is (for remote diagnosis). */
+  failure?: string
+}
+
+export async function measureBlobAudioPeak(
+  blob: Blob,
+  sampleRate = 48000,
+): Promise<BlobAudioMeasurement> {
   // Whole-file decode: keep memory bounded on long projects.
-  if (blob.size > 120 * 1024 * 1024) return null
+  if (blob.size > 120 * 1024 * 1024) return { peak: null, failure: 'too large to verify' }
   try {
     const bytes = await blob.arrayBuffer()
     const ctx = new OfflineAudioContext(2, 1, sampleRate)
     const decoded = await ctx.decodeAudioData(bytes)
-    return audioBufferPeak(decoded)
-  } catch {
+    return { peak: audioBufferPeak(decoded) }
+  } catch (nativeError) {
     if (/mp4/i.test(blob.type)) {
       try {
         const { decodeMp4AudioWithWebCodecs } = await import('./mp4-audio')
         const decoded = await decodeMp4AudioWithWebCodecs(blob, sampleRate)
-        if (decoded) return audioBufferPeak(decoded)
-      } catch {
-        // Verification unknown.
+        if (decoded) return { peak: audioBufferPeak(decoded) }
+        return { peak: null, failure: 'demux fallback returned nothing' }
+      } catch (fallbackError) {
+        return {
+          peak: null,
+          failure: `native: ${String(nativeError).slice(0, 120)}; fallback: ${String(fallbackError).slice(0, 120)}`,
+        }
       }
     }
-    return null
+    return { peak: null, failure: String(nativeError).slice(0, 160) }
   }
 }
 
@@ -455,5 +468,6 @@ export interface ExportResult {
     describedByEncoder: boolean
     injectedDescription: boolean
     adtsStripped: number
+    timestampOverrides: number
   }
 }

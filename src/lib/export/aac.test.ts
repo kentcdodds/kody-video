@@ -1,5 +1,10 @@
 import { describe, expect, it } from 'vitest'
-import { aacAudioSpecificConfig, isAdtsFramed, stripAdtsFrames } from './aac'
+import {
+  aacAudioSpecificConfig,
+  deriveAacChunkTimestampUs,
+  isAdtsFramed,
+  stripAdtsFrames,
+} from './aac'
 
 function adtsFrame(payload: number[], { protectionAbsent = true } = {}): number[] {
   const headerLength = protectionAbsent ? 7 : 9
@@ -64,5 +69,30 @@ describe('ADTS handling', () => {
   it('returns null for truncated frames', () => {
     const frame = adtsFrame([1, 2, 3, 4, 5, 6])
     expect(stripAdtsFrames(new Uint8Array(frame.slice(0, frame.length - 3)))).toBe(null)
+  })
+})
+
+describe('deriveAacChunkTimestampUs', () => {
+  /** Derived per index (not accumulated) so rounding never drifts. */
+  const tsAt = (index: number) => Math.round((index * 1024 * 1_000_000) / 48000)
+
+  it('keeps a conforming encoder timestamp (Chrome)', () => {
+    const result = deriveAacChunkTimestampUs(2, tsAt(2) + 100, 48000)
+    expect(result).toEqual({ timestampUs: tsAt(2) + 100, overridden: false })
+  })
+
+  it('overrides zeroed timestamps (observed WebKit behavior)', () => {
+    // Encoder said 0 for the 10th chunk — the derived position wins.
+    const result = deriveAacChunkTimestampUs(10, 0, 48000)
+    expect(result).toEqual({ timestampUs: tsAt(10), overridden: true })
+  })
+
+  it('tolerates small encoder jitter without overriding', () => {
+    const result = deriveAacChunkTimestampUs(100, tsAt(100) - 20_000, 48000)
+    expect(result.overridden).toBe(false)
+  })
+
+  it('never overrides the first chunk at zero', () => {
+    expect(deriveAacChunkTimestampUs(0, 0, 48000).overridden).toBe(false)
   })
 })
