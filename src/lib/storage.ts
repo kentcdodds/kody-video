@@ -243,10 +243,13 @@ export interface AddClipInput {
  * MediaRecorder / File-backed blobs can fail Chromium's object-store write
  * with UnknownError ("Error preparing Blob/File data to be stored…") when
  * the original backing store is ephemeral or already released.
+ *
+ * Prefer `mimeType` when the source Blob's type is empty so Safari does not
+ * later reject an `application/octet-stream` object URL at export.
  */
-export async function toStoredBlob(blob: Blob): Promise<Blob> {
+export async function toStoredBlob(blob: Blob, mimeType?: string): Promise<Blob> {
   const buffer = await blob.arrayBuffer()
-  return new Blob([buffer], { type: blob.type || 'application/octet-stream' })
+  return new Blob([buffer], { type: blob.type || mimeType || 'application/octet-stream' })
 }
 
 export async function addClip(input: AddClipInput): Promise<ClipRecord> {
@@ -254,7 +257,7 @@ export async function addClip(input: AddClipInput): Promise<ClipRecord> {
   // Materialize before opening the transaction — awaiting inside a tx lets
   // IndexedDB auto-commit and abort subsequent puts. Re-read the project
   // inside the tx so overlapping saves cannot clobber fresher clipIds.
-  const durableBlob = await toStoredBlob(input.blob)
+  const durableBlob = await toStoredBlob(input.blob, input.mimeType)
 
   const now = Date.now()
   const clip: ClipRecord = {
@@ -384,7 +387,7 @@ export async function duplicateClip(clipId: ClipId): Promise<ClipRecord> {
 
   const now = Date.now()
   const [blob, thumbs, poster] = await Promise.all([
-    toStoredBlob(source.blob),
+    toStoredBlob(source.blob, source.mimeType),
     source.thumbs
       ? Promise.all(source.thumbs.map((thumb) => toStoredBlob(thumb)))
       : Promise.resolve(undefined),

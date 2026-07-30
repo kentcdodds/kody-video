@@ -40,4 +40,12 @@ describe('isMediaElementFailure', () => {
       false,
     )
   })
+
+  it('exposes MediaError.code for remote triage', () => {
+    const error = new MediaElementFailureError('loadedmetadata', {
+      error: { code: 4 },
+    })
+    expect(error.mediaErrorCode).toBe(4)
+    expect(new MediaElementFailureError('loadedmetadata', {}).mediaErrorCode).toBeUndefined()
+  })
 })

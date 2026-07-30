@@ -20,10 +20,14 @@ export const MEDIA_ELEMENT_FAILURE = Symbol('kody.mediaElementFailure')
 
 export class MediaElementFailureError extends Error {
   readonly [MEDIA_ELEMENT_FAILURE] = true as const
+  /** Browser MediaError.code when present (1–4); useful for remote triage. */
+  readonly mediaErrorCode?: number
 
   constructor(event: string, media: MediaElementLike) {
     super(`Media failed while waiting for "${event}"${mediaErrorDetail(media)}`)
     this.name = 'MediaElementFailureError'
+    const code = media.error?.code
+    if (typeof code === 'number') this.mediaErrorCode = code
   }
 }
 
