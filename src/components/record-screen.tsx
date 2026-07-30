@@ -544,6 +544,9 @@ export function RecordScreen({
   visibilityActionRef.current = () => {
     if (document.hidden) {
       clearCountdown()
+      // The warning describes takes from the session being left behind;
+      // returning starts fresh with a restarted camera (and mic, on iOS).
+      setMicSilent(false)
       if (recorderRef.current.isRecording || recording) {
         // MediaRecorder.stop() runs synchronously inside endRecord, so the
         // encoder has flushed by the time the tracks are stopped below; the

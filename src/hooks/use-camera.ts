@@ -7,6 +7,7 @@ import {
   openMicrophoneTrack,
   primeMicrophonePermission,
   queryCameraPermission,
+  queryMicrophonePermission,
   stopAudioTracks,
   stopStream,
   type CameraPermissionState,
@@ -227,9 +228,12 @@ export function useCamera(): UseCameraResult {
       readTrackCapabilities(next)
       // iOS: every (re)open is a combined request, so the adopted stream's
       // audio presence is the freshest mic-permission signal — including
-      // after flips and lens switches.
+      // after flips and lens switches. A missing track is NOT proof of a
+      // denial though (the combined open also falls back on transient
+      // failures) — only the Permissions API may claim "blocked".
       if (HOLD_MIC_WITH_CAMERA) {
-        setMicPermission(next.getAudioTracks().length > 0 ? 'granted' : 'denied')
+        if (next.getAudioTracks().length > 0) setMicPermission('granted')
+        else void queryMicrophonePermission().then(setMicPermission)
       }
       setIsReady(true)
     },

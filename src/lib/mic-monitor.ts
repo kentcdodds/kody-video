@@ -76,7 +76,10 @@ export function startMicLevelMonitor(
     // Never judge silence unless audio is actually flowing.
     if (context?.state !== 'running') {
       void context?.resume().catch(() => undefined)
+      // Restart the rolling window entirely: a stale lastSoundAt from before
+      // the suspension would otherwise flag silence instantly on resume.
       startedAt = performance.now()
+      lastSoundAt = null
       return
     }
     try {
