@@ -205,7 +205,7 @@ export function reportSilentExportAudio(context: Record<string, unknown>): void 
   if (audioObservations.length === 0) return
   const maxPeak = Math.max(...audioObservations.map((o) => o.peak))
   const allFailed = audioObservations.every((o) => o.path === 'failed')
-  if (!allFailed && maxPeak >= 0.005) return
+  if (!allFailed && maxPeak >= AUDIO_SILENCE_PEAK) return
   reportError(
     new Error(
       allFailed
