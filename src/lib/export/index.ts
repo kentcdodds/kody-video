@@ -63,11 +63,13 @@ export async function exportProject(
       )
       reportSilentExportAudio({ engine: 'webcodecs', outputMime: result.mimeType })
       reportBlackExportVideo({ engine: 'webcodecs', outputMime: result.mimeType })
-      // A mux fault (e.g. an AAC track written without its decoder config)
+      // A mux fault (broken AAC framing, a mangled sample timeline, …)
       // produces a silent file with no error at any stage. Verify what was
       // actually written; the realtime engine muxes through MediaRecorder
       // and is immune, so silent output here means fall back, not fail.
-      if ((await verifyOutputAudio(result, 'webcodecs')) === 'silent') {
+      const verification = await verifyOutputAudio(result, 'webcodecs')
+      maybeReportAudioSeamDiagnostics(result, verification)
+      if (verification === 'silent') {
         throw new Error('WebCodecs export produced silent audio')
       }
       return result
@@ -103,19 +105,55 @@ async function verifyOutputAudio(
 ): Promise<'ok' | 'silent' | 'unknown'> {
   const inputPeak = decodedAudioMaxPeak()
   if (inputPeak < AUDIO_SILENCE_PEAK) return 'unknown'
-  const outputPeak = await measureBlobAudioPeak(result.blob)
-  if (outputPeak === null) return 'unknown'
-  if (outputPeak >= AUDIO_SILENCE_PEAK) return 'ok'
+  const measured = await measureBlobAudioPeak(result.blob)
+  if (measured.peak === null) {
+    // Verification is blind here — silence would go unnoticed. Report so
+    // remote failures on decode-limited platforms are still attributable.
+    reportError(
+      new Error('Export output audio could not be verified'),
+      'export-audio-verify',
+      {
+        engine,
+        outputMime: result.mimeType,
+        failure: measured.failure ?? 'unknown',
+        inputPeak: Number(inputPeak.toFixed(4)),
+        ...(result.audioDiagnostics ?? {}),
+      },
+    )
+    return 'unknown'
+  }
+  if (measured.peak >= AUDIO_SILENCE_PEAK) return 'ok'
   reportError(
     new Error('Export output audio is silent despite audible clip audio (encode/mux fault)'),
     'export-audio-output',
     {
       engine,
       outputMime: result.mimeType,
-      outputPeak: Number(outputPeak.toFixed(4)),
+      outputPeak: Number(measured.peak.toFixed(4)),
       inputPeak: Number(inputPeak.toFixed(4)),
       ...(result.audioDiagnostics ?? {}),
     },
   )
   return 'silent'
+}
+
+/** One report per session when the AAC seam had to repair encoder output —
+ * WebKit's encoder quirks (ADTS framing, zeroed timestamps) are otherwise
+ * invisible when the repair WORKS, and knowing they fired on a given
+ * platform is what confirms the diagnosis remotely. */
+let audioSeamReported = false
+function maybeReportAudioSeamDiagnostics(
+  result: ExportResult,
+  verification: 'ok' | 'silent' | 'unknown',
+): void {
+  const diagnostics = result.audioDiagnostics
+  if (!diagnostics) return
+  const repaired = diagnostics.adtsStripped > 0 || diagnostics.timestampOverrides > 0
+  if (!repaired || audioSeamReported) return
+  audioSeamReported = true
+  reportError(
+    new Error('Export audio seam repaired encoder output (informational)'),
+    'export-audio-fixup',
+    { verification, outputMime: result.mimeType, ...diagnostics },
+  )
 }

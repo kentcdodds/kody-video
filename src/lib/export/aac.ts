@@ -64,6 +64,34 @@ export interface AacChunkDiagnostics {
   describedByEncoder: boolean
   injectedDescription: boolean
   adtsStripped: number
+  timestampOverrides: number
+}
+
+/** Samples per AAC access unit — fixed by the codec. */
+export const AAC_FRAME_SAMPLES = 1024
+
+/** Trust the encoder's timestamp only within this window of the derived
+ * one. WebKit's AudioEncoder has been observed emitting several chunks all
+ * timestamped 0 — a broken sample timeline that strict (Apple) players
+ * render as silence while raw-stream decoders play it fine. */
+const TIMESTAMP_TOLERANCE_US = 25_000
+
+/**
+ * The timestamp the chunk SHOULD have: audio is fed to the encoder as one
+ * contiguous 48kHz timeline (segment offsets included), and every AAC chunk
+ * is one 1024-sample access unit — so position in the sequence fully
+ * determines timing. Prefers the encoder's own stamp when it agrees.
+ */
+export function deriveAacChunkTimestampUs(
+  chunkIndex: number,
+  encoderTimestampUs: number,
+  sampleRate: number,
+): { timestampUs: number; overridden: boolean } {
+  const derivedUs = Math.round((chunkIndex * AAC_FRAME_SAMPLES * 1_000_000) / sampleRate)
+  if (Math.abs(encoderTimestampUs - derivedUs) <= TIMESTAMP_TOLERANCE_US) {
+    return { timestampUs: encoderTimestampUs, overridden: false }
+  }
+  return { timestampUs: derivedUs, overridden: true }
 }
 
 export interface NormalizedAacChunk {
@@ -82,22 +110,25 @@ export function normalizeAacChunk(
 ): NormalizedAacChunk {
   const { sampleRate, channels, diagnostics } = options
   const isFirstChunk = diagnostics.chunks === 0
+  const chunkIndex = diagnostics.chunks
   diagnostics.chunks += 1
 
   let outChunk = chunk
   const data = new Uint8Array(chunk.byteLength)
   chunk.copyTo(data)
-  if (isAdtsFramed(data)) {
-    const raw = stripAdtsFrames(data)
-    if (raw) {
-      diagnostics.adtsStripped += 1
-      outChunk = new EncodedAudioChunk({
-        type: chunk.type,
-        timestamp: chunk.timestamp,
-        ...(typeof chunk.duration === 'number' ? { duration: chunk.duration } : {}),
-        data: raw,
-      })
-    }
+  const raw = isAdtsFramed(data) ? stripAdtsFrames(data) : null
+  if (raw) diagnostics.adtsStripped += 1
+
+  const timing = deriveAacChunkTimestampUs(chunkIndex, chunk.timestamp, sampleRate)
+  if (timing.overridden) diagnostics.timestampOverrides += 1
+
+  if (raw || timing.overridden) {
+    outChunk = new EncodedAudioChunk({
+      type: chunk.type,
+      timestamp: timing.timestampUs,
+      ...(typeof chunk.duration === 'number' ? { duration: chunk.duration } : {}),
+      data: raw ?? data,
+    })
   }
 
   let outMeta = meta

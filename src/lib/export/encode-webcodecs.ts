@@ -219,6 +219,7 @@ export async function exportWithWebCodecs(
     describedByEncoder: false,
     injectedDescription: false,
     adtsStripped: 0,
+    timestampOverrides: 0,
   }
   const audioEncoder = new AudioEncoder({
     output: (chunk, meta) => {
@@ -347,6 +348,7 @@ export async function exportWithWebCodecs(
       describedByEncoder: aacDiagnostics.describedByEncoder,
       injectedDescription: aacDiagnostics.injectedDescription,
       adtsStripped: aacDiagnostics.adtsStripped,
+      timestampOverrides: aacDiagnostics.timestampOverrides,
     },
   }
 }
