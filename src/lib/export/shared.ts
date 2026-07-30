@@ -190,6 +190,15 @@ export function resetAudioDiagnostics(): void {
   audioObservations = []
 }
 
+/** Near-silence floor shared by the input and output audio diagnostics. */
+export const AUDIO_SILENCE_PEAK = 0.005
+
+/** Loudest decoded input peak this export (0 when nothing decoded). */
+export function decodedAudioMaxPeak(): number {
+  if (audioObservations.length === 0) return 0
+  return Math.max(...audioObservations.map((o) => o.peak))
+}
+
 /** Fires a single tagged Sentry report when an export's audio looks wrong —
  * every clip failed to decode, or nothing above the near-silence floor. */
 export function reportSilentExportAudio(context: Record<string, unknown>): void {
@@ -329,6 +338,35 @@ export async function decodeClipAudio(
 }
 
 /**
+ * Peak of a finished export's audio track, for output-side verification —
+ * a silent MUX (e.g. an empty AAC decoder config) produces no error at any
+ * stage, so the only way to catch it is decoding what was actually written.
+ * Returns null when the output can't be decoded here (verification unknown,
+ * not proof of silence). Never pushes per-clip observations.
+ */
+export async function measureBlobAudioPeak(blob: Blob, sampleRate = 48000): Promise<number | null> {
+  // Whole-file decode: keep memory bounded on long projects.
+  if (blob.size > 120 * 1024 * 1024) return null
+  try {
+    const bytes = await blob.arrayBuffer()
+    const ctx = new OfflineAudioContext(2, 1, sampleRate)
+    const decoded = await ctx.decodeAudioData(bytes)
+    return audioBufferPeak(decoded)
+  } catch {
+    if (/mp4/i.test(blob.type)) {
+      try {
+        const { decodeMp4AudioWithWebCodecs } = await import('./mp4-audio')
+        const decoded = await decodeMp4AudioWithWebCodecs(blob, sampleRate)
+        if (decoded) return audioBufferPeak(decoded)
+      } catch {
+        // Verification unknown.
+      }
+    }
+    return null
+  }
+}
+
+/**
  * Load the mark stamped onto exported frames (unless the user purchased the
  * watermark removal). Best-effort: a missing asset must never fail an export.
  */
@@ -411,4 +449,11 @@ export interface ExportResult {
   blob: Blob
   mimeType: string
   fileExtension: 'mp4' | 'webm'
+  /** WebCodecs engine only: what the AAC mux seam had to do (see aac.ts). */
+  audioDiagnostics?: {
+    audioChunks: number
+    describedByEncoder: boolean
+    injectedDescription: boolean
+    adtsStripped: number
+  }
 }

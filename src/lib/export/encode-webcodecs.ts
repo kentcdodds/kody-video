@@ -8,6 +8,7 @@ import {
 } from 'webm-muxer'
 import { deriveProjectLocation } from '../geo'
 import type { ClipRecord } from '../types'
+import { normalizeAacChunk, type AacChunkDiagnostics } from './aac'
 import { injectMp4Metadata, type Mp4Chapter } from './mp4-metadata'
 import { clampSegmentToMedia, type ExportPlan } from './plan'
 import {
@@ -209,10 +210,30 @@ export async function exportWithWebCodecs(
   })
   videoEncoder.configure(videoEncoderConfig(choice.videoCodec, width, height))
 
+  // WebKit's AudioEncoder can frame AAC packets as ADTS — undecodable
+  // inside MP4 for Apple's own (strict) decoder, i.e. a silent audio track
+  // with no error anywhere — and can omit the decoder description.
+  // Normalize both before muxing.
+  const aacDiagnostics: AacChunkDiagnostics = {
+    chunks: 0,
+    describedByEncoder: false,
+    injectedDescription: false,
+    adtsStripped: 0,
+  }
   const audioEncoder = new AudioEncoder({
     output: (chunk, meta) => {
       try {
-        muxer.addAudioChunk(chunk, meta)
+        if (choice.container === 'mp4') {
+          const fixed = normalizeAacChunk(chunk, meta, {
+            sampleRate: AUDIO_SAMPLE_RATE,
+            channels: AUDIO_CHANNELS,
+            diagnostics: aacDiagnostics,
+          })
+          muxer.addAudioChunk(fixed.chunk, fixed.meta)
+        } else {
+          aacDiagnostics.chunks += 1
+          muxer.addAudioChunk(chunk, meta)
+        }
       } catch (err) {
         failWith(err)
       }
@@ -321,6 +342,12 @@ export async function exportWithWebCodecs(
     blob: new Blob([buffer], { type: mimeType }),
     mimeType,
     fileExtension: choice.container,
+    audioDiagnostics: {
+      audioChunks: aacDiagnostics.chunks,
+      describedByEncoder: aacDiagnostics.describedByEncoder,
+      injectedDescription: aacDiagnostics.injectedDescription,
+      adtsStripped: aacDiagnostics.adtsStripped,
+    },
   }
 }
 
