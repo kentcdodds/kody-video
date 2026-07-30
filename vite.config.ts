@@ -64,6 +64,11 @@ export default defineConfig({
         ],
       },
       workbox: {
+        // Without clientsClaim the updated worker activates after
+        // SKIP_WAITING but never takes over the open client —
+        // `controllerchange` never fires, the update button appears to do
+        // nothing, and the toast sticks until a full app restart.
+        clientsClaim: true,
         globPatterns: ['**/*.{js,css,html,ico,png,svg,webp,woff2}'],
         // Not part of the app shell: the social card is for link scrapers
         // and the icon master is only the source for generated icons.

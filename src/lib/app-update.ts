@@ -58,14 +58,7 @@ export async function checkForUpdates(): Promise<UpdateCheckResult> {
   // Follow the install through to `waiting`, then apply.
   const deadline = Date.now() + 8000
   while (Date.now() < deadline) {
-    if (reg.waiting) {
-      try {
-        await apply(true)
-        return 'updated'
-      } catch {
-        return 'unavailable'
-      }
-    }
+    if (reg.waiting) return applyAndReload(apply)
     if (!reg.installing) {
       // A worker appeared but is neither installing nor waiting anymore:
       // the install failed (worker went redundant). Don't claim "current".
@@ -74,14 +67,25 @@ export async function checkForUpdates(): Promise<UpdateCheckResult> {
     }
     await new Promise((resolve) => setTimeout(resolve, 200))
   }
-  if (reg.waiting) {
-    try {
-      await apply(true)
-      return 'updated'
-    } catch {
-      return 'unavailable'
-    }
-  }
+  if (reg.waiting) return applyAndReload(apply)
   if (reg.installing) return 'downloading'
   return 'current'
+}
+
+async function applyAndReload(
+  apply: (reloadPage?: boolean) => Promise<void>,
+): Promise<UpdateCheckResult> {
+  try {
+    await apply(true)
+  } catch {
+    return 'unavailable'
+  }
+  // Normally clientsClaim + controllerchange reload the page before this
+  // fires; service workers deployed before clientsClaim never emit
+  // controllerchange, which left the button looking dead. The new worker
+  // has been told to activate either way — reload under it.
+  window.setTimeout(() => {
+    window.location.reload()
+  }, 1500)
+  return 'updated'
 }
