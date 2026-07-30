@@ -1,6 +1,7 @@
 import { useCallback, useRef, useState, type RefCallback } from 'react'
 import {
   canFlipCamera,
+  isIosBrowser,
   listRearCameras,
   openCameraStream,
   openMicrophoneTrack,
@@ -11,6 +12,33 @@ import {
   type CameraPermissionState,
   type FacingMode,
 } from '../lib/media'
+
+/**
+ * iOS Safari is known to deliver muted (silent-but-live) audio tracks when
+ * the mic and camera come from separate getUserMedia calls — the exact
+ * two-call pattern the app uses elsewhere (video-only preview, mic per-take,
+ * for Android's voice-to-text). On iOS the mic is acquired WITH the camera
+ * in one combined call and lives as long as the preview, like a native
+ * camera app. Backgrounding still releases everything.
+ */
+const HOLD_MIC_WITH_CAMERA = typeof navigator !== 'undefined' && isIosBrowser()
+
+/** On iOS, camera + mic in one call (see HOLD_MIC_WITH_CAMERA); a combined
+ * failure falls back to video-only so a mic-denied user still gets a
+ * preview. Elsewhere always video-only. */
+async function openCombinedOrVideoStream(
+  facing: FacingMode,
+  deviceId: string | undefined,
+): Promise<MediaStream> {
+  if (HOLD_MIC_WITH_CAMERA) {
+    try {
+      return await openCameraStream(facing, { audio: true, deviceId })
+    } catch {
+      // Fall through to video-only below.
+    }
+  }
+  return openCameraStream(facing, { audio: false, deviceId })
+}
 
 /** Remembered rear lens (e.g. the ultra-wide) across sessions. */
 const REAR_LENS_STORAGE_KEY = 'kodyVideo.rearLens'
@@ -109,8 +137,10 @@ interface ExtendedSettings extends MediaTrackSettings {
 /**
  * Camera lifecycle is event/ref-driven (no useEffect):
  * - Video ref callback attaches/detaches the stream and starts capture when mounted.
- * - Preview is video-only so Android OS voice-to-text can keep the mic.
- * - enableMic/releaseMic attach a mic track only while recording.
+ * - Preview is video-only so Android OS voice-to-text can keep the mic;
+ *   enableMic/releaseMic attach a mic track only while recording.
+ * - Except iOS: mic comes with the camera in one combined call and stays for
+ *   the preview's lifetime (see HOLD_MIC_WITH_CAMERA).
  */
 export function useCamera(): UseCameraResult {
   const streamRef = useRef<MediaStream | null>(null)
@@ -238,10 +268,10 @@ export function useCamera(): UseCameraResult {
       try {
         const rememberedLens =
           facingRef.current === 'environment' ? await resolveRememberedLens() : undefined
-        const next = await openCameraStream(facingRef.current, {
-          audio: false,
-          deviceId: rememberedLens,
-        })
+        const next = await openCombinedOrVideoStream(facingRef.current, rememberedLens)
+        if (HOLD_MIC_WITH_CAMERA) {
+          setMicPermission(next.getAudioTracks().length > 0 ? 'granted' : 'denied')
+        }
         setPermission({ status: 'granted' })
         replaceStream(next)
         setCanFlip(await canFlipCamera())
@@ -251,7 +281,9 @@ export function useCamera(): UseCameraResult {
         // shows the prompt). Prompt now, at a normal moment. The claim is
         // released when the outcome was ambiguous (prompt dismissed or
         // interrupted by backgrounding) so the next camera start retries.
-        if (!micPrimedRef.current) {
+        // Not on iOS: the mic came with the combined camera request, and a
+        // separate audio-only call is the muted-track pattern to avoid.
+        if (!micPrimedRef.current && !HOLD_MIC_WITH_CAMERA) {
           micPrimedRef.current = true
           void primeMicrophonePermission().then((state) => {
             setMicPermission(state)
@@ -283,7 +315,7 @@ export function useCamera(): UseCameraResult {
     try {
       const rememberedLens =
         nextFacing === 'environment' ? await resolveRememberedLens() : undefined
-      const next = await openCameraStream(nextFacing, { audio: false, deviceId: rememberedLens })
+      const next = await openCombinedOrVideoStream(nextFacing, rememberedLens)
       replaceStream(next)
       void syncRearLenses(next)
     } catch (err) {
@@ -329,7 +361,7 @@ export function useCamera(): UseCameraResult {
         return true
       }
       try {
-        const next = await openCameraStream('environment', { audio: false, deviceId: nextId })
+        const next = await openCombinedOrVideoStream('environment', nextId)
         const openedId = next.getVideoTracks()[0]?.getSettings().deviceId ?? ''
         if (!adopt(next)) return
         // Memory must mirror what's actually on screen: the requested lens,
@@ -342,10 +374,7 @@ export function useCamera(): UseCameraResult {
       } catch (err) {
         // Try to restore the lens we just released.
         try {
-          const restored = await openCameraStream('environment', {
-            audio: false,
-            deviceId: activeId || undefined,
-          })
+          const restored = await openCombinedOrVideoStream('environment', activeId || undefined)
           adopt(restored)
         } catch {
           setError(permissionMessage(err))
@@ -387,6 +416,10 @@ export function useCamera(): UseCameraResult {
   }, [])
 
   const releaseMic = useCallback(() => {
+    // iOS: the mic lives and dies with the camera stream (single-call
+    // pattern) — stopping it per-take would force the separate audio-only
+    // getUserMedia that produces muted tracks on the next take.
+    if (HOLD_MIC_WITH_CAMERA) return
     stopAudioTracks(streamRef.current)
   }, [])
 

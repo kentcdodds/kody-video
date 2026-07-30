@@ -86,20 +86,28 @@ export interface ParsedBackup {
 }
 
 /**
+ * A file the user picked that isn't a (valid, current) Kody Video backup.
+ * Surfaced in-app as guidance; expected user input, never a crash report.
+ */
+export class BackupFormatError extends Error {
+  override readonly name = 'BackupFormatError'
+}
+
+/**
  * Parse a backup file. Media bytes are sliced lazily per clip (File.slice),
  * so large backups never need the whole file in memory at once.
  */
 export async function parseProjectBackup(file: Blob): Promise<ParsedBackup> {
   const headerLength = MAGIC_BYTES.byteLength + 4
-  if (file.size < headerLength) throw new Error('Not a Kody Video backup file')
+  if (file.size < headerLength) throw new BackupFormatError('Not a Kody Video backup file')
 
   const header = new Uint8Array(await file.slice(0, headerLength).arrayBuffer())
   for (let i = 0; i < MAGIC_BYTES.byteLength; i += 1) {
-    if (header[i] !== MAGIC_BYTES[i]) throw new Error('Not a Kody Video backup file')
+    if (header[i] !== MAGIC_BYTES[i]) throw new BackupFormatError('Not a Kody Video backup file')
   }
   const manifestLength = new DataView(header.buffer).getUint32(MAGIC_BYTES.byteLength)
   if (manifestLength <= 0 || headerLength + manifestLength > file.size) {
-    throw new Error('This backup file is damaged')
+    throw new BackupFormatError('This backup file is damaged')
   }
 
   let manifest: Manifest
@@ -109,10 +117,10 @@ export async function parseProjectBackup(file: Blob): Promise<ParsedBackup> {
       .arrayBuffer()
     manifest = JSON.parse(new TextDecoder().decode(manifestBytes)) as Manifest
   } catch {
-    throw new Error('This backup file is damaged')
+    throw new BackupFormatError('This backup file is damaged')
   }
   if (manifest.app !== 'kody-video' || manifest.version !== 1 || !Array.isArray(manifest.clips)) {
-    throw new Error('This backup was made by a newer app version — update and retry')
+    throw new BackupFormatError('This backup was made by a newer app version — update and retry')
   }
 
   let offset = headerLength + manifestLength
@@ -123,7 +131,7 @@ export async function parseProjectBackup(file: Blob): Promise<ParsedBackup> {
       clip.byteLength <= 0 ||
       offset + clip.byteLength > file.size
     ) {
-      throw new Error('This backup file is damaged')
+      throw new BackupFormatError('This backup file is damaged')
     }
     const mimeType = typeof clip.mimeType === 'string' ? clip.mimeType : 'video/webm'
     clips.push({
@@ -152,7 +160,7 @@ function assertImportableClip(clip: ParsedBackup['clips'][number]): void {
     Number.isFinite(clip.trimEndMs) &&
     Number.isFinite(clip.createdAt)
   if (!finite || clip.durationMs <= 0 || clip.blob.size <= 0) {
-    throw new Error('This backup file is damaged')
+    throw new BackupFormatError('This backup file is damaged')
   }
 }
 

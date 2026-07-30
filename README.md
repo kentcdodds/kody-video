@@ -119,6 +119,7 @@ Verified approach: `npm run build && npm run preview`, load once online, then De
 ## Browser limits
 
 - **iOS Safari:** WebCodecs audio support is incomplete; the realtime fallback engine covers it, but Chromium (especially Android) is the primary target.
+- **iOS microphone:** WebKit can deliver muted audio tracks when mic and camera come from separate `getUserMedia` calls, so on iOS the mic is acquired together with the camera and held while the preview is open (everywhere else the mic is grabbed per-take). A live level monitor warns "Mic isn't picking up sound" during silent takes on every platform.
 - **Permissions:** denied camera/mic must be re-enabled in site settings; the UI surfaces this.
 - **Storage quotas:** large projects can hit IndexedDB quotas; the soft 6-project cap helps.
 - **Background tabs:** recording should stay in the foreground; browsers may throttle capture.
@@ -195,6 +196,7 @@ in-app About page has a link that pre-fills device details).
 | `node scripts/probe-export-chrome.mjs` | Export validation in Chrome stable (real codecs) |
 | `node scripts/probe-keyboard.mjs`    | Desktop keyboard flows (record/edit/playback) |
 | `node scripts/probe-rear-lens.mjs`   | Rear lens switching (ultra-wide) with fake cameras |
+| `node scripts/probe-mic-monitor.mjs`  | Silent-mic warning fires (and clears) correctly |
 | `node scripts/probe-screen-record.mjs` | Desktop screen recording lands as a clip |
 | `node scripts/probe-touch-timeline.mjs` | Touch timeline gestures (scroll, long-press lift) |
 | `node scripts/probe-webkit.mjs`      | WebKit engine sanity + feature matrix (iOS proxy, not a substitute for a real device) |

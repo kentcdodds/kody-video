@@ -9,6 +9,7 @@ import { RenameSheet } from '../components/rename-sheet'
 import { downloadBlob, shareOrDownload } from '../lib/media'
 import { loadHomePage, type HomeLoaderData, type ProjectSummary } from '../lib/project-actions'
 import {
+  BackupFormatError,
   importProjectBackup,
   parseProjectBackup,
   projectBackupFilename,
@@ -136,7 +137,8 @@ export function HomePage() {
         // no dependence on the list revalidating behind the scenes.
         navigate(`/project/${project.id}`)
       } catch (err) {
-        reportError(err, 'import')
+        // Wrong/damaged file picked = expected user input, not a crash.
+        if (!(err instanceof BackupFormatError)) reportError(err, 'import')
         setError(err instanceof Error ? err.message : 'Could not import that file')
       } finally {
         setImportProgress(null)

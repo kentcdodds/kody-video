@@ -108,12 +108,56 @@ function reportExportSessionDeath(): void {
   }
 }
 
+/**
+ * Coarse, non-identifying platform tags. Stripping request metadata (see
+ * beforeSend) also strips the user agent, which left events with no platform
+ * signal at all — triage of the iOS silent-mic report was blind to the OS.
+ * Family-level names only; this matches the privacy page's "browser/OS".
+ */
+export function coarsePlatformTags(): Record<string, string> {
+  const ua = navigator.userAgent
+  const isIos =
+    /iPhone|iPad|iPod/i.test(ua) ||
+    (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1)
+  const os = isIos
+    ? 'ios'
+    : /Android/i.test(ua)
+      ? 'android'
+      : /Mac OS X/.test(ua)
+        ? 'macos'
+        : /Windows/i.test(ua)
+          ? 'windows'
+          : /Linux|CrOS/i.test(ua)
+            ? 'linux'
+            : 'other'
+  const browser = /Edg(?:e|A|iOS)?\//.test(ua)
+    ? 'edge'
+    : /SamsungBrowser/i.test(ua)
+      ? 'samsung'
+      : /OPR\/|OPT\//.test(ua)
+        ? 'opera'
+        : /Firefox\/|FxiOS/i.test(ua)
+          ? 'firefox'
+          : /CriOS|Chrome\//.test(ua)
+            ? 'brave' in navigator
+              ? 'brave'
+              : 'chrome'
+            : /Safari/i.test(ua)
+              ? 'safari'
+              : 'other'
+  const installed =
+    window.matchMedia('(display-mode: standalone)').matches ||
+    (navigator as { standalone?: boolean }).standalone === true
+  return { 'app.os': os, 'app.browser': browser, 'app.installed': String(installed) }
+}
+
 export function initErrorReporting(): void {
   if (!REPORTING_HOSTNAMES.has(location.hostname)) return
   Sentry.init({
     dsn: SENTRY_DSN,
     release: COMMIT_SHA,
     environment: location.hostname === 'kody.video' ? 'production' : 'legacy-pages-dev',
+    initialScope: { tags: coarsePlatformTags() },
     // Crash reports only: no tracing, no session replay, no PII. Clips and
     // media never leave the device — this reports errors and stack traces.
     // These settings ENFORCE the privacy-page wording ("error message, stack

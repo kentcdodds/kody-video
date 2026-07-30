@@ -8,7 +8,9 @@ Run locally with HTTPS or `localhost` (`npm run dev`). Camera/mic require a secu
 - [ ] Deny → clear denied panel with retry guidance
 - [ ] Allow → live rear-camera preview (or fallback)
 - [ ] Flip camera works when multiple cameras exist
-- [ ] Opening the camera prompts for the microphone too (one-time priming); the mic is NOT held while idle (no OS mic indicator)
+- [ ] Opening the camera prompts for the microphone too (one-time priming); the mic is NOT held while idle (no OS mic indicator) — except iOS, where the mic is acquired with the camera and held while previewing (muted-track workaround)
+- [ ] iOS: recordings have audible sound (mic + camera come from one combined request)
+- [ ] A take with a dead/covered mic shows the red "Mic isn't picking up sound" pill after ~2.5s; a take with sound clears it
 - [ ] If the mic is blocked in site settings, a red "Mic blocked" pill shows on the record screen (Brave/Android regression)
 - [ ] Torch toggle appears on devices with a flash; zoom chips appear when supported
 - [ ] Phones with multiple rear cameras show a lens chip (e.g. "1/3") that switches to the ultra-wide/telephoto; choice sticks across flips and restarts
