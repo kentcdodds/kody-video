@@ -1,9 +1,13 @@
+import { reportError } from '../error-reporting'
 import type { ClipRecord } from '../types'
 import { exportRealtime } from './encode-realtime'
 import { exportWithWebCodecs, supportsWebCodecsExport } from './encode-webcodecs'
 import { planExport } from './plan'
 import {
+  AUDIO_SILENCE_PEAK,
+  decodedAudioMaxPeak,
   loadWatermarkImage,
+  measureBlobAudioPeak,
   reportBlackExportVideo,
   reportSilentExportAudio,
   resetAudioDiagnostics,
@@ -59,6 +63,13 @@ export async function exportProject(
       )
       reportSilentExportAudio({ engine: 'webcodecs', outputMime: result.mimeType })
       reportBlackExportVideo({ engine: 'webcodecs', outputMime: result.mimeType })
+      // A mux fault (e.g. an AAC track written without its decoder config)
+      // produces a silent file with no error at any stage. Verify what was
+      // actually written; the realtime engine muxes through MediaRecorder
+      // and is immune, so silent output here means fall back, not fail.
+      if ((await verifyOutputAudio(result, 'webcodecs')) === 'silent') {
+        throw new Error('WebCodecs export produced silent audio')
+      }
       return result
     } catch (error) {
       console.warn('WebCodecs export failed; falling back to realtime stitcher', error)
@@ -75,5 +86,36 @@ export async function exportProject(
   })
   reportSilentExportAudio({ engine: 'realtime', outputMime: result.mimeType })
   reportBlackExportVideo({ engine: 'realtime', outputMime: result.mimeType })
+  await verifyOutputAudio(result, 'realtime')
   return result
+}
+
+/**
+ * Output-side audio check: decodes the finished file and compares against
+ * the decoded inputs. 'silent' only when the inputs audibly had signal but
+ * the output does not — that combination always indicates an encode/mux
+ * fault, never a quiet recording. Reports to Sentry with the mux seam's
+ * diagnostics so remote failures are attributable.
+ */
+async function verifyOutputAudio(
+  result: ExportResult,
+  engine: 'webcodecs' | 'realtime',
+): Promise<'ok' | 'silent' | 'unknown'> {
+  const inputPeak = decodedAudioMaxPeak()
+  if (inputPeak < AUDIO_SILENCE_PEAK) return 'unknown'
+  const outputPeak = await measureBlobAudioPeak(result.blob)
+  if (outputPeak === null) return 'unknown'
+  if (outputPeak >= AUDIO_SILENCE_PEAK) return 'ok'
+  reportError(
+    new Error('Export output audio is silent despite audible clip audio (encode/mux fault)'),
+    'export-audio-output',
+    {
+      engine,
+      outputMime: result.mimeType,
+      outputPeak: Number(outputPeak.toFixed(4)),
+      inputPeak: Number(inputPeak.toFixed(4)),
+      ...(result.audioDiagnostics ?? {}),
+    },
+  )
+  return 'silent'
 }
