@@ -135,6 +135,13 @@ describe('storage layer', () => {
     expect(await copy.text()).toBe('recorder-bytes')
   })
 
+  it('toStoredBlob falls back to the clip mime when Blob.type is empty', async () => {
+    const original = new Blob(['untyped'], { type: '' })
+    const copy = await toStoredBlob(original, 'video/mp4')
+    expect(copy.type).toBe('video/mp4')
+    expect(await copy.text()).toBe('untyped')
+  })
+
   it('addClip persists a durable copy, not the caller Blob reference', async () => {
     const project = await createProject('Durable')
     const original = fakeBlob('take-1')

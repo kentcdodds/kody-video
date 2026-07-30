@@ -10,25 +10,52 @@ export interface LoadedClipVideo {
   release: () => void
 }
 
-/** Pause briefly so a previous video/camera can release a hardware decoder. */
-const MEDIA_LOAD_RETRY_DELAY_MS = 200
+/**
+ * Backoff between loadClipVideo retries. Hardware decoder slots (camera,
+ * editor preview, a prior failed open) often take a few hundred ms to free
+ * on Android and iOS WebKit — which can report the race as
+ * MEDIA_ERR_SRC_NOT_SUPPORTED even for a blob that played moments earlier.
+ */
+const MEDIA_LOAD_RETRY_DELAYS_MS = [200, 500, 1000]
+
+/**
+ * Prefer the clip's recorded MIME type when the Blob's type is missing,
+ * generic, or disagrees. Safari rejects object URLs typed as
+ * `application/octet-stream` with MEDIA_ERR_SRC_NOT_SUPPORTED.
+ */
+export function blobForPlayback(blob: Blob, mimeType?: string): Blob {
+  const preferred = (mimeType || '').trim()
+  if (!preferred || preferred === blob.type) return blob
+  return new Blob([blob], { type: preferred })
+}
 
 /**
  * Load a clip blob into an off-DOM video element and resolve its real
  * duration. MediaRecorder WebM blobs report `Infinity` until you seek far
  * past the end, so that dance is handled here.
  *
- * Retries once on media-element failure: Android often rejects the first
- * open when a just-unmounted preview/camera still holds a decoder slot.
+ * Retries on media-element failure: Android/iOS often reject the first open
+ * when a just-unmounted preview/camera still holds a decoder slot.
  */
-export async function loadClipVideo(blob: Blob, timeoutMs = 8000): Promise<LoadedClipVideo> {
-  try {
-    return await loadClipVideoOnce(blob, timeoutMs)
-  } catch (error) {
-    if (!isMediaElementFailure(error)) throw error
-    await wait(MEDIA_LOAD_RETRY_DELAY_MS)
-    return loadClipVideoOnce(blob, timeoutMs)
+export async function loadClipVideo(
+  blob: Blob,
+  timeoutMs = 8000,
+  mimeType?: string,
+): Promise<LoadedClipVideo> {
+  const playable = blobForPlayback(blob, mimeType)
+  let lastError: unknown
+  for (let attempt = 0; attempt <= MEDIA_LOAD_RETRY_DELAYS_MS.length; attempt += 1) {
+    try {
+      return await loadClipVideoOnce(playable, timeoutMs)
+    } catch (error) {
+      lastError = error
+      if (!isMediaElementFailure(error)) throw error
+      const delay = MEDIA_LOAD_RETRY_DELAYS_MS[attempt]
+      if (delay === undefined) break
+      await wait(delay)
+    }
   }
+  throw lastError
 }
 
 async function loadClipVideoOnce(blob: Blob, timeoutMs: number): Promise<LoadedClipVideo> {
@@ -51,8 +78,15 @@ async function loadClipVideoOnce(blob: Blob, timeoutMs: number): Promise<LoadedC
   }
 
   try {
+    // Attach the listener before assigning src/load so a synchronous
+    // loadedmetadata cannot slip past (WebKit sometimes fires promptly for
+    // already-buffered blob URLs).
+    const metadataReady = waitForMediaEvent(video, 'loadedmetadata', timeoutMs)
     video.src = url
-    await waitForMediaEvent(video, 'loadedmetadata', timeoutMs)
+    // Explicit load() helps WebKit pick up a freshly assigned blob URL after
+    // a prior media element on the same page was torn down.
+    video.load()
+    await metadataReady
 
     let durationSec = video.duration
     if (!Number.isFinite(durationSec) || durationSec <= 0) {

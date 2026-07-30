@@ -17,10 +17,13 @@ import { RestoreSheet } from '../components/restore-sheet'
 import { REMOVE_WATERMARK_LINK } from '../lib/entitlement'
 import { clearExportMarker, markExportStarted, reportError } from '../lib/error-reporting'
 import { exportProject, type ExportResult } from '../lib/export'
+import { MediaElementFailureError } from '../lib/export/media-error'
+import { wait } from '../lib/export/shared'
 import {
   canShareFile,
   downloadBlob,
   downloadClipsAsSeparateFiles,
+  isIosBrowser,
   projectFilename,
   shareFile,
 } from '../lib/media'
@@ -112,6 +115,7 @@ export function ProjectPage() {
   }, [])
 
   const clips = data.clips
+  const stopCamera = camera.stop
 
   const startExport = useCallback(() => {
     if (clips.length === 0) return
@@ -132,6 +136,11 @@ export function ProjectPage() {
     }
 
     const watermarked = !data.watermarkRemoved
+    // Stop camera/mic immediately rather than waiting on record-screen
+    // unmount. On iOS the combined mic+camera session can hold decoder
+    // slots past the first paints, and WebKit reports that race as
+    // MEDIA_ERR_SRC_NOT_SUPPORTED for an otherwise playable clip.
+    stopCamera()
     setExportState({
       status: 'exporting',
       progress: 0,
@@ -149,6 +158,10 @@ export function ProjectPage() {
         // the wait still closes the tap-created AudioContext.
         await waitForNextPaint()
         await waitForNextPaint()
+        // iOS WebKit frees hardware decoders asynchronously after stop();
+        // two frames alone was enough on Android but not after the combined
+        // mic+camera capture path.
+        if (isIosBrowser()) await wait(400)
         if (exportRunRef.current !== runId) return
 
         // If the page dies mid-export (tab crash / OOM — no JS error fires),
@@ -179,7 +192,13 @@ export function ProjectPage() {
       } catch (err) {
         // Report even when the run was abandoned (closed sheet / retry) —
         // only the UI update is stale, the failure is real.
-        reportError(err, 'export', { clips: clips.length })
+        reportError(err, 'export', {
+          clips: clips.length,
+          clipMimeTypes: clips.map((clip) => clip.mimeType),
+          clipSizes: clips.map((clip) => clip.blob.size),
+          mediaErrorCode:
+            err instanceof MediaElementFailureError ? err.mediaErrorCode : undefined,
+        })
         if (exportRunRef.current !== runId) return
         setExportState({
           status: 'error',
@@ -199,7 +218,7 @@ export function ProjectPage() {
         }
       }
     })()
-  }, [clips, data.watermarkRemoved])
+  }, [clips, data.watermarkRemoved, stopCamera])
 
   const closeExport = useCallback(() => {
     exportRunRef.current += 1

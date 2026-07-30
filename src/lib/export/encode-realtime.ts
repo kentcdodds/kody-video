@@ -37,7 +37,8 @@ export async function exportRealtime(
   plan: ExportPlan,
   options: RealtimeExportOptions = {},
 ): Promise<ExportResult> {
-  const probe = await loadClipVideo(plan.segments[0].clip.blob)
+  const probeClip = plan.segments[0].clip
+  const probe = await loadClipVideo(probeClip.blob, 8000, probeClip.mimeType)
   const { width, height } = pickOutputSize(probe.video.videoWidth, probe.video.videoHeight)
   probe.release()
 
@@ -109,7 +110,7 @@ export async function exportRealtime(
   const frameCounter = { count: 0 }
   try {
     for (const segment of plan.segments) {
-      const loaded = await loadClipVideo(segment.clip.blob)
+      const loaded = await loadClipVideo(segment.clip.blob, 8000, segment.clip.mimeType)
       try {
         const clamped = clampSegmentToMedia(segment, loaded.mediaDurationMs)
         if (!clamped) continue
