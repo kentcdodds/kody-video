@@ -3,6 +3,7 @@ import {
   Link,
   Navigate,
   useLoaderData,
+  useNavigate,
   useRevalidator,
   type LoaderFunctionArgs,
 } from 'react-router-dom'
@@ -28,7 +29,9 @@ import {
   shareFile,
 } from '../lib/media'
 import { loadProjectPage, type ProjectLoaderData } from '../lib/project-actions'
-import { setOnboardingDismissed } from '../lib/storage'
+import { createProject, setOnboardingDismissed } from '../lib/storage'
+import { requestPersistentStorage } from '../lib/storage-space'
+import { NEW_PROJECT_ID, type ProjectId } from '../lib/types'
 
 /** Resolve after the next animation frame (or a short timeout when rAF is busy). */
 function waitForNextPaint(): Promise<void> {
@@ -116,6 +119,30 @@ export function ProjectPage() {
 
   const clips = data.clips
   const stopCamera = camera.stop
+  const navigate = useNavigate()
+  const project = data.project
+
+  // Lazy creation: a "/project/new" project is persisted only when the
+  // first clip finishes recording. The promise is memoized so overlapping
+  // takes (or a camera take racing a screen take) create exactly one.
+  const ensureProjectRef = useRef<Promise<ProjectId> | null>(null)
+  const ensureProjectId = useCallback((): Promise<ProjectId> => {
+    if (project && project.id !== NEW_PROJECT_ID) return Promise.resolve(project.id)
+    ensureProjectRef.current ??= (async () => {
+      try {
+        const created = await createProject()
+        // Their recordings should survive storage pressure.
+        requestPersistentStorage()
+        navigate(`/project/${created.id}`, { replace: true })
+        return created.id
+      } catch (err) {
+        // A failed creation must not poison later attempts.
+        ensureProjectRef.current = null
+        throw err
+      }
+    })()
+    return ensureProjectRef.current
+  }, [navigate, project])
 
   const startExport = useCallback(() => {
     if (clips.length === 0) return
@@ -229,7 +256,7 @@ export function ProjectPage() {
     setExportState((current) => (current ? { ...current, notice } : current))
   }, [])
 
-  if (!data.project || data.error) {
+  if (!project || data.error) {
     if (data.error === 'Project not found') {
       return <Navigate to="/" replace />
     }
@@ -245,7 +272,6 @@ export function ProjectPage() {
     )
   }
 
-  const project = data.project
   const exporting = exportState?.status === 'exporting'
   const overlayOpen = playing || exportState !== null || onboardingOpen
   const exportFilename = exportState?.result
@@ -260,6 +286,7 @@ export function ProjectPage() {
       {exporting ? null : mode === 'record' ? (
         <RecordScreen
           project={project}
+          ensureProjectId={ensureProjectId}
           clips={clips}
           camera={camera}
           storage={data.storage}

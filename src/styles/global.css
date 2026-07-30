@@ -495,6 +495,19 @@ a {
   transition: width 160ms linear;
 }
 
+.sheet-copy {
+  margin: 10px 0 0;
+  font-size: 0.92rem;
+  line-height: 1.5;
+  color: var(--ink-muted);
+}
+
+.sheet-footnote {
+  display: block;
+  margin: 14px auto 0;
+  font-size: 0.85rem;
+}
+
 .update-toast {
   position: absolute;
   top: calc(10px + var(--safe-top));
