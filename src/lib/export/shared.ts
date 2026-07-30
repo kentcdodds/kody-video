@@ -1,3 +1,4 @@
+import { ALL_FORMATS, AudioBufferSink, BlobSource, Input } from 'mediabunny'
 import { reportError } from '../error-reporting'
 import { isMediaElementFailure, MediaElementFailureError } from './media-error'
 
@@ -180,14 +181,26 @@ export function drawCover(
   width: number,
   height: number,
 ): void {
-  const vw = video.videoWidth || width
-  const vh = video.videoHeight || height
+  drawCoverFrom(ctx, video, video.videoWidth || width, video.videoHeight || height, width, height)
+}
+
+/** drawCover for any drawable source (VideoFrame, canvas, video element). */
+export function drawCoverFrom(
+  ctx: CanvasRenderingContext2D,
+  source: CanvasImageSource,
+  sourceWidth: number,
+  sourceHeight: number,
+  width: number,
+  height: number,
+): void {
+  const vw = sourceWidth || width
+  const vh = sourceHeight || height
   const scale = Math.max(width / vw, height / vh)
   const dw = vw * scale
   const dh = vh * scale
   ctx.fillStyle = '#000'
   ctx.fillRect(0, 0, width, height)
-  ctx.drawImage(video, (width - dw) / 2, (height - dh) / 2, dw, dh)
+  ctx.drawImage(source, (width - dw) / 2, (height - dh) / 2, dw, dh)
 }
 
 /**
@@ -213,7 +226,7 @@ let audioDecodeFailureReported = false
  * decode path ran, and whether the decoded audio carried any actual signal
  * (a perfect pipeline still exports silence when the mic recorded none). */
 interface ClipAudioObservation {
-  path: 'native' | 'fallback' | 'failed'
+  path: 'decoded' | 'none' | 'failed'
   peak: number
   mimeType: string
 }
@@ -331,35 +344,73 @@ function audioBufferPeak(buffer: AudioBuffer): number {
   return peak
 }
 
+/**
+ * Decode a blob's audio track into one AudioBuffer at the requested sample
+ * rate. Mediabunny demuxes and decodes (fragmented MP4, WebM/Opus, rotation
+ * of containers — all one path); the result is resampled when the source
+ * rate differs. Returns null when there is no decodable audio.
+ */
+async function decodeBlobAudio(blob: Blob, sampleRate: number): Promise<AudioBuffer | null> {
+  const input = new Input({ source: new BlobSource(blob), formats: ALL_FORMATS })
+  const track = await input.getPrimaryAudioTrack()
+  if (!track || !(await track.canDecode())) return null
+
+  const sink = new AudioBufferSink(track)
+  const pieces: Array<{ buffer: AudioBuffer; timestamp: number }> = []
+  let sourceRate = 0
+  let channels = 1
+  let endSec = 0
+  for await (const wrapped of sink.buffers()) {
+    pieces.push({ buffer: wrapped.buffer, timestamp: wrapped.timestamp })
+    sourceRate = wrapped.buffer.sampleRate
+    channels = Math.max(channels, wrapped.buffer.numberOfChannels)
+    endSec = Math.max(endSec, wrapped.timestamp + wrapped.duration)
+  }
+  if (pieces.length === 0 || sourceRate <= 0 || endSec <= 0) return null
+
+  const merged = new AudioBuffer({
+    length: Math.max(1, Math.ceil(endSec * sourceRate)),
+    sampleRate: sourceRate,
+    numberOfChannels: channels,
+  })
+  for (const piece of pieces) {
+    const offset = Math.round(piece.timestamp * sourceRate)
+    for (let ch = 0; ch < channels; ch += 1) {
+      const sourceChannel = Math.min(ch, piece.buffer.numberOfChannels - 1)
+      const data = piece.buffer.getChannelData(sourceChannel)
+      const available = merged.length - offset
+      if (available <= 0) continue
+      merged.copyToChannel(available < data.length ? data.subarray(0, available) : data, ch, offset)
+    }
+  }
+  if (sourceRate === sampleRate) return merged
+
+  const length = Math.max(1, Math.ceil(merged.duration * sampleRate))
+  const offline = new OfflineAudioContext(channels, length, sampleRate)
+  const source = offline.createBufferSource()
+  source.buffer = merged
+  source.connect(offline.destination)
+  source.start()
+  return offline.startRendering()
+}
+
 export async function decodeClipAudio(
   blob: Blob,
   sampleRate = 48000,
 ): Promise<AudioBuffer | null> {
   try {
-    const bytes = await blob.arrayBuffer()
-    const ctx = new OfflineAudioContext(2, 1, sampleRate)
-    const decoded = await ctx.decodeAudioData(bytes)
-    audioObservations.push({ path: 'native', peak: audioBufferPeak(decoded), mimeType: blob.type })
-    return decoded
-  } catch {
-    // Safari's MediaRecorder writes fragmented MP4, which decodeAudioData
-    // rejects — demux + AudioDecoder covers it (silent export otherwise).
-    if (/mp4/i.test(blob.type)) {
-      try {
-        const { decodeMp4AudioWithWebCodecs } = await import('./mp4-audio')
-        const decoded = await decodeMp4AudioWithWebCodecs(blob, sampleRate)
-        if (decoded) {
-          audioObservations.push({
-            path: 'fallback',
-            peak: audioBufferPeak(decoded),
-            mimeType: blob.type,
-          })
-          return decoded
-        }
-      } catch {
-        // Fall through to the failure report below.
-      }
+    const decoded = await decodeBlobAudio(blob, sampleRate)
+    if (decoded) {
+      audioObservations.push({
+        path: 'decoded',
+        peak: audioBufferPeak(decoded),
+        mimeType: blob.type,
+      })
+      return decoded
     }
+    audioObservations.push({ path: 'none', peak: 0, mimeType: blob.type })
+    return null
+  } catch {
     audioObservations.push({ path: 'failed', peak: 0, mimeType: blob.type })
     if (!audioDecodeFailureReported) {
       audioDecodeFailureReported = true
@@ -391,25 +442,11 @@ export async function measureBlobAudioPeak(
   // Whole-file decode: keep memory bounded on long projects.
   if (blob.size > 120 * 1024 * 1024) return { peak: null, failure: 'too large to verify' }
   try {
-    const bytes = await blob.arrayBuffer()
-    const ctx = new OfflineAudioContext(2, 1, sampleRate)
-    const decoded = await ctx.decodeAudioData(bytes)
-    return { peak: audioBufferPeak(decoded) }
-  } catch (nativeError) {
-    if (/mp4/i.test(blob.type)) {
-      try {
-        const { decodeMp4AudioWithWebCodecs } = await import('./mp4-audio')
-        const decoded = await decodeMp4AudioWithWebCodecs(blob, sampleRate)
-        if (decoded) return { peak: audioBufferPeak(decoded) }
-        return { peak: null, failure: 'demux fallback returned nothing' }
-      } catch (fallbackError) {
-        return {
-          peak: null,
-          failure: `native: ${String(nativeError).slice(0, 120)}; fallback: ${String(fallbackError).slice(0, 120)}`,
-        }
-      }
-    }
-    return { peak: null, failure: String(nativeError).slice(0, 160) }
+    const decoded = await decodeBlobAudio(blob, sampleRate)
+    if (decoded) return { peak: audioBufferPeak(decoded) }
+    return { peak: null, failure: 'no decodable audio track' }
+  } catch (error) {
+    return { peak: null, failure: String(error).slice(0, 160) }
   }
 }
 
@@ -473,17 +510,27 @@ export function drawWatermark(
 /** How often the engines mirror an encoded frame to the UI preview canvas. */
 export const PREVIEW_EVERY_N_FRAMES = 10
 
-/** Mirror the engine's work canvas onto the visible preview canvas. */
+/** Preview updates are cosmetic — ~5fps wall time is plenty. */
+export const PREVIEW_INTERVAL_MS = 200
+
+/** Keep the mirrored preview cheap: cap its long edge well below encode size. */
+const PREVIEW_MAX_EDGE = 480
+
+/** Mirror the engine's work canvas onto the visible preview canvas,
+ * downscaled — the preview shows progress, not pixels. */
 export function blitPreview(
   source: HTMLCanvasElement,
   target: HTMLCanvasElement | null | undefined,
 ): void {
   if (!target) return
-  if (target.width !== source.width || target.height !== source.height) {
-    target.width = source.width
-    target.height = source.height
+  const scale = Math.min(1, PREVIEW_MAX_EDGE / Math.max(source.width, source.height, 1))
+  const width = Math.max(2, Math.round(source.width * scale))
+  const height = Math.max(2, Math.round(source.height * scale))
+  if (target.width !== width || target.height !== height) {
+    target.width = width
+    target.height = height
   }
-  target.getContext('2d')?.drawImage(source, 0, 0)
+  target.getContext('2d')?.drawImage(source, 0, 0, width, height)
 }
 
 export function wait(ms: number): Promise<void> {
@@ -496,14 +543,4 @@ export interface ExportResult {
   blob: Blob
   mimeType: string
   fileExtension: 'mp4' | 'webm'
-  /** WebCodecs engine only: what the AAC mux seam had to do (see aac.ts). */
-  audioDiagnostics?: {
-    audioChunks: number
-    describedByEncoder: boolean
-    injectedDescription: boolean
-    adtsStripped: number
-    timestampOverrides: number
-    encoderDescriptionHex: string | null
-    firstChunkPrefixHex: string | null
-  }
 }
