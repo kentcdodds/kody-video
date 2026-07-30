@@ -7,6 +7,7 @@ import {
   Muxer as WebmMuxer,
 } from 'webm-muxer'
 import { deriveProjectLocation } from '../geo'
+import { isIosBrowser } from '../media'
 import type { ClipRecord } from '../types'
 import { normalizeAacChunk, type AacChunkDiagnostics } from './aac'
 import { injectMp4Metadata, type Mp4Chapter } from './mp4-metadata'
@@ -87,21 +88,27 @@ function audioEncoderConfig(codec: string): AudioEncoderConfig {
 
 /**
  * Prefer MP4 (H.264 + AAC) because Android share targets accept it
- * universally; fall back to WebM (VP9/VP8 + Opus). A working audio encoder
- * is required — clips carry mic audio, so a silent WebCodecs export would be
- * strictly worse than the realtime fallback engine, which can mix audio.
+ * universally; try higher AVC levels before abandoning MP4 (High@4.0 caps
+ * near 1080p30 — clips from some cameras exceed it). WebM (VP9/VP8 + Opus)
+ * is the last resort, and NEVER on iOS: nothing there shares or plays WebM
+ * properly, and VP8/VP9 encoding is software-slow on iPhones (observed as a
+ * "frozen" export that eventually produced an unusable .webm). A working
+ * audio encoder is required — clips carry mic audio, so a silent WebCodecs
+ * export would be strictly worse than the realtime fallback engine.
  */
 async function pickCodecs(width: number, height: number): Promise<CodecChoice | null> {
-  const avc = 'avc1.640028'
   const aac = 'mp4a.40.2'
   const opus = 'opus'
 
-  if (
-    (await isVideoConfigSupported(videoEncoderConfig(avc, width, height))) &&
-    (await isAudioConfigSupported(audioEncoderConfig(aac)))
-  ) {
-    return { container: 'mp4', videoCodec: avc, audioCodec: aac }
+  if (await isAudioConfigSupported(audioEncoderConfig(aac))) {
+    // High profile at levels 4.0 → 5.1 (≈1080p30 → 4K).
+    for (const avc of ['avc1.640028', 'avc1.640032', 'avc1.640033']) {
+      if (await isVideoConfigSupported(videoEncoderConfig(avc, width, height))) {
+        return { container: 'mp4', videoCodec: avc, audioCodec: aac }
+      }
+    }
   }
+  if (isIosBrowser()) return null
   if (await isAudioConfigSupported(audioEncoderConfig(opus))) {
     for (const vp of ['vp09.00.31.08', 'vp8']) {
       if (await isVideoConfigSupported(videoEncoderConfig(vp, width, height))) {
