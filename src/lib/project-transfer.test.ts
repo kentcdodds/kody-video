@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it } from 'vitest'
 import {
+  BackupFormatError,
   importProjectBackup,
   parseProjectBackup,
   projectBackupFilename,
@@ -94,6 +95,16 @@ describe('project backup round trip', () => {
 
   it('rejects non-backup files', async () => {
     await expect(parseProjectBackup(new Blob(['just a video']))).rejects.toThrow(/not a kody video/i)
+  })
+
+  it('marks validation failures as BackupFormatError (kept out of crash reporting)', async () => {
+    await expect(parseProjectBackup(new Blob(['just a video']))).rejects.toBeInstanceOf(
+      BackupFormatError,
+    )
+    const backup = serializeProject(fakeProject(), [fakeClip('clip_a', 'AAAAAAAAAA')])
+    await expect(parseProjectBackup(backup.slice(0, backup.size - 4))).rejects.toBeInstanceOf(
+      BackupFormatError,
+    )
   })
 
   it('rejects truncated backups', async () => {

@@ -165,6 +165,20 @@ export async function openMicrophoneTrack(): Promise<MediaStreamTrack> {
  * no microphone entry to flip). Priming at camera startup shows a normal
  * prompt at a normal moment; later per-take requests then resolve silently.
  */
+/** Permission-state lookup only — never prompts, never opens a track. */
+export async function queryMicrophonePermission(): Promise<'granted' | 'denied' | 'unknown'> {
+  try {
+    const status = await navigator.permissions.query({
+      name: 'microphone' as PermissionName,
+    })
+    if (status.state === 'granted') return 'granted'
+    if (status.state === 'denied') return 'denied'
+  } catch {
+    // Permission query unsupported.
+  }
+  return 'unknown'
+}
+
 export async function primeMicrophonePermission(): Promise<'granted' | 'denied' | 'unknown'> {
   try {
     const status = await navigator.permissions.query({
@@ -280,6 +294,13 @@ export async function canFlipCamera(): Promise<boolean> {
 
 export function isMobileBrowser(): boolean {
   return /Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent)
+}
+
+/** All iOS browsers share WebKit (and its quirks), whatever their brand. */
+export function isIosBrowser(): boolean {
+  if (/iPhone|iPad|iPod/i.test(navigator.userAgent)) return true
+  // iPadOS masquerades as macOS but is the only "Mac" with touch points.
+  return navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1
 }
 
 export async function downloadBlob(blob: Blob, filename: string): Promise<void> {

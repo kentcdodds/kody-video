@@ -53,8 +53,10 @@ export function PrivacyPage() {
         <section className="about-section">
           <h2>Camera &amp; microphone</h2>
           <p>
-            The camera and microphone are used only while the app is open and you are recording.
-            Backgrounding the app releases them.
+            The camera and microphone are used only while the app is open, on the camera view.
+            On most devices the microphone is held only while you record; on iOS it stays with
+            the camera preview (a WebKit requirement for working audio). Backgrounding the app
+            releases both. Nothing is ever streamed anywhere.
           </p>
         </section>
 

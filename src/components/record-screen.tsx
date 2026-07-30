@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom'
 import type { CameraZoomRange, UseCameraResult } from '../hooks/use-camera'
 import { dragZoomValue } from '../lib/drag-zoom'
 import { getLocationFix, type LocationFix } from '../lib/location'
+import { startMicLevelMonitor, type MicLevelMonitor } from '../lib/mic-monitor'
 import { reportError } from '../lib/error-reporting'
 import { appendRecording, removeClip, undoLastDelete } from '../lib/project-actions'
 import { HoldRecorder } from '../lib/recorder'
@@ -133,6 +134,8 @@ export function RecordScreen({
   lockedRef.current = interactionLocked
   /** In-flight GPS fix for the current take; never shared across takes. */
   const pendingFixRef = useRef<Promise<LocationFix | null> | null>(null)
+  /** Live audio-level watch for the current take (silent-mic warning). */
+  const micMonitorRef = useRef<MicLevelMonitor | null>(null)
   const locationTaggingRef = useRef(locationTaggingEnabled)
 
   const dragZoomPressYRef = useRef(0)
@@ -160,6 +163,8 @@ export function RecordScreen({
   const [countdown, setCountdown] = useState<number | null>(null)
   const [screenRecording, setScreenRecording] = useState(false)
   const [screenRecordStartedAt, setScreenRecordStartedAt] = useState(0)
+  /** The current/last take's mic never rose above the silence floor. */
+  const [micSilent, setMicSilent] = useState(false)
   const [locationTagging, setLocationTagging] = useState(locationTaggingEnabled)
   locationTaggingRef.current = locationTagging
 
@@ -338,6 +343,15 @@ export function RecordScreen({
           pendingFixRef.current = getLocationFix()
         }
         acquireWakeLock()
+        // Watch the live mic level: users must learn about a dead mic while
+        // holding, not after sharing a silent video (Sentry: near-zero clip
+        // peaks on iOS). Warning state carries over between takes until a
+        // take actually picks up sound.
+        micMonitorRef.current?.stop()
+        micMonitorRef.current = startMicLevelMonitor(stream, {
+          onSilent: () => setMicSilent(true),
+          onSound: () => setMicSilent(false),
+        })
         setRecording(true)
         setRecordingMode(nextRecordingMode)
         setRecordStartedAt(performance.now())
@@ -384,6 +398,8 @@ export function RecordScreen({
       endInFlightRef.current = true
       pointerIdRef.current = null
       keyboardTakeRef.current = false
+      micMonitorRef.current?.stop()
+      micMonitorRef.current = null
       setRecording(false)
       setRecordingMode(null)
       // Detach this take's fix before any await so a quick next hold can own the ref.
@@ -512,6 +528,8 @@ export function RecordScreen({
   const cleanupOnUnmount = useCallback(() => {
     clearCountdown()
     cancelAnimationFrame(zoomRestoreRafRef.current)
+    micMonitorRef.current?.stop()
+    micMonitorRef.current = null
     recorderRef.current.cancel()
     // Leaving the screen mustn't lose an active screen take — save it.
     void finishScreenRecord()
@@ -526,6 +544,9 @@ export function RecordScreen({
   visibilityActionRef.current = () => {
     if (document.hidden) {
       clearCountdown()
+      // The warning describes takes from the session being left behind;
+      // returning starts fresh with a restarted camera (and mic, on iOS).
+      setMicSilent(false)
       if (recorderRef.current.isRecording || recording) {
         // MediaRecorder.stop() runs synchronously inside endRecord, so the
         // encoder has flushed by the time the tracks are stopped below; the
@@ -829,7 +850,7 @@ export function RecordScreen({
               <p>
                 {camera.error ??
                   camera.permission.message ??
-                  'Allow camera to preview. Microphone is requested only while you record.'}
+                  'Allow camera to preview. Recording needs the microphone too.'}
               </p>
               <button type="button" className="btn btn-primary" onClick={() => void camera.start()}>
                 Try again
@@ -862,6 +883,15 @@ export function RecordScreen({
               aria-label="Microphone blocked — recordings need sound"
             >
               Mic blocked — allow it in site settings
+            </span>
+          ) : null}
+          {micSilent && camera.micPermission !== 'denied' ? (
+            <span
+              className="storage-pill is-critical"
+              role="status"
+              aria-label="Microphone is not picking up sound"
+            >
+              Mic isn&rsquo;t picking up sound
             </span>
           ) : null}
         </div>

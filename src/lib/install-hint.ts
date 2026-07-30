@@ -4,13 +4,9 @@
  * decides when nudging about that is actually useful.
  */
 
-const DISMISSED_KEY = 'kody-video:install-hint-dismissed'
+import { isIosBrowser } from './media'
 
-function isIosDevice(): boolean {
-  if (/iPhone|iPad|iPod/i.test(navigator.userAgent)) return true
-  // iPadOS masquerades as macOS but is the only "Mac" with touch points.
-  return navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1
-}
+const DISMISSED_KEY = 'kody-video:install-hint-dismissed'
 
 function isStandalone(): boolean {
   if (window.matchMedia('(display-mode: standalone)').matches) return true
@@ -18,7 +14,7 @@ function isStandalone(): boolean {
 }
 
 export function shouldShowIosInstallHint(): boolean {
-  if (!isIosDevice()) return false
+  if (!isIosBrowser()) return false
   if (isStandalone()) return false
   // Bare WKWebViews (X, Instagram, …) have no Share → Add to Home Screen and
   // omit the "Safari" UA token that real browsers (Safari/CriOS/FxiOS) keep.
