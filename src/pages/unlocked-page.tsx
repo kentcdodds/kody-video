@@ -25,11 +25,11 @@ export function UnlockedPage() {
         {result.unlocked ? (
           <>
             <p className="eyebrow">Purchase verified</p>
-            <h1>Watermark removed! 🎉</h1>
+            <h1>Kody Video Plus unlocked! 🎉</h1>
             <p className="muted">
               Thank you for supporting Kody Video. Every export from this device is now
-              watermark-free. Keep your Stripe receipt email — its link restores the purchase on
-              another device.
+              watermark-free and all six project slots are open. Keep your Stripe receipt email —
+              its link restores the purchase on another device.
             </p>
           </>
         ) : (

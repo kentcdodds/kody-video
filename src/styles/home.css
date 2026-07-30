@@ -134,6 +134,14 @@
     color-mix(in srgb, var(--ink) 5%, transparent);
 }
 
+.project-slot.empty.locked {
+  opacity: 0.55;
+}
+
+.project-slot.empty.locked strong {
+  color: var(--ink-muted);
+}
+
 .project-slot.empty:disabled {
   opacity: 0.45;
 }

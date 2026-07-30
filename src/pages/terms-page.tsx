@@ -34,12 +34,13 @@ export function TermsPage() {
         </section>
 
         <section className="about-section">
-          <h2>Watermark removal</h2>
+          <h2>Kody Video Plus</h2>
           <p>
-            Watermark removal is a one-time $0.99 purchase that unlocks watermark-free exports for
-            the browser profile where it&rsquo;s verified. You can restore the purchase on another
-            device via the Stripe receipt link. Payments are handled by Stripe. For refunds or
-            purchase trouble, email <a href="mailto:team@kody.video">team@kody.video</a>.
+            Kody Video Plus is a one-time $0.99 purchase that unlocks watermark-free exports and
+            up to six project slots (the free plan includes one project) for the browser profile
+            where it&rsquo;s verified. You can restore the purchase on another device via the
+            Stripe receipt link. Payments are handled by Stripe. For refunds or purchase trouble,
+            email <a href="mailto:team@kody.video">team@kody.video</a>.
           </p>
         </section>
 

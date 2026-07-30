@@ -4,7 +4,9 @@ import { BlobImage } from '../components/blob-image'
 import { BrandMark } from '../components/brand-mark'
 import { ConfirmSheet } from '../components/confirm-sheet'
 import { HomeOptionsSheet } from '../components/home-options-sheet'
-import { IconClose, IconMore, IconPlus, IconShareIos } from '../components/icons'
+import { IconClose, IconLock, IconMore, IconPlus, IconShareIos } from '../components/icons'
+import { UpsellSheet } from '../components/upsell-sheet'
+import { RestoreSheet } from '../components/restore-sheet'
 import { RenameSheet } from '../components/rename-sheet'
 import { downloadBlob, shareOrDownload } from '../lib/media'
 import { loadHomePage, type HomeLoaderData, type ProjectSummary } from '../lib/project-actions'
@@ -15,7 +17,7 @@ import {
   projectBackupFilename,
   serializeProject,
 } from '../lib/project-transfer'
-import { createProject, deleteProject, getClipsForProject, renameProject } from '../lib/storage'
+import { deleteProject, getClipsForProject, renameProject } from '../lib/storage'
 import { reportError } from '../lib/error-reporting'
 import { canPromptInstall, promptInstall, subscribeInstallPrompt } from '../lib/install-prompt'
 import { dismissIosInstallHint, shouldShowIosInstallHint } from '../lib/install-hint'
@@ -25,7 +27,13 @@ import {
   requestPersistentStorage,
   storageSeverity,
 } from '../lib/storage-space'
-import { MAX_PROJECTS, formatDuration, type ClipRecord } from '../lib/types'
+import {
+  FREE_PROJECTS,
+  MAX_PROJECTS,
+  NEW_PROJECT_ID,
+  formatDuration,
+  type ClipRecord,
+} from '../lib/types'
 
 /** Android share targets get flaky well below this; bigger backups download. */
 const SHARE_BACKUP_LIMIT_BYTES = 50 * 1024 * 1024
@@ -40,7 +48,7 @@ export async function homeLoader(): Promise<HomeLoaderData> {
 }
 
 export function HomePage() {
-  const { projects, storage } = useLoaderData() as HomeLoaderData
+  const { projects, storage, plus } = useLoaderData() as HomeLoaderData
   const revalidator = useRevalidator()
   const navigate = useNavigate()
   const [error, setError] = useState<string | null>(null)
@@ -51,6 +59,8 @@ export function HomePage() {
   const [notice, setNotice] = useState<string | null>(null)
   const [importProgress, setImportProgress] = useState<string | null>(null)
   const [showInstallHint, setShowInstallHint] = useState(shouldShowIosInstallHint)
+  const [upselling, setUpselling] = useState(false)
+  const [restoring, setRestoring] = useState(false)
   // Prefetched when the options sheet opens so the Save-backup tap keeps its
   // user activation (Web Share needs it; an IndexedDB read can outlive it).
   const prefetchedClipsRef = useRef<{ projectId: string; clips: Promise<ClipRecord[]> } | null>(
@@ -65,21 +75,10 @@ export function HomePage() {
 
   const installable = useSyncExternalStore(subscribeInstallPrompt, canPromptInstall)
 
-  const createAndOpenProject = () => {
-    void (async () => {
-      setBusy(true)
-      setError(null)
-      try {
-        const project = await createProject()
-        // Their recordings should survive storage pressure.
-        requestPersistentStorage()
-        navigate(`/project/${project.id}`)
-      } catch (err) {
-        setError(err instanceof Error ? err.message : 'Could not create project')
-      } finally {
-        setBusy(false)
-      }
-    })()
+  // Nothing is persisted until the first clip is recorded — backing out of
+  // an untouched new project leaves no empty project behind.
+  const openNewProject = () => {
+    navigate(`/project/${NEW_PROJECT_ID}`)
   }
 
   const backupProject = (project: ProjectSummary) => {
@@ -148,7 +147,8 @@ export function HomePage() {
   }
 
   const slots = Array.from({ length: MAX_PROJECTS }, (_, index) => projects[index] ?? null)
-  const atCap = projects.length >= MAX_PROJECTS
+  const projectLimit = plus ? MAX_PROJECTS : FREE_PROJECTS
+  const atCap = projects.length >= projectLimit
   const severity = storage ? storageSeverity(storage.ratio) : 'ok'
   const oldestProject = projects[0] ?? null
 
@@ -262,19 +262,32 @@ export function HomePage() {
                 <IconMore />
               </button>
             </article>
-          ) : (
+          ) : index < projectLimit ? (
             <button
               key={`empty-${index}`}
               type="button"
               className="project-slot empty"
-              disabled={busy || atCap}
-              onClick={createAndOpenProject}
+              disabled={busy}
+              onClick={openNewProject}
             >
               <span className="slot-plus" aria-hidden="true">
                 <IconPlus size={26} />
               </span>
               <strong>New project</strong>
-              <small>{atCap ? 'Six-project limit' : `Slot ${index + 1}`}</small>
+              <small>{`Slot ${index + 1}`}</small>
+            </button>
+          ) : (
+            <button
+              key={`locked-${index}`}
+              type="button"
+              className="project-slot empty locked"
+              onClick={() => setUpselling(true)}
+            >
+              <span className="slot-plus" aria-hidden="true">
+                <IconLock size={22} />
+              </span>
+              <strong>Plus slot</strong>
+              <small>Unlock with Kody Video Plus</small>
             </button>
           ),
         )}
@@ -301,23 +314,32 @@ export function HomePage() {
       </p>
 
       <div className="home-footer">
-        <button
-          type="button"
-          className="btn btn-primary"
-          disabled={busy || atCap}
-          onClick={createAndOpenProject}
-        >
-          {atCap ? `Limit ${MAX_PROJECTS}` : 'New project'}
-        </button>
+        {atCap && !plus ? (
+          <button type="button" className="btn btn-primary" onClick={() => setUpselling(true)}>
+            Get more projects
+          </button>
+        ) : (
+          <button
+            type="button"
+            className="btn btn-primary"
+            disabled={busy || atCap}
+            onClick={openNewProject}
+          >
+            {atCap ? `Limit ${MAX_PROJECTS}` : 'New project'}
+          </button>
+        )}
         <label
           className={`btn btn-ghost home-import${busy ? ' is-disabled' : ''}`}
           onClick={(event) => {
-            if (atCap) {
-              event.preventDefault()
-              setError(
-                `Project limit reached (${MAX_PROJECTS}). Delete a project before importing.`,
-              )
+            if (!atCap) return
+            event.preventDefault()
+            if (!plus) {
+              setUpselling(true)
+              return
             }
+            setError(
+              `Project limit reached (${MAX_PROJECTS}). Delete a project before importing.`,
+            )
           }}
         >
           Import
@@ -380,6 +402,27 @@ export function HomePage() {
           onClose={() => setDeleting(null)}
           onConfirm={async () => {
             await deleteProject(deleting.id)
+            refresh()
+          }}
+        />
+      ) : null}
+
+      {upselling ? (
+        <UpsellSheet
+          onClose={() => setUpselling(false)}
+          onRestore={() => {
+            setUpselling(false)
+            setRestoring(true)
+          }}
+        />
+      ) : null}
+
+      {restoring ? (
+        <RestoreSheet
+          onClose={() => setRestoring(false)}
+          onRestored={() => {
+            setRestoring(false)
+            setNotice('Kody Video Plus restored — all project slots are unlocked.')
             refresh()
           }}
         />

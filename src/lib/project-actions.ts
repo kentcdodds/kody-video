@@ -16,6 +16,7 @@ import {
 import { estimateStorageSpace, type StorageSpace } from './storage-space'
 import { ensureClipThumbs } from './thumbs'
 import {
+  NEW_PROJECT_ID,
   effectiveDurationMs,
   type ClipId,
   type ClipRecord,
@@ -47,11 +48,17 @@ export interface ProjectLoaderData {
 export interface HomeLoaderData {
   projects: ProjectSummary[]
   storage: StorageSpace | null
+  /** True when the one-time Kody Video Plus purchase is unlocked. */
+  plus: boolean
 }
 
 export async function loadHomePage(): Promise<HomeLoaderData> {
-  const [projects, storage] = await Promise.all([loadHomeProjects(), estimateStorageSpace()])
-  return { projects, storage }
+  const [projects, storage, settings] = await Promise.all([
+    loadHomeProjects(),
+    estimateStorageSpace(),
+    getSettings(),
+  ])
+  return { projects, storage, plus: settings.watermarkRemoved === true }
 }
 
 export async function loadHomeProjects(): Promise<ProjectSummary[]> {
@@ -78,6 +85,33 @@ export async function loadHomeProjects(): Promise<ProjectSummary[]> {
 
 export async function loadProjectPage(projectId: ProjectId): Promise<ProjectLoaderData> {
   try {
+    // A "new" project lives only in the URL until the first clip is
+    // recorded — nothing is persisted, so backing out leaves nothing behind.
+    if (projectId === NEW_PROJECT_ID) {
+      const [projects, settings, storage] = await Promise.all([
+        listProjects(),
+        getSettings(),
+        estimateStorageSpace(),
+      ])
+      const now = Date.now()
+      return {
+        project: {
+          id: NEW_PROJECT_ID,
+          name: `Project ${projects.length + 1}`,
+          createdAt: now,
+          updatedAt: now,
+          clipIds: [],
+        },
+        clips: [],
+        canUndo: false,
+        onboardingDismissed: settings.onboardingDismissed,
+        watermarkRemoved: settings.watermarkRemoved === true,
+        storage,
+        locationTaggingEnabled: settings.locationTaggingEnabled === true,
+        error: null,
+      }
+    }
+
     const [project, clips, undo, settings, storage] = await Promise.all([
       getProject(projectId),
       getClipsForProject(projectId),

@@ -56,6 +56,13 @@ export interface AppMeta {
 
 export const MAX_PROJECTS = 6
 
+/** Projects included without the Kody Video Plus purchase. */
+export const FREE_PROJECTS = 1
+
+/** Route id for a project that exists only as a URL until the first clip is
+ * recorded — backing out of an empty "new project" leaves nothing behind. */
+export const NEW_PROJECT_ID: ProjectId = 'new'
+
 export function effectiveDurationMs(clip: Pick<ClipMeta, 'durationMs' | 'trimStartMs' | 'trimEndMs'>): number {
   const end = Math.min(clip.trimEndMs, clip.durationMs)
   const start = Math.max(0, Math.min(clip.trimStartMs, end))

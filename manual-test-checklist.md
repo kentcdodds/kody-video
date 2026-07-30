@@ -91,7 +91,10 @@ Run locally with HTTPS or `localhost` (`npm run dev`). Camera/mic require a secu
 - [ ] Watermark (before purchase) shows the mark + domain at 50% opacity
 
 ## Projects
-- [ ] Create up to 6 projects; 7th is blocked with clear UX
+- [ ] Free plan: 1 project; slots 2–6 show a lock and open the Kody Video Plus upsell
+- [ ] After Plus purchase/restore: create up to 6 projects; 7th is blocked with clear UX
+- [ ] "New project" opens the camera without creating anything; backing out without recording leaves no project behind
+- [ ] Recording the first clip creates the project (URL flips from /project/new to the real id); the clip is saved
 - [ ] Slot order is stable (does not shuffle after opening projects)
 - [ ] Slots show poster art from the first clip
 - [ ] ⋯ menu: Open / Rename / Delete (styled confirm, no browser dialog)

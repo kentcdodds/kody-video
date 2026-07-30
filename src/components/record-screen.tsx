@@ -18,7 +18,13 @@ import {
   storageSeverity,
   type StorageSpace,
 } from '../lib/storage-space'
-import { effectiveDurationMs, formatDuration, type ClipRecord, type Project } from '../lib/types'
+import {
+  effectiveDurationMs,
+  formatDuration,
+  type ClipRecord,
+  type Project,
+  type ProjectId,
+} from '../lib/types'
 import {
   IconBack,
   IconDeleteLast,
@@ -51,6 +57,9 @@ export interface ToastAction {
 
 interface RecordScreenProps {
   project: Project
+  /** Resolves the persisted project id, creating the project on the first
+   * recorded clip (a "/project/new" project exists only in the URL). */
+  ensureProjectId: () => Promise<ProjectId>
   clips: ClipRecord[]
   camera: UseCameraResult
   /** Device storage estimate for the almost-full warning. */
@@ -107,6 +116,7 @@ function nearestZoomLevel(levels: number[], value: number): number {
 
 export function RecordScreen({
   project,
+  ensureProjectId,
   clips,
   camera,
   storage,
@@ -249,7 +259,7 @@ export function RecordScreen({
         showToast('Screen take was too short')
         return
       }
-      await appendRecording(project.id, result)
+      await appendRecording(await ensureProjectId(), result)
       refresh()
       showToast('Screen clip added')
     } catch (err) {
@@ -258,7 +268,7 @@ export function RecordScreen({
     } finally {
       screenBusyRef.current = false
     }
-  }, [project.id, refresh, showToast])
+  }, [ensureProjectId, refresh, showToast])
 
   const startScreenRecord = useCallback(() => {
     void (async () => {
@@ -432,7 +442,7 @@ export function RecordScreen({
             }),
           ])
         }
-        await appendRecording(project.id, {
+        await appendRecording(await ensureProjectId(), {
           ...result,
           ...(fix
             ? { lat: fix.lat, lng: fix.lng, locationAccuracyM: fix.accuracyM }
@@ -460,7 +470,7 @@ export function RecordScreen({
         }
       }
     },
-    [camera, project.id, recording, refresh, releaseWakeLock, showToast],
+    [camera, ensureProjectId, recording, refresh, releaseWakeLock, showToast],
   )
 
   const startSelfTimer = useCallback(() => {

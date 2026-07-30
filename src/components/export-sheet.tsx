@@ -98,7 +98,7 @@ export function ExportSheet({
               <p className="watermark-note">
                 Includes a small Kody mark in the corner.{' '}
                 <button type="button" className="link-button" onClick={onRemoveWatermark}>
-                  Remove it — $0.99
+                  Get Plus — $0.99 removes it & unlocks 6 projects
                 </button>{' '}
                 ·{' '}
                 <button type="button" className="link-button" onClick={onRestorePurchase}>

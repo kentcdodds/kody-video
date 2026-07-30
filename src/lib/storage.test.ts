@@ -19,6 +19,7 @@ import {
   undoDeleteLastClip,
   updateClipTrim,
 } from './storage'
+import { markWatermarkRemoved } from './entitlement'
 import { MAX_PROJECTS, effectiveDurationMs } from './types'
 
 function fakeBlob(label: string): Blob {
@@ -39,7 +40,13 @@ describe('storage layer', () => {
     expect((await getSettings()).onboardingDismissed).toBe(true)
   })
 
+  it('gates the second project behind the Plus purchase', async () => {
+    await createProject('Free one')
+    await expect(createProject('Second')).rejects.toThrow(/plus/i)
+  })
+
   it('creates and lists projects newest-first', async () => {
+    await markWatermarkRemoved('cs_test_storage')
     const a = await createProject('Alpha')
     const b = await createProject('Beta')
     const list = await listProjects()
@@ -48,6 +55,7 @@ describe('storage layer', () => {
   })
 
   it('enforces the soft project cap', async () => {
+    await markWatermarkRemoved('cs_test_storage')
     for (let i = 0; i < MAX_PROJECTS; i += 1) {
       await createProject(`P${i + 1}`)
     }

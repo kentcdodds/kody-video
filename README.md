@@ -149,16 +149,21 @@ browsers only: `getDisplayMedia` does not exist on iOS or Android, so on
 phones use the OS screen recorder instead. The button hides itself where the
 API is missing.
 
-## Remove Watermark purchase
+## Kody Video Plus purchase
 
-Exports carry a small Kody Video mark in the corner. A one-time $0.99 Stripe
-Payment Link removes it: the export sheet links to checkout, Stripe redirects
-back to `/unlocked?session_id=…`, and a single Cloudflare Pages Function
+The free plan includes one project, and exports carry a small Kody Video mark
+in the corner. Kody Video Plus — a one-time $0.99 Stripe Payment Link —
+removes the watermark and unlocks six project slots: the export sheet (or a
+locked home slot) links to checkout, Stripe redirects back to
+`/unlocked?session_id=…`, and a single Cloudflare Pages Function
 (`functions/api/verify-purchase.ts`) verifies the session server-side before
 the entitlement is stored in IndexedDB. 100%-off promotion codes (friends /
 the developer) flow through the exact same verification. Restore on another
-device: paste the Stripe receipt link into "Already paid?" on the export
-sheet.
+device: "Already paid?" on the export sheet or a locked slot's upsell.
+
+Projects are also created lazily — "New project" opens the camera at
+`/project/new` and nothing is persisted until the first clip is recorded, so
+backing out of an untouched project leaves no empty slot behind.
 
 Deployment requirement: set `STRIPE_SECRET_KEY` (a restricted key with
 Checkout Sessions read access is enough) on the Cloudflare Pages project.
