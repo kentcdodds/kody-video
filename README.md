@@ -201,6 +201,7 @@ in-app About page has a link that pre-fills device details).
 | `node scripts/probe-export-chrome.mjs` | Export validation in Chrome stable (real codecs) |
 | `node scripts/probe-keyboard.mjs`    | Desktop keyboard flows (record/edit/playback) |
 | `node scripts/probe-rear-lens.mjs`   | Rear lens switching (ultra-wide) with fake cameras |
+| `node scripts/probe-fast-export.mjs` | Decode-driven export beats realtime (MP4 clips) |
 | `node scripts/probe-mic-monitor.mjs`  | Silent-mic warning fires (and clears) correctly |
 | `node scripts/probe-screen-record.mjs` | Desktop screen recording lands as a clip |
 | `node scripts/probe-touch-timeline.mjs` | Touch timeline gestures (scroll, long-press lift) |

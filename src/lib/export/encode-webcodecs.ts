@@ -11,12 +11,13 @@ import { isIosBrowser } from '../media'
 import type { ClipRecord } from '../types'
 import { normalizeAacChunk, type AacChunkDiagnostics } from './aac'
 import { injectMp4Metadata, type Mp4Chapter } from './mp4-metadata'
+import { demuxMp4Video, type DemuxedVideo } from './mp4-video'
 import { clampSegmentToMedia, type ExportPlan } from './plan'
 import {
-  PREVIEW_EVERY_N_FRAMES,
+  PREVIEW_INTERVAL_MS,
   blitPreview,
   decodeClipAudio,
-  drawCover,
+  drawCoverFrom,
   drawWatermark,
   loadClipVideo,
   pickOutputSize,
@@ -202,6 +203,7 @@ export async function exportWithWebCodecs(
   let encoderError: Error | null = null
   const failWith = (err: unknown) => {
     if (!encoderError) {
+      console.warn('[export] encoder failure', err)
       encoderError = err instanceof Error ? err : new Error('Export encoder failed')
     }
   }
@@ -259,6 +261,7 @@ export async function exportWithWebCodecs(
     outputOffsetUs: 0,
     doneMs: 0,
     frameCount: 0,
+    lastPreviewAtMs: 0,
   }
 
   const clipsInPlan = plan.segments.map((s) => s.clip)
@@ -268,9 +271,21 @@ export async function exportWithWebCodecs(
     for (const segment of plan.segments) {
       if (encoderError) throw encoderError
 
-      const loaded = await loadClipVideo(segment.clip.blob, 8000, segment.clip.mimeType)
+      // Fast path: demux the clip's own samples and decode with WebCodecs —
+      // frame supply runs at hardware speed instead of 1× playback, and it
+      // keeps working in background tabs (no compositor dependency).
+      const isMp4Clip = /mp4/i.test(segment.clip.mimeType || segment.clip.blob.type)
+      const demuxed = isMp4Clip
+        ? await demuxMp4Video(segment.clip.blob).catch(() => null)
+        : null
+
+      let loaded: Awaited<ReturnType<typeof loadClipVideo>> | null = null
       try {
-        const clamped = clampSegmentToMedia(segment, loaded.mediaDurationMs)
+        let clamped = demuxed ? clampSegmentToMedia(segment, demuxed.durationMs) : null
+        if (!clamped) {
+          loaded = await loadClipVideo(segment.clip.blob, 8000, segment.clip.mimeType)
+          clamped = clampSegmentToMedia(segment, loaded.mediaDurationMs)
+        }
         if (!clamped) continue
         const segmentMs = clamped.endMs - clamped.startMs
 
@@ -291,8 +306,7 @@ export async function exportWithWebCodecs(
         })
         if (encoderError) throw encoderError
 
-        await pumpSegmentVideo({
-          video: loaded.video,
+        const pumpShared = {
           startSec: clamped.startMs / 1000,
           endSec: clamped.endMs / 1000,
           canvas,
@@ -303,19 +317,32 @@ export async function exportWithWebCodecs(
           getPreviewCanvas: encodingIntoPreview ? undefined : getPreviewCanvas,
           watermarkImage,
           hasError: () => encoderError !== null,
-          onElapsedMs: (elapsed) => {
+          onElapsedMs: (elapsed: number) => {
             if (plan.totalMs > 0) {
               onProgress?.(Math.min(1, (state.doneMs + elapsed) / plan.totalMs))
             }
           },
-        })
+        }
+
+        let pumped = false
+        if (demuxed) {
+          const outcome = await pumpSegmentVideoDecoded({ demuxed, ...pumpShared })
+          pumped = outcome === 'done'
+        }
+        if (!pumped) {
+          // Per-clip fallback: undecodable/unsupported clips play through a
+          // video element like before (realtime-paced, but correct).
+          console.info('[export] segment video path: element (realtime-paced)')
+          loaded ??= await loadClipVideo(segment.clip.blob, 8000, segment.clip.mimeType)
+          await pumpSegmentVideo({ video: loaded.video, ...pumpShared })
+        }
         if (encoderError) throw encoderError
 
         state.outputOffsetUs += Math.round(segmentMs * 1000)
         state.doneMs += segmentMs
         onProgress?.(plan.totalMs > 0 ? Math.min(1, state.doneMs / plan.totalMs) : 1)
       } finally {
-        loaded.release()
+        loaded?.release()
       }
     }
 
@@ -397,8 +424,7 @@ function formatChapterTitle(
   return title
 }
 
-interface PumpArgs {
-  video: HTMLVideoElement
+interface PumpSharedArgs {
   startSec: number
   endSec: number
   canvas: HTMLCanvasElement
@@ -409,11 +435,245 @@ interface PumpArgs {
     lastKeyTsUs: number
     outputOffsetUs: number
     frameCount: number
+    lastPreviewAtMs: number
   }
   getPreviewCanvas?: () => HTMLCanvasElement | null
   watermarkImage?: HTMLImageElement | null
   hasError: () => boolean
   onElapsedMs: (elapsedMs: number) => void
+}
+
+interface PumpArgs extends PumpSharedArgs {
+  video: HTMLVideoElement
+}
+
+/** Compose one source frame onto the encode canvas and encode it at its
+ * rebased output timestamp — the common heart of both video pumps. */
+function makeFrameEncoder({
+  startSec,
+  endSec,
+  canvas,
+  ctx,
+  videoEncoder,
+  state,
+  getPreviewCanvas,
+  watermarkImage,
+}: PumpSharedArgs) {
+  return (
+    source: CanvasImageSource,
+    sourceWidth: number,
+    sourceHeight: number,
+    mediaTimeSec: number,
+  ): void => {
+    const clampedSec = Math.min(Math.max(mediaTimeSec, startSec), endSec)
+    let tsUs = state.outputOffsetUs + Math.round((clampedSec - startSec) * 1_000_000)
+    if (tsUs <= state.lastVideoTsUs) {
+      tsUs = state.lastVideoTsUs + 1000
+    }
+    drawCoverFrom(ctx, source, sourceWidth, sourceHeight, canvas.width, canvas.height)
+    if (watermarkImage) {
+      drawWatermark(ctx, watermarkImage, canvas.width, canvas.height)
+    }
+    const frame = new VideoFrame(canvas, {
+      timestamp: tsUs,
+      duration: Math.round(1_000_000 / FPS),
+    })
+    const keyFrame = tsUs - state.lastKeyTsUs >= KEYFRAME_INTERVAL_US
+    try {
+      videoEncoder.encode(frame, { keyFrame })
+    } finally {
+      frame.close()
+    }
+    if (keyFrame) state.lastKeyTsUs = tsUs
+    state.lastVideoTsUs = tsUs
+    // Wall-clock throttled: the decoded pump can process frames far faster
+    // than realtime, so per-frame-count sampling would burn time blitting.
+    const now = performance.now()
+    if (now - state.lastPreviewAtMs >= PREVIEW_INTERVAL_MS) {
+      state.lastPreviewAtMs = now
+      blitPreview(canvas, getPreviewCanvas?.())
+    }
+    if (state.frameCount % 30 === 0) {
+      recordVideoLumaSample(canvas)
+    }
+    state.frameCount += 1
+  }
+}
+
+/** Timer-free backpressure that keeps working in hidden tabs (setTimeout is
+ * throttled there; codec dequeue events are not). The safety timeout only
+ * guards against a dequeue landing between the check and the listen. */
+function waitForDequeue(decoder: VideoDecoder, encoder: VideoEncoder): Promise<void> {
+  return new Promise((resolve) => {
+    let settled = false
+    let timer = 0
+    const done = () => {
+      if (settled) return
+      settled = true
+      window.clearTimeout(timer)
+      decoder.removeEventListener('dequeue', done)
+      encoder.removeEventListener('dequeue', done)
+      resolve()
+    }
+    decoder.addEventListener('dequeue', done)
+    encoder.addEventListener('dequeue', done)
+    timer = window.setTimeout(done, 250)
+  })
+}
+
+const DECODE_QUEUE_LIMIT = 12
+const ENCODE_QUEUE_LIMIT = 12
+
+interface DecodedPumpArgs extends PumpSharedArgs {
+  demuxed: DemuxedVideo
+}
+
+/**
+ * Decode-driven pump: feeds the clip's own samples through VideoDecoder at
+ * hardware speed. Returns 'unsupported' (caller falls back to the element
+ * pump) only when nothing was emitted yet; a mid-segment failure after
+ * frames were encoded must abort the whole export instead — falling back
+ * then would duplicate content.
+ *
+ * Note: samples are fed in presentation order, which equals decode order
+ * for MediaRecorder output (no B-frames). A clip that somehow carries
+ * B-frames fails decode cleanly and takes the element pump.
+ */
+async function pumpSegmentVideoDecoded({
+  demuxed,
+  startSec,
+  endSec,
+  canvas,
+  ctx,
+  videoEncoder,
+  state,
+  getPreviewCanvas,
+  watermarkImage,
+  hasError,
+  onElapsedMs,
+}: DecodedPumpArgs): Promise<'done' | 'unsupported'> {
+  if (typeof VideoDecoder === 'undefined') return 'unsupported'
+  if (!demuxed.codedWidth || !demuxed.codedHeight) return 'unsupported'
+
+  const config: VideoDecoderConfig = {
+    codec: demuxed.codec,
+    codedWidth: demuxed.codedWidth,
+    codedHeight: demuxed.codedHeight,
+    ...(demuxed.description ? { description: demuxed.description } : {}),
+  }
+  try {
+    const support = await VideoDecoder.isConfigSupported(config)
+    if (!support.supported) return 'unsupported'
+  } catch {
+    return 'unsupported'
+  }
+
+  const startUs = Math.round(startSec * 1_000_000)
+  const endUs = Math.round(endSec * 1_000_000)
+  const encodeFrame = makeFrameEncoder({
+    startSec,
+    endSec,
+    canvas,
+    ctx,
+    videoEncoder,
+    state,
+    getPreviewCanvas,
+    watermarkImage,
+    hasError,
+    onElapsedMs,
+  })
+
+  let framesEmitted = 0
+  let pumpError: unknown = null
+  const decoder = new VideoDecoder({
+    output: (frame) => {
+      try {
+        const pts = frame.timestamp
+        // Frames decoded only to reach the trim-in keyframe are discarded.
+        if (pts < startUs - 1_000 || pts >= endUs) return
+        // Anchor each segment's first frame to the exact segment start (the
+        // element pump did the same): clips whose first sample presents
+        // late (B-frame reorder delay, edit lists) must not shift the
+        // timeline — and the muxer requires the very first chunk at 0.
+        const mediaSec = framesEmitted === 0 ? startSec : pts / 1_000_000
+        encodeFrame(frame, frame.displayWidth, frame.displayHeight, mediaSec)
+        framesEmitted += 1
+        onElapsedMs((pts - startUs) / 1000)
+      } catch (err) {
+        pumpError ??= err
+      } finally {
+        frame.close()
+      }
+    },
+    error: (err) => {
+      pumpError ??= err
+    },
+  })
+
+  try {
+    decoder.configure(config)
+
+    // Samples are in DECODE order (B-frames jump around in presentation
+    // time), so the feed window is computed by scanning presentation times
+    // across the whole list: start at the latest keyframe at/before the
+    // trim-in point, stop after the last sample presented before trim-out.
+    const samples = demuxed.samples
+    let firstIndex = 0
+    let bestSyncPts = -1
+    let lastIndex = -1
+    for (let i = 0; i < samples.length; i += 1) {
+      const sample = samples[i]!
+      if (sample.isSync && sample.ptsUs <= startUs && sample.ptsUs > bestSyncPts) {
+        bestSyncPts = sample.ptsUs
+        firstIndex = i
+      }
+      if (sample.ptsUs < endUs) lastIndex = Math.max(lastIndex, i)
+    }
+    if (lastIndex < firstIndex) return 'unsupported'
+
+    for (let i = firstIndex; i <= lastIndex; i += 1) {
+      const sample = samples[i]!
+      while (
+        !pumpError &&
+        !hasError() &&
+        (decoder.decodeQueueSize > DECODE_QUEUE_LIMIT ||
+          videoEncoder.encodeQueueSize > ENCODE_QUEUE_LIMIT)
+      ) {
+        await waitForDequeue(decoder, videoEncoder)
+      }
+      if (pumpError || hasError()) break
+      decoder.decode(
+        new EncodedVideoChunk({
+          type: sample.isSync ? 'key' : 'delta',
+          timestamp: sample.ptsUs,
+          duration: sample.durationUs,
+          data: sample.data,
+        }),
+      )
+    }
+
+    if (!pumpError && !hasError()) {
+      await decoder.flush().catch((err) => {
+        pumpError ??= err
+      })
+    }
+  } finally {
+    try {
+      if (decoder.state !== 'closed') decoder.close()
+    } catch {
+      // already closed
+    }
+  }
+
+  if (hasError()) throw new Error('Export encoder failed')
+  if (pumpError) {
+    if (framesEmitted > 0) {
+      throw pumpError instanceof Error ? pumpError : new Error('Decoded video pump failed')
+    }
+    return 'unsupported'
+  }
+  if (framesEmitted === 0) return 'unsupported'
+  return 'done'
 }
 
 async function pumpSegmentVideo({
@@ -431,35 +691,20 @@ async function pumpSegmentVideo({
 }: PumpArgs): Promise<void> {
   await seekTo(video, startSec)
 
+  const encodeFrame = makeFrameEncoder({
+    startSec,
+    endSec,
+    canvas,
+    ctx,
+    videoEncoder,
+    state,
+    getPreviewCanvas,
+    watermarkImage,
+    hasError,
+    onElapsedMs,
+  })
   const encodeFrameAt = (mediaTimeSec: number) => {
-    const clampedSec = Math.min(Math.max(mediaTimeSec, startSec), endSec)
-    let tsUs = state.outputOffsetUs + Math.round((clampedSec - startSec) * 1_000_000)
-    if (tsUs <= state.lastVideoTsUs) {
-      tsUs = state.lastVideoTsUs + 1000
-    }
-    drawCover(ctx, video, canvas.width, canvas.height)
-    if (watermarkImage) {
-      drawWatermark(ctx, watermarkImage, canvas.width, canvas.height)
-    }
-    const frame = new VideoFrame(canvas, {
-      timestamp: tsUs,
-      duration: Math.round(1_000_000 / FPS),
-    })
-    const keyFrame = tsUs - state.lastKeyTsUs >= KEYFRAME_INTERVAL_US
-    try {
-      videoEncoder.encode(frame, { keyFrame })
-    } finally {
-      frame.close()
-    }
-    if (keyFrame) state.lastKeyTsUs = tsUs
-    state.lastVideoTsUs = tsUs
-    if (state.frameCount % PREVIEW_EVERY_N_FRAMES === 0) {
-      blitPreview(canvas, getPreviewCanvas?.())
-    }
-    if (state.frameCount % 30 === 0) {
-      recordVideoLumaSample(canvas)
-    }
-    state.frameCount += 1
+    encodeFrame(video, video.videoWidth, video.videoHeight, mediaTimeSec)
   }
 
   // Guarantee at least one frame per segment, even if playback ends instantly.

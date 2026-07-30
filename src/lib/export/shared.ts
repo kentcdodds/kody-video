@@ -180,14 +180,26 @@ export function drawCover(
   width: number,
   height: number,
 ): void {
-  const vw = video.videoWidth || width
-  const vh = video.videoHeight || height
+  drawCoverFrom(ctx, video, video.videoWidth || width, video.videoHeight || height, width, height)
+}
+
+/** drawCover for any drawable source (VideoFrame, canvas, video element). */
+export function drawCoverFrom(
+  ctx: CanvasRenderingContext2D,
+  source: CanvasImageSource,
+  sourceWidth: number,
+  sourceHeight: number,
+  width: number,
+  height: number,
+): void {
+  const vw = sourceWidth || width
+  const vh = sourceHeight || height
   const scale = Math.max(width / vw, height / vh)
   const dw = vw * scale
   const dh = vh * scale
   ctx.fillStyle = '#000'
   ctx.fillRect(0, 0, width, height)
-  ctx.drawImage(video, (width - dw) / 2, (height - dh) / 2, dw, dh)
+  ctx.drawImage(source, (width - dw) / 2, (height - dh) / 2, dw, dh)
 }
 
 /**
@@ -473,17 +485,27 @@ export function drawWatermark(
 /** How often the engines mirror an encoded frame to the UI preview canvas. */
 export const PREVIEW_EVERY_N_FRAMES = 10
 
-/** Mirror the engine's work canvas onto the visible preview canvas. */
+/** Preview updates are cosmetic — ~5fps wall time is plenty. */
+export const PREVIEW_INTERVAL_MS = 200
+
+/** Keep the mirrored preview cheap: cap its long edge well below encode size. */
+const PREVIEW_MAX_EDGE = 480
+
+/** Mirror the engine's work canvas onto the visible preview canvas,
+ * downscaled — the preview shows progress, not pixels. */
 export function blitPreview(
   source: HTMLCanvasElement,
   target: HTMLCanvasElement | null | undefined,
 ): void {
   if (!target) return
-  if (target.width !== source.width || target.height !== source.height) {
-    target.width = source.width
-    target.height = source.height
+  const scale = Math.min(1, PREVIEW_MAX_EDGE / Math.max(source.width, source.height, 1))
+  const width = Math.max(2, Math.round(source.width * scale))
+  const height = Math.max(2, Math.round(source.height * scale))
+  if (target.width !== width || target.height !== height) {
+    target.width = width
+    target.height = height
   }
-  target.getContext('2d')?.drawImage(source, 0, 0)
+  target.getContext('2d')?.drawImage(source, 0, 0, width, height)
 }
 
 export function wait(ms: number): Promise<void> {
