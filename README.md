@@ -17,6 +17,7 @@ Open the printed localhost URL in Chrome (desktop or Android). Camera/microphone
 npm run build      # production build + service worker
 npm run preview    # serve dist (PWA cache active)
 npm test           # storage/export-planner unit tests
+npm run test:e2e   # Playwright e2e suite (fake camera/mic; recording, editor, playback, export, plans)
 npm run test:smoke # Playwright UX smoke (fake camera, records + exports)
 ```
 
@@ -42,7 +43,9 @@ For a phone on the same network, use your machine’s LAN URL over HTTPS, or tun
 - Installable PWA (manifest + Workbox service worker for the app shell)
 - **No accounts, no uploads, no analytics**
 
-See [`manual-test-checklist.md`](./manual-test-checklist.md) for camera/offline QA steps.
+Most QA is automated: `npm run test:e2e` runs the Playwright suite in
+`tests/e2e/` (~40s). See [`manual-test-checklist.md`](./manual-test-checklist.md)
+for what it covers and the remaining real-device-only checks.
 
 ## Architecture
 
@@ -197,6 +200,7 @@ in-app About page has a link that pre-fills device details).
 | `npm run build`                      | Typecheck + production bundle              |
 | `npm run preview`                    | Preview production build                   |
 | `npm test`                           | Vitest storage/export-planner tests        |
+| `npm run test:e2e`                   | Playwright e2e suite (`tests/e2e/`): recording, editor, playback, export, plans, keyboard |
 | `npm run test:smoke`                 | Playwright smoke: record → edit → export   |
 | `node scripts/probe-export-chrome.mjs` | Export validation in Chrome stable (real codecs) |
 | `node scripts/probe-keyboard.mjs`    | Desktop keyboard flows (record/edit/playback) |

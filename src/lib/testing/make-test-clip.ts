@@ -1,0 +1,56 @@
+import {
+  BufferTarget,
+  CanvasSource,
+  Output,
+  Quality,
+  WebMOutputFormat,
+  getFirstEncodableVideoCodec,
+} from 'mediabunny'
+
+/**
+ * Deterministic fixture clips for the e2e suite (imported in-page through
+ * the vite dev server; never referenced by app code, so it ships nowhere).
+ *
+ * Real MediaRecorder capture is covered by the recording specs, but tests
+ * that merely need clips as fixtures can't afford it: under CI load the
+ * recorder starves for frames and a multi-second hold can measure under the
+ * 120ms minimum take. This encodes faster than realtime via WebCodecs with
+ * an exact duration instead.
+ */
+export async function makeTestClipBlob(durationMs: number): Promise<Blob> {
+  const width = 320
+  const height = 568
+  const fps = 15
+  const codec = await getFirstEncodableVideoCodec(['vp8', 'vp9'], { width, height })
+  if (!codec) throw new Error('No encodable test codec')
+
+  const canvas = document.createElement('canvas')
+  canvas.width = width
+  canvas.height = height
+  const ctx = canvas.getContext('2d')
+  if (!ctx) throw new Error('Canvas not available')
+
+  const target = new BufferTarget()
+  const output = new Output({ format: new WebMOutputFormat(), target })
+  const source = new CanvasSource(canvas, {
+    codec,
+    quality: new Quality({ bitrate: 400_000 }),
+  })
+  output.addVideoTrack(source, { frameRate: fps })
+  await output.start()
+
+  const frames = Math.max(2, Math.round((durationMs / 1000) * fps))
+  for (let i = 0; i < frames; i += 1) {
+    ctx.fillStyle = `hsl(${(i * 23) % 360}, 70%, 45%)`
+    ctx.fillRect(0, 0, width, height)
+    ctx.fillStyle = '#fff'
+    ctx.font = '48px sans-serif'
+    ctx.fillText(String(i), 24, 64)
+    await source.add(i / fps, 1 / fps)
+  }
+  source.close()
+  await output.finalize()
+
+  if (!target.buffer) throw new Error('Test clip encode produced no bytes')
+  return new Blob([target.buffer], { type: 'video/webm' })
+}

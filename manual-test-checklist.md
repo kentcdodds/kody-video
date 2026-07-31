@@ -1,121 +1,123 @@
-# Manual camera checklist (Chrome / Android) — Kody Video
+# Manual test checklist — Kody Video
 
-Run locally with HTTPS or `localhost` (`npm run dev`). Camera/mic require a secure context.
+Most of the old checklist is now asserted automatically — run it before every
+release:
 
-## Permissions
-- [ ] First open prompts for camera; microphone is requested when you start recording
-- [ ] Idle preview does not block Android voice-to-text in Brave/Chrome
-- [ ] Deny → clear denied panel with retry guidance
-- [ ] Allow → live rear-camera preview (or fallback)
-- [ ] Flip camera works when multiple cameras exist
-- [ ] Opening the camera prompts for the microphone too (one-time priming); the mic is NOT held while idle (no OS mic indicator) — except iOS, where the mic is acquired with the camera and held while previewing (muted-track workaround)
-- [ ] iOS: recordings have audible sound (mic + camera come from one combined request)
-- [ ] A take with a dead/covered mic shows the red "Mic isn't picking up sound" pill after ~2.5s; a take with sound clears it
-- [ ] If the mic is blocked in site settings, a red "Mic blocked" pill shows on the record screen (Brave/Android regression)
-- [ ] Torch toggle appears on devices with a flash; zoom chips appear when supported
-- [ ] Phones with multiple rear cameras show a lens chip (e.g. "1/3") that switches to the ultra-wide/telephoto; choice sticks across flips and restarts (Android only)
-- [ ] iOS: NO lens chip; on multi-lens iPhones the camera opens as the virtual multi-lens device (Back Dual Wide/Triple) so zoom spans 0.5× to max seamlessly (single-lens iPhones use the plain back camera — no 0.5×)
-- [ ] Ending a take does not flash the camera preview black (Android regression check)
-- [ ] Backgrounding the app releases camera/mic (green dot goes out); returning restarts the preview
-- [ ] Backgrounding mid-recording still saves the take
-- [ ] Screen off → on while on the camera view: preview is live again, not frozen; recording works
-- [ ] Light/dark follows system `prefers-color-scheme`
+```sh
+npm run test:e2e   # Playwright suite (tests/e2e/, ~40s, fake camera/mic)
+npm test           # unit tests
+```
 
-## Hold-to-record
-- [ ] Press/hold anywhere on the preview starts recording (REC pill + elapsed)
+## What the automated suite covers (don't re-test by hand)
+
+`npm run test:e2e` asserts, in a real Chromium with fake camera/mic:
+
+- **Permissions & camera**: allow → live preview; deny → permission panel with
+  "Try again"; light/dark follows `prefers-color-scheme`
+- **Hold-to-record**: press/hold shows the REC pill with elapsed time; release
+  appends a clip; short taps show "Hold a bit longer" and save nothing;
+  multiple holds append; Backspace-delete offers Undo and Undo restores;
+  self-timer counts down and records hands-free until tapped
+- **Lazy creation & plans**: "New project" creates nothing until the first
+  clip (URL flips from `/project/new`); backing out leaves no project; free
+  plan locks slots 2–6 behind the Plus upsell; Plus unlocks 6 and blocks the
+  7th; the upsell sheet copy and buttons
+- **Location**: toggle asks permission, `aria-pressed` reflects state, new
+  clips carry exact coordinates, toasts confirm on/off
+- **Editor**: opens at the most recent clip; tap selects; tiles show
+  filmstrip thumbnails; duplicate inserts the copy right after the selection;
+  delete offers Undo; trim strip opens, dragging the end handle + Done
+  persists `trimEndMs` and updates the tile duration
+- **Playback**: whole cut with segmented progress; edge taps skip
+  next/previous; middle tap stops; auto-closes at the end of the cut
+- **Go / export**: full export to a ready sheet with format + size; Save
+  downloads the file; "Save original clips (.zip)" downloads an archive;
+  closing and tapping Go again restores the cached export instantly; editing
+  clips invalidates the restore; "Re-export from scratch" renders fresh; the
+  watermark upsell shows before purchase; **no non-GET request leaves the
+  device** during record/export/save/zip
+- **Projects**: slots show poster art; rename via the options sheet; delete
+  uses the styled confirm (no browser dialog) and frees stored clips; backup
+  downloads a `.kodyvideo` file and import restores it; import at the plan
+  limit is refused with a clear message; slot order is stable
+- **Storage**: footer shows "X of Y used"; ≥80% shows the amber banner, ≥92%
+  turns critical
+- **Desktop keyboard**: key hints on fine-pointer devices; hold Space
+  records and a sub-120ms tap never sticks; E editor / Esc back / P play /
+  Delete removes last; editor arrows select, Alt+arrows reorder, D
+  duplicates, Delete deletes, T trims; playback Space pauses/resumes and
+  arrows skip; typing in the rename field never triggers shortcuts
+- **iOS install hint**: shows in iOS Safari with the exact copy, dismisses
+  permanently, hidden in standalone and non-iOS browsers
+- **Meta**: `viewport-fit=cover`, `apple-mobile-web-app-status-bar-style`
+  black-translucent, theme colors, og/twitter card tags; onboarding shows
+  once and dismisses for good; /about, /privacy, /terms render
+
+Specialized probes (`node scripts/probe-*.mjs`) additionally cover: the fast
+export pipeline end-to-end with ffprobe validation (30fps decimation, export
+recovery, zip contents), touch timeline gestures (long-press lift, drag
+reorder, scroll), the silent-mic warning pill, screen recording, rear-lens
+switching, and WebKit engine sanity.
+
+## Still manual — real device required (Chrome/Brave on Android, Safari on iOS)
+
+Run locally with HTTPS or `localhost` (`npm run dev`); camera/mic need a
+secure context.
+
+### Camera hardware & OS integration
+- [ ] Real permission prompts: camera on first open, mic priming; Brave does
+  not silence the mic prompt; a blocked mic shows the red "Mic blocked" pill
+- [ ] Idle preview does not block Android voice-to-text in Brave/Chrome; the
+  mic is NOT held while idle (no OS mic indicator) — except iOS, where it is
+  held while previewing (muted-track workaround)
+- [ ] iOS: recordings have audible sound (mic + camera in one combined request)
+- [ ] A take with a dead/covered mic shows "Mic isn't picking up sound" after
+  ~2.5s; a take with sound clears it
+- [ ] Torch toggle appears on devices with a flash; zoom chips when supported
+- [ ] Multi-rear-lens Androids show the lens chip (e.g. "1/3"); choice sticks
+  across flips and restarts. iOS: NO lens chip; multi-lens iPhones open the
+  virtual device so zoom spans 0.5×–max
+- [ ] Dragging up/down during a hold zooms; edge presses keep a minimum ramp;
+  small tremble (<~14px) doesn't zoom; release eases back to the pre-take level
 - [ ] Camera preview stays smooth while recording (no visible frame drops)
-- [ ] Dragging up/down during a hold zooms in/out (zoom-capable devices)
-- [ ] Dragging from the press point to the top of the preview reaches MAX zoom; to the bottom reaches MIN (presses within ~20% of an edge keep a minimum ramp instead and cap partway at that edge — no hair-trigger)
-- [ ] Small finger tremble while holding (< ~14px) does not start zooming
-- [ ] Releasing the hold eases zoom back to the pre-take level (chip choice or 1×)
-- [ ] Release stops and appends a clip; filmstrip thumbnail appears shortly after
-- [ ] Self-timer counts down, starts hands-free recording, then tap stops
-- [ ] Very short taps do not create empty clips ("Hold a bit longer")
-- [ ] Multiple holds create multiple clips; total duration in the top bar updates
-- [ ] Backspace button deletes the last clip; toast offers Undo
+- [ ] Ending a take does not flash the preview black (Android regression)
+- [ ] Backgrounding releases camera/mic (green dot goes out); returning
+  restarts the preview; backgrounding mid-recording still saves the take
+- [ ] Screen off → on while on the camera: preview live again, not frozen
+- [ ] Flip camera works when multiple cameras exist
 
-## Screen recording (desktop only)
-- [ ] Monitor button (and `S`) appears on desktop browsers; absent on Android/iOS
-- [ ] Picking a surface starts the take; the "SCREEN — TAP TO STOP" pill shows with elapsed time
-- [ ] Tapping the preview, the monitor button, `S`, or the browser's own "Stop sharing" all save the clip
-- [ ] Mic narration is recorded (and mixed with tab/system audio when shared); a denied mic still records video
-- [ ] Cancelling the surface picker shows no error
-- [ ] Hold-to-record, self-timer, editor, play, and Go are blocked while a screen take runs
-- [ ] Leaving the camera view mid-take saves the clip
+### Screen recording (desktop)
+- [ ] Picking a surface starts the take; browser "Stop sharing", the monitor
+  button, `S`, and tapping the preview all save the clip
+- [ ] Mic narration is mixed with tab/system audio; denied mic still records
+  video; cancelling the picker shows no error
 
-## Editor
-- [ ] Scissors button opens the editor; stage shows the selected clip
-- [ ] Timeline tiles are wider for longer clips and show real thumbnails
-- [ ] Tap selects; long-press (or horizontal drag) lifts a tile to reorder
-- [ ] Trim opens the expanded strip; dragging handles seeks the stage preview
-- [ ] Done persists the trim; tile width and total duration update
-- [ ] Duplicate inserts a copy after the selection; Delete offers Undo
-- [ ] Tapping the stage plays just the selected clip within its trim range
-
-## Chapters & location
-- [ ] Location toggle asks permission on first enable; pressed state shows while on
-- [ ] Clips recorded while on carry coordinates; toggle off stops tagging
-- [ ] MP4 export shows chapters at clip boundaries in VLC/mpv (titles = clip times)
-- [ ] With tagged clips, VLC/exiftool show the ©xyz geotag; Photos apps place the video
-- [ ] Old projects without location data export fine (chapters only, no geotag)
-
-## Preview playback
-- [ ] Play button previews the whole cut in order, honoring trims, with audio
-- [ ] Tap right/left edge skips to next/previous clip; tap middle stops
-- [ ] Segmented progress bar tracks clips
-
-## Go / export
-- [ ] After an export, closing the sheet and tapping Go again restores the same file instantly ("Restored your last export") — no re-encode
-- [ ] Editing clips (trim/reorder/add/delete) or changing watermark state invalidates the restore; Go re-exports
-- [ ] "Re-export from scratch" on the ready sheet renders fresh
-- [ ] "Save original clips (.zip)" downloads one archive containing every clip (works from the error sheet too)
-- [ ] Go starts the export immediately ("Exporting your video…" + progress)
-- [ ] Export completes; sheet shows format + size ("MP4 · x MB" expected on Android)
+### Export output quality (watch the file)
+- [ ] Exported video: clips in order, trims applied, audio in sync across
+  clips with no clicks at joints, smooth frame rate
+- [ ] Watermark (before purchase): small Kody mark + domain bottom-right at
+  50% opacity; gone after purchase
+- [ ] MP4 chapters at clip boundaries in VLC/mpv; with tagged clips,
+  VLC/exiftool show the ©xyz geotag; old projects without location still
+  export (chapters only)
 - [ ] Share opens the system share sheet (fresh tap, no silent failure)
-- [ ] Save stores the file locally
-- [ ] Exported video: clips in order, trims applied, audio in sync across clips, smooth frame rate
 - [ ] Export failure path offers "Save clips instead"
-- [ ] Network tab shows no upload of clip binaries
-- [ ] Exported video shows the small Kody mark bottom-right (before purchase)
-- [ ] "Remove it — $0.99" opens Stripe checkout; KODYFRIEND promo checks out at $0
-- [ ] After checkout, /unlocked verifies and celebrates; next export has no mark
+
+### Purchases (Stripe, production)
+- [ ] "Remove it — $0.99" opens Stripe checkout; KODYFRIEND checks out at $0
+- [ ] After checkout, /unlocked verifies and celebrates; next export unmarked
 - [ ] "Already paid?" restore accepts the receipt link and unlocks
 
-## Persistence / offline
+### PWA / persistence
 - [ ] Hard refresh restores projects and clip media
-- [ ] Airplane mode after first visit still loads the app shell (PWA/service worker)
-- [ ] Offline, existing projects open and clips play from IndexedDB
-- [ ] iOS Safari (browser tab): home shows the Share → Add to Home Screen tip; × dismisses it for good
-- [ ] Installed (standalone) and non-iOS browsers never show the iOS install tip
-- [ ] iOS installed app fills the whole screen: the app background paints behind the status bar clock (no mismatched opaque strip along the top), and no content hides under the Dynamic Island
-
-## Storage
-- [ ] Home shows "X of Y used" in the footer line
-- [ ] ≥80% full: amber banner on home with delete-a-project guidance; pill on the record screen
-- [ ] ≥92% full: banner/pill turn red; starting a recording shows a warning toast
-- [ ] Watermark (before purchase) shows the mark + domain at 50% opacity
-
-## Projects
-- [ ] Free plan: 1 project; slots 2–6 show a lock and open the Kody Video Plus upsell
-- [ ] After Plus purchase/restore: create up to 6 projects; 7th is blocked with clear UX
-- [ ] "New project" opens the camera without creating anything; backing out without recording leaves no project behind
-- [ ] Recording the first clip creates the project (URL flips from /project/new to the real id); the clip is saved
-- [ ] Slot order is stable (does not shuffle after opening projects)
-- [ ] Slots show poster art from the first clip
-- [ ] ⋯ menu: Open / Rename / Delete (styled confirm, no browser dialog)
-- [ ] Deleting a project frees its stored clips
-- [ ] ⋯ → Save backup produces a .kodyvideo file (share sheet on Android)
-- [ ] Import on another domain/device restores the project with clips, trims, and geo
-- [ ] Importing at the 6-project cap is blocked with a clear message
-- [ ] On kody-video.pages.dev, home shows the "moved to kody.video" migration banner (absent on kody.video)
-
-## Desktop keyboard (fine-pointer devices)
-- [ ] Key-hint lines appear on the record screen and editor (hidden on touch devices)
-- [ ] Hold Space records; release stops; a sub-120ms tap does not leave a stuck recording
-- [ ] F flips camera, T starts self-timer, E opens editor, P plays, Delete removes last clip
-- [ ] Editor: arrows select, Alt+arrows reorder, T trims, D duplicates, Delete deletes, Esc returns to camera
-- [ ] Playback overlay: arrows skip, Space pauses/resumes, Esc closes; editor keys stay inert underneath
-- [ ] Typing in a rename field never triggers shortcuts
-
-## Social / meta
-- [ ] Opening /og-image.png directly (with the app's service worker active) shows the image, not the app
+- [ ] Airplane mode after first visit still loads the app shell; offline,
+  projects open and clips play
+- [ ] iOS installed app fills the whole screen: background paints behind the
+  status bar clock, no content under the Dynamic Island
+- [ ] Opening /og-image.png directly (service worker active) shows the image,
+  not the app
+- [ ] On kody-video.pages.dev, home shows the "moved to kody.video" migration
+  banner (absent on kody.video)
+- [ ] Import a backup on another domain/device: clips, trims, and geo survive
+- [ ] ≥92% storage: the record screen pill turns red and starting a recording
+  shows the warning toast
