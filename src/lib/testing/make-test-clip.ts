@@ -49,7 +49,9 @@ export async function makeTestClipBlob(durationMs: number): Promise<Blob> {
     ctx.fillText(String(i), 24, 64)
     // Trim the last frame so the media duration matches durationMs exactly
     // (the stored ClipMeta.durationMs must agree with the encoded media).
-    const duration = Math.min(1 / fps, totalSec - i / fps)
+    // The 1ms floor keeps the minimum two frames valid for durations under
+    // one frame interval.
+    const duration = Math.max(0.001, Math.min(1 / fps, totalSec - i / fps))
     await source.add(i / fps, duration)
   }
   source.close()
