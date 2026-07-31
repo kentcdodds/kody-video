@@ -9,6 +9,16 @@
     />
     <meta name="theme-color" media="(prefers-color-scheme: dark)" content="#2F3E46" />
     <meta name="theme-color" media="(prefers-color-scheme: light)" content="#EEF5F1" />
+    <!-- iOS home-screen apps only draw under the status bar when asked:
+         black-translucent makes the web view truly full screen (the page
+         background paints behind the clock instead of an opaque system
+         strip). Content clearance comes from the --safe-top padding that
+         every top-anchored element already uses. Status bar text follows
+         the system light/dark mode, which matches our color-scheme theming. -->
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta name="apple-mobile-web-app-title" content="Kody Video" />
     <meta
       name="description"
       content="Kody Video — hold anywhere to record clips. Privacy-first camera for the web."
