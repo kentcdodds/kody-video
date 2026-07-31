@@ -16,14 +16,19 @@ import { RecordScreen, type ToastAction } from '../components/record-screen'
 import { useCamera } from '../hooks/use-camera'
 import { RestoreSheet } from '../components/restore-sheet'
 import { REMOVE_WATERMARK_LINK } from '../lib/entitlement'
+import { buildClipsZip } from '../lib/clips-zip'
 import { clearExportMarker, markExportStarted, reportError } from '../lib/error-reporting'
 import { exportProject, type ExportResult } from '../lib/export'
+import {
+  exportSignature,
+  loadMatchingExport,
+  persistLastExport,
+} from '../lib/export/last-export'
 import { MediaElementFailureError } from '../lib/export/media-error'
 import { wait } from '../lib/export/shared'
 import {
   canShareFile,
   downloadBlob,
-  downloadClipsAsSeparateFiles,
   isIosBrowser,
   projectFilename,
   shareFile,
@@ -144,7 +149,7 @@ export function ProjectPage() {
     return ensureProjectRef.current
   }, [navigate, project])
 
-  const startExport = useCallback(() => {
+  const startExport = useCallback((options?: { force?: boolean }) => {
     if (clips.length === 0) return
     const runId = exportRunRef.current + 1
     exportRunRef.current = runId
@@ -163,6 +168,7 @@ export function ProjectPage() {
     }
 
     const watermarked = !data.watermarkRemoved
+    const signature = exportSignature(clips, watermarked)
     // Stop camera/mic immediately rather than waiting on record-screen
     // unmount. On iOS the combined mic+camera session can hold decoder
     // slots past the first paints, and WebKit reports that race as
@@ -196,6 +202,25 @@ export function ProjectPage() {
 
     void (async () => {
       try {
+        // Unchanged project + a persisted last export = instant "ready":
+        // missing the share sheet must never cost a re-encode. Retry
+        // bypasses this (force) and always renders fresh.
+        if (!options?.force && project) {
+          const recovered = await loadMatchingExport(project.id, signature).catch(() => null)
+          if (exportRunRef.current !== runId) return
+          if (recovered) {
+            setExportState({
+              status: 'ready',
+              progress: 1,
+              result: recovered.result,
+              error: null,
+              notice: 'Restored your last export — nothing changed since. Retry re-renders.',
+              watermarked: recovered.watermarked,
+            })
+            return
+          }
+        }
+
         // Export unmounts record/editor so camera + preview video release.
         // Wait two frames so those hardware decoder slots free before we open
         // new ones — otherwise loadClipVideo can fail with a media error on
@@ -225,6 +250,16 @@ export function ProjectPage() {
             )
           },
         })
+        // Persist for recovery/instant reuse — in the background, the sheet
+        // must not wait on a disk copy of a possibly huge file.
+        if (project) {
+          void persistLastExport({
+            projectId: project.id,
+            result,
+            signature,
+            watermarked,
+          }).catch(() => undefined)
+        }
         if (exportRunRef.current !== runId) return
         setExportState({
           status: 'ready',
@@ -266,7 +301,7 @@ export function ProjectPage() {
         }
       }
     })()
-  }, [clips, data.watermarkRemoved, stopCamera])
+  }, [clips, data.watermarkRemoved, project, stopCamera])
 
   const closeExport = useCallback(() => {
     exportRunRef.current += 1
@@ -392,16 +427,21 @@ export function ProjectPage() {
           }}
           onSaveClips={() => {
             beginExportAction()
-            void downloadClipsAsSeparateFiles(clips, project.name)
+            setExportNotice(
+              `Zipping ${clips.length} clip${clips.length === 1 ? '' : 's'}… keep this open.`,
+            )
+            void buildClipsZip(clips)
+              .then((zip) => downloadBlob(zip, projectFilename(`${project.name} clips`, 'zip')))
               .then(() => {
-                setExportNotice('Saving original clips — allow multiple downloads if asked.')
+                setExportNotice('Clips zipped — check your downloads.')
               })
               .catch(() => {
-                setExportNotice('Saving failed — try again.')
+                setExportNotice('Zipping failed — try again.')
               })
               .finally(endExportAction)
           }}
-          onRetry={startExport}
+          onRetry={() => startExport({ force: true })}
+          onReExport={() => startExport({ force: true })}
           onClose={closeExport}
         />
       ) : null}

@@ -138,6 +138,32 @@ try {
     `streams=${streams.join(',')} duration=${duration.toFixed(2)}s`,
   )
 
+  // Recovery: close the sheet, tap Go again — the persisted last export
+  // must come back instantly instead of re-encoding.
+  await page.getByRole('button', { name: /^done$/i }).click()
+  const recoverStartedAt = Date.now()
+  await page.locator('.go-button').click()
+  await page.getByText(/restored your last export/i).waitFor({ timeout: 5_000 })
+  const recoverSeconds = (Date.now() - recoverStartedAt) / 1000
+  check(
+    `missed-share recovery is instant (${recoverSeconds.toFixed(1)}s)`,
+    recoverSeconds < 3,
+  )
+
+  // Clips ZIP: one archive with every original clip inside.
+  const zipDownloadPromise = page.waitForEvent('download', { timeout: 30_000 })
+  await page.getByRole('button', { name: /save original clips/i }).click()
+  const zipDownload = await zipDownloadPromise
+  const zipPath = '/tmp/kv-clips-out.zip'
+  await zipDownload.saveAs(zipPath)
+  const zipList = spawnSync('unzip', ['-l', zipPath], { encoding: 'utf8' })
+  const entryCount = (zipList.stdout.match(/\.mp4|\.webm/g) ?? []).length
+  check(
+    `clips zip contains all ${CLIP_COUNT} clips`,
+    zipList.status === 0 && entryCount === CLIP_COUNT,
+    `entries=${entryCount}`,
+  )
+
   await browser.close()
 } catch (err) {
   check('probe crashed', false, String(err))

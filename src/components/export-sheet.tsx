@@ -25,6 +25,8 @@ interface ExportSheetProps {
   onRemoveWatermark: () => void
   onRestorePurchase: () => void
   onRetry: () => void
+  /** Fresh render, bypassing the persisted last-export cache. */
+  onReExport: () => void
   onClose: () => void
 }
 
@@ -49,6 +51,7 @@ export function ExportSheet({
   onRemoveWatermark,
   onRestorePurchase,
   onRetry,
+  onReExport,
   onClose,
 }: ExportSheetProps) {
   const bindSheet = useSheetModal({ onDismiss: onClose, busy })
@@ -94,6 +97,15 @@ export function ExportSheet({
                 Done
               </button>
             </div>
+            <p className="sheet-utility-links">
+              <button type="button" className="link-button" onClick={onSaveClips} disabled={busy}>
+                Save original clips (.zip)
+              </button>{' '}
+              ·{' '}
+              <button type="button" className="link-button" onClick={onReExport} disabled={busy}>
+                Re-export from scratch
+              </button>
+            </p>
             {watermarked && !purchased ? (
               <p className="watermark-note">
                 Includes a small Kody mark in the corner.{' '}
@@ -124,7 +136,7 @@ export function ExportSheet({
                 Try again
               </button>
               <button type="button" className="btn btn-secondary" onClick={onSaveClips} disabled={busy}>
-                Save clips instead
+                Save clips (.zip) instead
               </button>
               <button type="button" className="btn btn-ghost" onClick={onClose} disabled={busy}>
                 Close

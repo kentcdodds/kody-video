@@ -387,26 +387,6 @@ export async function shareOrDownload(
   return 'downloaded'
 }
 
-/**
- * Save every original clip as its own file. Downloads are spaced out so the
- * browser's multiple-download prompt has a chance to appear once instead of
- * silently dropping all but the first file.
- */
-export async function downloadClipsAsSeparateFiles(
-  clips: ClipRecord[],
-  projectName: string,
-): Promise<void> {
-  for (let index = 0; index < clips.length; index += 1) {
-    const clip = clips[index]
-    const ext = clip.mimeType.includes('mp4') ? 'mp4' : 'webm'
-    const name = `${slugify(projectName)}-clip-${String(index + 1).padStart(2, '0')}.${ext}`
-    await downloadBlob(clip.blob, name)
-    if (index < clips.length - 1) {
-      await new Promise((resolve) => setTimeout(resolve, 400))
-    }
-  }
-}
-
 /** Share/download a single original clip — most reliable path on mobile. */
 export async function shareClipFile(
   clip: ClipRecord,
