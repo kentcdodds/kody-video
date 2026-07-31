@@ -43,6 +43,31 @@ export async function totalClipCount(page: Page): Promise<number> {
   })
 }
 
+/** Press the record stage until the REC pill confirms recording started.
+ * Presses during a previous take's async cleanup are ignored by the app's
+ * reentrancy guard (correct behavior) — a real user just presses again. */
+export async function pressStageUntilRecording(page: Page): Promise<void> {
+  const box = await page.locator('.record-stage').boundingBox()
+  if (!box) throw new Error('record stage not visible')
+  let started = false
+  for (let attempt = 0; attempt < 4 && !started; attempt += 1) {
+    await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2)
+    await page.mouse.down()
+    started = await page
+      .locator('.record-pill')
+      .waitFor({ timeout: 2_500 })
+      .then(
+        () => true,
+        () => false,
+      )
+    if (!started) {
+      await page.mouse.up()
+      await page.waitForTimeout(400)
+    }
+  }
+  expect(started, 'record pill should appear after pressing the stage').toBe(true)
+}
+
 /**
  * Hold-to-record one clip via a mouse hold on the preview, then wait until
  * it lands in IndexedDB. Two app behaviors demand retries here, both
@@ -53,28 +78,8 @@ export async function totalClipCount(page: Page): Promise<number> {
  */
 export async function recordClip(page: Page, holdMs = 1200): Promise<void> {
   const before = await totalClipCount(page)
-  const stage = page.locator('.record-stage')
-  const box = await stage.boundingBox()
-  if (!box) throw new Error('record stage not visible')
-
   for (let take = 0; take < 3; take += 1) {
-    let started = false
-    for (let attempt = 0; attempt < 4 && !started; attempt += 1) {
-      await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2)
-      await page.mouse.down()
-      started = await page
-        .locator('.record-pill')
-        .waitFor({ timeout: 2_500 })
-        .then(
-          () => true,
-          () => false,
-        )
-      if (!started) {
-        await page.mouse.up()
-        await page.waitForTimeout(400)
-      }
-    }
-    expect(started, 'record pill should appear after pressing the stage').toBe(true)
+    await pressStageUntilRecording(page)
     await page.waitForTimeout(holdMs)
     await page.mouse.up()
     const saved = await expect

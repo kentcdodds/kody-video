@@ -53,7 +53,8 @@ npm test           # unit tests
   black-translucent, theme colors, og/twitter card tags; onboarding shows
   once and dismisses for good; /about, /privacy, /terms render
 
-Specialized probes (`node scripts/probe-*.mjs`) additionally cover: the fast
+Specialized probes (run each individually, e.g.
+`node scripts/probe-fast-export.mjs`) additionally cover: the fast
 export pipeline end-to-end with ffprobe validation (30fps decimation, export
 recovery, zip contents), touch timeline gestures (long-press lift, drag
 reorder, scroll), the silent-mic warning pill, screen recording, rear-lens
@@ -61,8 +62,10 @@ switching, and WebKit engine sanity.
 
 ## Still manual — real device required (Chrome/Brave on Android, Safari on iOS)
 
-Run locally with HTTPS or `localhost` (`npm run dev`); camera/mic need a
-secure context.
+Camera/mic need a secure context: `localhost` only counts when the browser
+and dev server are on the same machine. For a phone, use your machine's LAN
+URL over HTTPS or a trusted tunnel (`npm run dev -- --host` plus a tunnel;
+see the README) — plain `http://<lan-ip>` fails in most browsers.
 
 ### Camera hardware & OS integration
 - [ ] Real permission prompts: camera on first open, mic priming; Brave does

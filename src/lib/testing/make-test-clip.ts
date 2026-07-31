@@ -39,14 +39,18 @@ export async function makeTestClipBlob(durationMs: number): Promise<Blob> {
   output.addVideoTrack(source, { frameRate: fps })
   await output.start()
 
-  const frames = Math.max(2, Math.round((durationMs / 1000) * fps))
+  const totalSec = durationMs / 1000
+  const frames = Math.max(2, Math.ceil(totalSec * fps))
   for (let i = 0; i < frames; i += 1) {
     ctx.fillStyle = `hsl(${(i * 23) % 360}, 70%, 45%)`
     ctx.fillRect(0, 0, width, height)
     ctx.fillStyle = '#fff'
     ctx.font = '48px sans-serif'
     ctx.fillText(String(i), 24, 64)
-    await source.add(i / fps, 1 / fps)
+    // Trim the last frame so the media duration matches durationMs exactly
+    // (the stored ClipMeta.durationMs must agree with the encoded media).
+    const duration = Math.min(1 / fps, totalSec - i / fps)
+    await source.add(i / fps, duration)
   }
   source.close()
   await output.finalize()

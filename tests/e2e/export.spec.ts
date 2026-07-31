@@ -49,8 +49,11 @@ test.describe('Go / export', () => {
     await page.locator('.go-button').click()
     await expect(page.getByText(/Restored your last export/)).toBeVisible({ timeout: 8_000 })
 
-    // Re-export from scratch renders fresh (no restore notice).
+    // Re-export from scratch renders fresh (no restore notice). The old
+    // ready sheet must actually give way to the new encode first — without
+    // this, exportReady could match the still-mounted previous message.
     await page.locator('.export-sheet').getByRole('button', { name: /Re-export from scratch/ }).click()
+    await expect(page.getByText('Done! Your video is ready')).toBeHidden()
     await exportReady(page)
     await expect(page.getByText(/Restored your last export/)).toBeHidden()
 

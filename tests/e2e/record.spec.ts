@@ -1,5 +1,10 @@
 import { test, expect } from '@playwright/test'
-import { openNewProject, recordClip, totalClipCount } from './helpers'
+import {
+  openNewProject,
+  pressStageUntilRecording,
+  recordClip,
+  totalClipCount,
+} from './helpers'
 
 test.describe('camera & hold-to-record', () => {
   test('allow shows a live preview; hold records a clip and creates the project', async ({
@@ -24,13 +29,8 @@ test.describe('camera & hold-to-record', () => {
 
   test('recording shows the REC pill with elapsed time', async ({ page }) => {
     await openNewProject(page)
-    const stage = page.locator('.record-stage')
-    const box = await stage.boundingBox()
-    if (!box) throw new Error('no stage')
-    await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2)
-    await page.mouse.down()
+    await pressStageUntilRecording(page)
     const pill = page.locator('.record-pill')
-    await expect(pill).toBeVisible()
     await expect(pill).toContainText('REC')
     await expect(pill.locator('.record-elapsed')).toContainText(/\d+\.\ds/)
     await page.mouse.up()
