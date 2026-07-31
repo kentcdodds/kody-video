@@ -38,9 +38,23 @@ import {
 const FPS = 30
 const AUDIO_SAMPLE_RATE = 48000
 const AUDIO_CHANNELS = 2
-const VIDEO_BITRATE = 4_000_000
 const AUDIO_BITRATE = 192_000
 const KEYFRAME_INTERVAL_SEC = 2
+// Decimation to the output frame rate runs against a virtual 30fps output
+// clock (see makeFrameSink): high-rate sources otherwise push extra frames
+// through the same bitrate budget, cutting bits-per-frame — that was the
+// source of the blocky artifacts on long exports. The tolerance admits a
+// frame slightly ahead of its tick so a jittery 30fps source never drops
+// legitimate frames.
+const FRAME_INTERVAL_SEC = 1 / FPS
+const DECIMATE_TOLERANCE_SEC = 0.3 / FPS
+
+/** ~0.12 bits per pixel at 30fps — clean hardware-AVC territory without
+ * ballooning the file. Scales down for small outputs instead of spending a
+ * flat 4Mbps on everything. */
+function videoBitrateFor(width: number, height: number): number {
+  return Math.round(Math.min(6_000_000, Math.max(1_500_000, width * height * FPS * 0.12)))
+}
 
 export function supportsWebCodecsExport(): boolean {
   return typeof VideoEncoder !== 'undefined' && typeof VideoFrame !== 'undefined'
@@ -139,7 +153,7 @@ export async function exportWithWebCodecs(
   })
   const videoSource = new CanvasSource(canvas, {
     codec: choice.videoCodec,
-    quality: new Quality({ bitrate: VIDEO_BITRATE }),
+    quality: new Quality({ bitrate: videoBitrateFor(width, height) }),
     keyFrameInterval: KEYFRAME_INTERVAL_SEC,
   })
   output.addVideoTrack(videoSource, { frameRate: FPS })
@@ -152,6 +166,7 @@ export async function exportWithWebCodecs(
 
   const state: PumpState = {
     lastVideoTsSec: -1,
+    nextFrameTsSec: 0,
     outputOffsetSec: 0,
     doneMs: 0,
     frameCount: 0,
@@ -344,6 +359,8 @@ function formatChapterTitle(
 
 interface PumpState {
   lastVideoTsSec: number
+  /** Next 30fps output-clock tick; frames arriving before it are dropped. */
+  nextFrameTsSec: number
   outputOffsetSec: number
   doneMs: number
   frameCount: number
@@ -378,9 +395,21 @@ function makeFrameSink({
   return (
     draw: (ctx: CanvasRenderingContext2D, width: number, height: number) => void,
     mediaTimeSec: number,
+    options?: { force?: boolean },
   ): Promise<void> => {
     const clampedSec = Math.min(Math.max(mediaTimeSec, startSec), endSec)
     let tsSec = state.outputOffsetSec + (clampedSec - startSec)
+    // Decimate against the output clock: emit one frame per 30fps tick and
+    // drop the rest, so ANY source rate (40, 60, 120fps) caps at exactly
+    // FPS long-run — a fixed minimum gap would let a 40fps source through
+    // untouched. Segment anchor frames are forced: every segment must
+    // contribute at least its first frame.
+    if (!options?.force && tsSec < state.nextFrameTsSec - DECIMATE_TOLERANCE_SEC) {
+      return Promise.resolve()
+    }
+    // Stay on the tick grid while the source keeps up; resync from the
+    // frame itself across gaps (slow sources, segment jumps).
+    state.nextFrameTsSec = Math.max(state.nextFrameTsSec, tsSec) + FRAME_INTERVAL_SEC
     if (tsSec <= state.lastVideoTsSec) {
       tsSec = state.lastVideoTsSec + 0.001
     }
@@ -452,7 +481,9 @@ async function pumpSegmentVideoDecoded(
       // edit lists) must not shift the timeline — and the container's
       // first chunk must sit at 0.
       const mediaSec = framesEmitted === 0 ? startSec : wrapped.timestamp
-      await emit((ctx) => ctx.drawImage(wrapped.canvas, 0, 0), mediaSec)
+      await emit((ctx) => ctx.drawImage(wrapped.canvas, 0, 0), mediaSec, {
+        force: framesEmitted === 0,
+      })
       framesEmitted += 1
       onElapsedMs((Math.min(wrapped.timestamp, endSec) - startSec) * 1000)
     }
@@ -487,24 +518,28 @@ async function pumpSegmentVideo({
   // The draw happens SYNCHRONOUSLY at callback time (frame and timestamp
   // must belong together); the returned promise carries encoder
   // backpressure and paces when the next frame is processed.
-  const emitAt = (mediaTimeSec: number): Promise<void> =>
-    emit((ctx, width, height) => {
-      const vw = video.videoWidth || width
-      const vh = video.videoHeight || height
-      const scale = Math.max(width / vw, height / vh)
-      ctx.fillStyle = '#000'
-      ctx.fillRect(0, 0, width, height)
-      ctx.drawImage(
-        video,
-        (width - vw * scale) / 2,
-        (height - vh * scale) / 2,
-        vw * scale,
-        vh * scale,
-      )
-    }, mediaTimeSec)
+  const emitAt = (mediaTimeSec: number, options?: { force?: boolean }): Promise<void> =>
+    emit(
+      (ctx, width, height) => {
+        const vw = video.videoWidth || width
+        const vh = video.videoHeight || height
+        const scale = Math.max(width / vw, height / vh)
+        ctx.fillStyle = '#000'
+        ctx.fillRect(0, 0, width, height)
+        ctx.drawImage(
+          video,
+          (width - vw * scale) / 2,
+          (height - vh * scale) / 2,
+          vw * scale,
+          vh * scale,
+        )
+      },
+      mediaTimeSec,
+      options,
+    )
 
   // Guarantee at least one frame per segment, even if playback ends instantly.
-  await emitAt(startSec)
+  await emitAt(startSec, { force: true })
 
   const supportsRvfc = typeof video.requestVideoFrameCallback === 'function'
 
@@ -587,10 +622,15 @@ async function pumpSegmentVideo({
   }
 }
 
+/** Boundary ramp length: long enough to kill clicks, far too short to hear. */
+const AUDIO_FADE_FRAMES = Math.round(0.003 * AUDIO_SAMPLE_RATE)
+
 /**
  * Exactly `segmentMs` of audio for a segment: the decoded clip audio sliced
  * at the trim-in point, padded with silence where the clip has less audio
- * than video.
+ * than video. Slice edges get ~3ms fades — a hard cut mid-waveform at every
+ * clip joint is an audible click, which is exactly the "audio isn't
+ * seamless like the video" report.
  */
 function sliceSegmentAudio(
   buffer: AudioBuffer | null,
@@ -607,13 +647,30 @@ function sliceSegmentAudio(
 
   const sourceRate = buffer.sampleRate
   const sourceStartFrame = Math.floor((startMs / 1000) * sourceRate)
+  let copiedFrames = 0
   for (let ch = 0; ch < AUDIO_CHANNELS; ch += 1) {
     const source = buffer.getChannelData(Math.min(ch, buffer.numberOfChannels - 1))
     const target = slice.getChannelData(ch)
+    let copied = 0
     for (let i = 0; i < totalFrames; i += 1) {
       const src = sourceStartFrame + i
       if (src >= source.length) break
       target[i] = source[src]!
+      copied += 1
+    }
+    copiedFrames = Math.max(copiedFrames, copied)
+  }
+
+  // Fade in from the cut point and out into the cut/padding.
+  const fade = Math.min(AUDIO_FADE_FRAMES, Math.floor(copiedFrames / 2))
+  if (fade > 0) {
+    for (let ch = 0; ch < AUDIO_CHANNELS; ch += 1) {
+      const target = slice.getChannelData(ch)
+      for (let i = 0; i < fade; i += 1) {
+        const gain = i / fade
+        target[i]! *= gain
+        target[copiedFrames - 1 - i]! *= gain
+      }
     }
   }
   return slice

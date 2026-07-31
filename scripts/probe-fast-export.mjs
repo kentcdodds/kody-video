@@ -13,17 +13,24 @@ import { setTimeout as sleep } from 'node:timers/promises'
 
 const PORT = 4191
 const BASE = `http://127.0.0.1:${PORT}`
-const CLIP_PATH = '/tmp/kv-test-clip.mp4'
 const CLIP_SECONDS = 4
-const CLIP_COUNT = 4
+// One clip per rate: the export must decimate every source rate to the
+// 30fps output budget instead of encoding extra frames at fewer bits each.
+// 40fps matters specifically — a naive minimum-gap decimator caps 60/120fps
+// but waves 40fps straight through.
+const CLIP_RATES = [30, 60, 40, 60]
+const CLIP_COUNT = CLIP_RATES.length
+// Cache key carries the fixture parameters so edits never reuse stale files.
+const clipPath = (rate) => `/tmp/kv-test-clip-${rate}fps-${CLIP_SECONDS}s-360x640.mp4`
 
-if (!existsSync(CLIP_PATH)) {
+for (const rate of new Set(CLIP_RATES)) {
+  if (existsSync(clipPath(rate))) continue
   execFileSync('ffmpeg', [
     '-hide_banner', '-y',
-    '-f', 'lavfi', '-i', `testsrc2=size=360x640:rate=30:duration=${CLIP_SECONDS}`,
+    '-f', 'lavfi', '-i', `testsrc2=size=360x640:rate=${rate}:duration=${CLIP_SECONDS}`,
     '-f', 'lavfi', '-i', `sine=frequency=440:duration=${CLIP_SECONDS}:sample_rate=48000`,
     '-c:v', 'libx264', '-profile:v', 'high', '-pix_fmt', 'yuv420p',
-    '-c:a', 'aac', '-shortest', CLIP_PATH,
+    '-c:a', 'aac', '-shortest', clipPath(rate),
   ])
 }
 
@@ -59,7 +66,9 @@ try {
     permissions: ['camera', 'microphone'],
   })
   const page = await context.newPage()
-  await page.route('**/__test-clip.mp4', (route) => route.fulfill({ path: CLIP_PATH }))
+  for (const rate of new Set(CLIP_RATES)) {
+    await page.route(`**/__test-clip-${rate}.mp4`, (route) => route.fulfill({ path: clipPath(rate) }))
+  }
   const warnings = []
   page.on('console', (msg) => {
     // Any fallback defeats the probe's purpose: the whole-export realtime
@@ -73,16 +82,19 @@ try {
 
   // Seed a project with MP4 clips straight into IndexedDB.
   await page.evaluate(
-    async ({ clipCount, clipMs }) => {
+    async ({ rates, clipMs }) => {
       const { createProject, addClip, setOnboardingDismissed } = await import('/src/lib/storage.ts')
       await setOnboardingDismissed(true)
       const project = await createProject('Fast export probe')
-      const blob = await (await fetch('/__test-clip.mp4')).blob()
-      const mp4 = new Blob([blob], { type: 'video/mp4' })
-      for (let i = 0; i < clipCount; i += 1) {
+      const blobs = new Map()
+      for (const rate of rates) {
+        if (!blobs.has(rate)) {
+          const blob = await (await fetch(`/__test-clip-${rate}.mp4`)).blob()
+          blobs.set(rate, new Blob([blob], { type: 'video/mp4' }))
+        }
         await addClip({
           projectId: project.id,
-          blob: mp4,
+          blob: blobs.get(rate),
           mimeType: 'video/mp4',
           durationMs: clipMs,
           width: 360,
@@ -91,7 +103,7 @@ try {
       }
       return project.id
     },
-    { clipCount: CLIP_COUNT, clipMs: CLIP_SECONDS * 1000 },
+    { rates: CLIP_RATES, clipMs: CLIP_SECONDS * 1000 },
   )
 
   await page.reload({ waitUntil: 'networkidle' })
@@ -120,22 +132,37 @@ try {
   const download = await downloadPromise
   const savedPath = '/tmp/kv-fast-export-out'
   await download.saveAs(savedPath)
+  // -count_frames: decode and count REAL frames — avg_frame_rate reflects
+  // the declared track rate, which would hide frame-rate inflation.
   const probeOut = spawnSync(
     'ffprobe',
-    ['-v', 'error', '-show_entries', 'format=duration:stream=codec_type', '-of', 'json', savedPath],
+    [
+      '-v', 'error', '-count_frames',
+      '-show_entries', 'format=duration:stream=codec_type,nb_read_frames',
+      '-of', 'json', savedPath,
+    ],
     { encoding: 'utf8' },
   )
   let streams = []
   let duration = 0
+  let videoFps = 0
   try {
     const parsed = JSON.parse(probeOut.stdout)
     streams = (parsed.streams ?? []).map((s) => s.codec_type)
     duration = Number(parsed.format?.duration ?? 0)
+    const video = (parsed.streams ?? []).find((s) => s.codec_type === 'video')
+    const frames = Number(video?.nb_read_frames ?? 0)
+    videoFps = duration > 0 ? frames / duration : 0
   } catch {}
   check(
     `output has video+audio and ~${totalSeconds}s duration`,
     streams.includes('video') && streams.includes('audio') && Math.abs(duration - totalSeconds) < 1.5,
     `streams=${streams.join(',')} duration=${duration.toFixed(2)}s`,
+  )
+  check(
+    `${CLIP_RATES.join('/')}fps sources are decimated to ~30fps output (${videoFps.toFixed(1)}fps decoded)`,
+    videoFps > 26 && videoFps < 31.5,
+    'frame-rate inflation cuts bits-per-frame',
   )
 
   // Recovery: close the sheet, tap Go again — the persisted last export
