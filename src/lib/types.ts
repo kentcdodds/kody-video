@@ -52,6 +52,19 @@ export interface AppMeta {
   purchaseSessionId?: string | null
   /** Opt-in: tag new clips with device location. */
   locationTaggingEnabled?: boolean
+  /** The persisted last export (OPFS-backed), recoverable after the share
+   * sheet is missed — and served instantly when nothing changed. */
+  lastExport?: {
+    projectId: ProjectId
+    opfsName: string
+    mimeType: string
+    fileExtension: 'mp4' | 'webm'
+    createdAt: number
+    /** Fingerprint of the clips (ids + trims) and watermark state that
+     * produced the file — any difference means a fresh export is needed. */
+    signature: string
+    watermarked: boolean
+  } | null
 }
 
 export const MAX_PROJECTS = 6

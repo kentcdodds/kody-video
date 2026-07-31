@@ -22,18 +22,51 @@ const EXPORT_DIR = 'exports'
  * in-memory buffer). Previous export files are cleaned up here — by the
  * time a new export starts, the UI has discarded any old result.
  */
+/** Write a stream into a named OPFS file (overwriting), returning the
+ * disk-backed File — or null when OPFS is unavailable. */
+export async function streamToOpfsFile(
+  name: string,
+  stream: ReadableStream<Uint8Array>,
+): Promise<File | null> {
+  try {
+    if (!navigator.storage?.getDirectory) return null
+    const root = await navigator.storage.getDirectory()
+    const dir = await root.getDirectoryHandle(EXPORT_DIR, { create: true })
+    const handle = await dir.getFileHandle(name, { create: true })
+    const writable = await handle.createWritable()
+    await stream.pipeTo(writable)
+    return handle.getFile()
+  } catch {
+    return null
+  }
+}
+
+/** Read a previously persisted OPFS file, or null when it's gone. */
+export async function readOpfsFile(name: string): Promise<File | null> {
+  try {
+    if (!navigator.storage?.getDirectory) return null
+    const root = await navigator.storage.getDirectory()
+    const dir = await root.getDirectoryHandle(EXPORT_DIR, { create: true })
+    const handle = await dir.getFileHandle(name)
+    return await handle.getFile()
+  } catch {
+    return null
+  }
+}
+
 export async function createOpfsExportFile(extension: string): Promise<OpfsExportFile | null> {
   try {
     if (!navigator.storage?.getDirectory) return null
     const root = await navigator.storage.getDirectory()
     const dir = await root.getDirectoryHandle(EXPORT_DIR, { create: true })
 
-    // Best-effort cleanup of earlier exports (they only exist as temp space
-    // for the share/save step of the export that created them).
+    // Best-effort cleanup of earlier temp exports. Persisted artifacts
+    // (the recoverable last export, clip zips) are kept — they must survive
+    // a new export attempt that might fail.
     try {
       const names: string[] = []
       for await (const name of (dir as unknown as { keys(): AsyncIterable<string> }).keys()) {
-        names.push(name)
+        if (name.startsWith('export-')) names.push(name)
       }
       await Promise.all(names.map((name) => dir.removeEntry(name).catch(() => undefined)))
     } catch {

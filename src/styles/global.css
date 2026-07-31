@@ -508,6 +508,13 @@ a {
   font-size: 0.85rem;
 }
 
+.sheet-utility-links {
+  margin: 12px 0 0;
+  text-align: center;
+  font-size: 0.85rem;
+  color: var(--ink-muted);
+}
+
 .update-toast {
   position: absolute;
   top: calc(10px + var(--safe-top));

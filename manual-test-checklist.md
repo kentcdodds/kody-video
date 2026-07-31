@@ -65,6 +65,10 @@ Run locally with HTTPS or `localhost` (`npm run dev`). Camera/mic require a secu
 - [ ] Segmented progress bar tracks clips
 
 ## Go / export
+- [ ] After an export, closing the sheet and tapping Go again restores the same file instantly ("Restored your last export") — no re-encode
+- [ ] Editing clips (trim/reorder/add/delete) or changing watermark state invalidates the restore; Go re-exports
+- [ ] "Re-export from scratch" on the ready sheet renders fresh
+- [ ] "Save original clips (.zip)" downloads one archive containing every clip (works from the error sheet too)
 - [ ] Go starts the export immediately ("Exporting your video…" + progress)
 - [ ] Export completes; sheet shows format + size ("MP4 · x MB" expected on Android)
 - [ ] Share opens the system share sheet (fresh tap, no silent failure)
