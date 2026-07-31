@@ -9,6 +9,7 @@ import {
   Mp4OutputFormat,
   Output,
   Quality,
+  StreamTarget,
   WebMOutputFormat,
   getFirstEncodableAudioCodec,
   getFirstEncodableVideoCodec,
@@ -19,6 +20,7 @@ import { deriveProjectLocation } from '../geo'
 import { isIosBrowser } from '../media'
 import type { ClipRecord } from '../types'
 import { injectMp4Metadata, type Mp4Chapter } from './mp4-metadata'
+import { createOpfsExportFile } from './opfs'
 import { clampSegmentToMedia, type ExportPlan } from './plan'
 import {
   PREVIEW_INTERVAL_MS,
@@ -105,11 +107,13 @@ export async function exportWithWebCodecs(
     throw new Error('No supported export codec')
   }
 
-  // Draw into the on-DOM overlay canvas when available: Safari-family
-  // engines have a history of treating detached canvases as black (see the
-  // realtime engine's captureStream fix) — and it doubles as a per-frame
-  // live preview. Falls back to a detached canvas (fine on Chromium).
-  let canvas = await waitForPreviewCanvas(getPreviewCanvas)
+  // iOS ONLY: encode into the on-DOM overlay canvas — WebKit has a history
+  // of treating detached canvases as black in capture paths (see the
+  // black-export saga). Everywhere else the encode canvas stays DETACHED:
+  // drawing every frame through a visible, compositor-synchronized canvas
+  // rate-limited a 9× export to a constant ~6× on Android. The preview gets
+  // throttled downscaled blits instead — it only shows what's processing.
+  let canvas = isIosBrowser() ? await waitForPreviewCanvas(getPreviewCanvas) : null
   const encodingIntoPreview = canvas !== null
   if (!canvas) {
     canvas = document.createElement('canvas')
@@ -119,6 +123,10 @@ export async function exportWithWebCodecs(
   const ctx = canvas.getContext('2d', { alpha: false })
   if (!ctx) throw new Error('Canvas not available')
 
+  // Stream the mux to disk when OPFS is available: long exports are too
+  // big for an in-memory buffer (a half-hour project is ~1GB — the
+  // BufferTarget path OOM-killed the tab right at 100%).
+  const opfs = await createOpfsExportFile(choice.container)
   const output = new Output({
     format:
       choice.container === 'mp4'
@@ -127,7 +135,7 @@ export async function exportWithWebCodecs(
           // streamed, so faststart matters little here.
           new Mp4OutputFormat({ fastStart: false })
         : new WebMOutputFormat(),
-    target: new BufferTarget(),
+    target: opfs ? new StreamTarget(opfs.writable, { chunked: true }) : new BufferTarget(),
   })
   const videoSource = new CanvasSource(canvas, {
     codec: choice.videoCodec,
@@ -231,25 +239,54 @@ export async function exportWithWebCodecs(
     await output.finalize()
   } catch (error) {
     await output.cancel().catch(() => undefined)
+    await opfs?.discard().catch(() => undefined)
     throw error
   }
 
   onProgress?.(1)
-  let buffer = (output.target as BufferTarget).buffer
-  if (!buffer) {
-    throw new Error('Export produced no data')
+  const mimeType = choice.container === 'mp4' ? 'video/mp4' : 'video/webm'
+  let blob: Blob
+  if (opfs) {
+    const file = await opfs.getFile()
+    if (file.size === 0) throw new Error('Export produced no data')
+    // Blob composition references the disk-backed file — no RAM copy.
+    blob = new Blob([file], { type: mimeType })
+  } else {
+    const buffer = (output.target as BufferTarget).buffer
+    if (!buffer) throw new Error('Export produced no data')
+    blob = new Blob([buffer], { type: mimeType })
   }
   if (choice.container === 'mp4') {
-    buffer = injectMp4Metadata(buffer, {
+    blob = await injectMetadataBestEffort(blob, mimeType, chapters, clipsInPlan)
+  }
+  return {
+    blob,
+    mimeType,
+    fileExtension: choice.container,
+  }
+}
+
+/** Metadata injection needs the whole file in memory (once) — worth it for
+ * chapters/geotags on normal exports, but never worth risking a very long
+ * export over: oversized files skip it, and any failure returns the
+ * perfectly playable un-injected file. */
+const METADATA_INJECT_LIMIT_BYTES = 256 * 1024 * 1024
+
+async function injectMetadataBestEffort(
+  blob: Blob,
+  mimeType: string,
+  chapters: Mp4Chapter[],
+  clipsInPlan: ClipRecord[],
+): Promise<Blob> {
+  if (blob.size > METADATA_INJECT_LIMIT_BYTES) return blob
+  try {
+    const injected = injectMp4Metadata(await blob.arrayBuffer(), {
       chapters,
       location: deriveProjectLocation(clipsInPlan),
     })
-  }
-  const mimeType = choice.container === 'mp4' ? 'video/mp4' : 'video/webm'
-  return {
-    blob: new Blob([buffer], { type: mimeType }),
-    mimeType,
-    fileExtension: choice.container,
+    return new Blob([injected], { type: mimeType })
+  } catch {
+    return blob
   }
 }
 

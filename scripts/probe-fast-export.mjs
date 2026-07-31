@@ -7,7 +7,7 @@
  * Run: node scripts/probe-fast-export.mjs   (starts its own vite dev server)
  */
 import { chromium } from 'playwright'
-import { spawn, execFileSync } from 'node:child_process'
+import { spawn, spawnSync, execFileSync } from 'node:child_process'
 import { existsSync } from 'node:fs'
 import { setTimeout as sleep } from 'node:timers/promises'
 
@@ -112,6 +112,31 @@ try {
     'decode-driven pump must beat realtime',
   )
   check('no realtime-engine fallback occurred', warnings.length === 0, warnings.join(' | '))
+
+  // The output must be a real, playable file (streamed to OPFS where
+  // available): download it and let ffprobe be the judge.
+  const downloadPromise = page.waitForEvent('download', { timeout: 15_000 })
+  await page.getByRole('button', { name: /^save$/i }).click()
+  const download = await downloadPromise
+  const savedPath = '/tmp/kv-fast-export-out'
+  await download.saveAs(savedPath)
+  const probeOut = spawnSync(
+    'ffprobe',
+    ['-v', 'error', '-show_entries', 'format=duration:stream=codec_type', '-of', 'json', savedPath],
+    { encoding: 'utf8' },
+  )
+  let streams = []
+  let duration = 0
+  try {
+    const parsed = JSON.parse(probeOut.stdout)
+    streams = (parsed.streams ?? []).map((s) => s.codec_type)
+    duration = Number(parsed.format?.duration ?? 0)
+  } catch {}
+  check(
+    `output has video+audio and ~${totalSeconds}s duration`,
+    streams.includes('video') && streams.includes('audio') && Math.abs(duration - totalSeconds) < 1.5,
+    `streams=${streams.join(',')} duration=${duration.toFixed(2)}s`,
+  )
 
   await browser.close()
 } catch (err) {
