@@ -40,12 +40,14 @@ const AUDIO_SAMPLE_RATE = 48000
 const AUDIO_CHANNELS = 2
 const AUDIO_BITRATE = 192_000
 const KEYFRAME_INTERVAL_SEC = 2
-// Skip frames that arrive faster than ~70% of the frame interval. 60fps
-// sources otherwise push twice the frames through a 30fps bitrate budget,
-// halving bits-per-frame — that was the source of the blocky artifacts on
-// long exports. Slightly under 1/FPS so ordinary jitter never drops a
-// legitimate 30fps frame.
-const MIN_FRAME_GAP_SEC = 0.7 / FPS
+// Decimation to the output frame rate runs against a virtual 30fps output
+// clock (see makeFrameSink): high-rate sources otherwise push extra frames
+// through the same bitrate budget, cutting bits-per-frame — that was the
+// source of the blocky artifacts on long exports. The tolerance admits a
+// frame slightly ahead of its tick so a jittery 30fps source never drops
+// legitimate frames.
+const FRAME_INTERVAL_SEC = 1 / FPS
+const DECIMATE_TOLERANCE_SEC = 0.3 / FPS
 
 /** ~0.12 bits per pixel at 30fps — clean hardware-AVC territory without
  * ballooning the file. Scales down for small outputs instead of spending a
@@ -164,6 +166,7 @@ export async function exportWithWebCodecs(
 
   const state: PumpState = {
     lastVideoTsSec: -1,
+    nextFrameTsSec: 0,
     outputOffsetSec: 0,
     doneMs: 0,
     frameCount: 0,
@@ -356,6 +359,8 @@ function formatChapterTitle(
 
 interface PumpState {
   lastVideoTsSec: number
+  /** Next 30fps output-clock tick; frames arriving before it are dropped. */
+  nextFrameTsSec: number
   outputOffsetSec: number
   doneMs: number
   frameCount: number
@@ -394,16 +399,17 @@ function makeFrameSink({
   ): Promise<void> => {
     const clampedSec = Math.min(Math.max(mediaTimeSec, startSec), endSec)
     let tsSec = state.outputOffsetSec + (clampedSec - startSec)
-    // Decimate to the output frame rate. Segment anchor frames are forced:
-    // every segment must contribute at least its first frame, even when it
-    // lands hot on the heels of the previous segment's last one.
-    if (
-      !options?.force &&
-      state.lastVideoTsSec >= 0 &&
-      tsSec - state.lastVideoTsSec < MIN_FRAME_GAP_SEC
-    ) {
+    // Decimate against the output clock: emit one frame per 30fps tick and
+    // drop the rest, so ANY source rate (40, 60, 120fps) caps at exactly
+    // FPS long-run — a fixed minimum gap would let a 40fps source through
+    // untouched. Segment anchor frames are forced: every segment must
+    // contribute at least its first frame.
+    if (!options?.force && tsSec < state.nextFrameTsSec - DECIMATE_TOLERANCE_SEC) {
       return Promise.resolve()
     }
+    // Stay on the tick grid while the source keeps up; resync from the
+    // frame itself across gaps (slow sources, segment jumps).
+    state.nextFrameTsSec = Math.max(state.nextFrameTsSec, tsSec) + FRAME_INTERVAL_SEC
     if (tsSec <= state.lastVideoTsSec) {
       tsSec = state.lastVideoTsSec + 0.001
     }

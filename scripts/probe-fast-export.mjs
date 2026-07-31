@@ -13,25 +13,25 @@ import { setTimeout as sleep } from 'node:timers/promises'
 
 const PORT = 4191
 const BASE = `http://127.0.0.1:${PORT}`
-const CLIP_PATH = '/tmp/kv-test-clip.mp4'
-const CLIP_PATH_60 = '/tmp/kv-test-clip-60.mp4'
 const CLIP_SECONDS = 4
-const CLIP_COUNT = 4
+// One clip per rate: the export must decimate every source rate to the
+// 30fps output budget instead of encoding extra frames at fewer bits each.
+// 40fps matters specifically — a naive minimum-gap decimator caps 60/120fps
+// but waves 40fps straight through.
+const CLIP_RATES = [30, 60, 40, 60]
+const CLIP_COUNT = CLIP_RATES.length
+const clipPath = (rate) => `/tmp/kv-test-clip-${rate}.mp4`
 
-function makeClip(path, rate) {
-  if (existsSync(path)) return
+for (const rate of new Set(CLIP_RATES)) {
+  if (existsSync(clipPath(rate))) continue
   execFileSync('ffmpeg', [
     '-hide_banner', '-y',
     '-f', 'lavfi', '-i', `testsrc2=size=360x640:rate=${rate}:duration=${CLIP_SECONDS}`,
     '-f', 'lavfi', '-i', `sine=frequency=440:duration=${CLIP_SECONDS}:sample_rate=48000`,
     '-c:v', 'libx264', '-profile:v', 'high', '-pix_fmt', 'yuv420p',
-    '-c:a', 'aac', '-shortest', path,
+    '-c:a', 'aac', '-shortest', clipPath(rate),
   ])
 }
-// Half the clips run at 60fps: the export must decimate them to the 30fps
-// output budget instead of encoding every frame at half the bits.
-makeClip(CLIP_PATH, 30)
-makeClip(CLIP_PATH_60, 60)
 
 // Dev server: probes that import /src modules in-page need vite transforms.
 const dev = spawn('npm', ['run', 'dev', '--', '--host', '127.0.0.1', '--port', String(PORT)], {
@@ -65,8 +65,9 @@ try {
     permissions: ['camera', 'microphone'],
   })
   const page = await context.newPage()
-  await page.route('**/__test-clip.mp4', (route) => route.fulfill({ path: CLIP_PATH }))
-  await page.route('**/__test-clip-60.mp4', (route) => route.fulfill({ path: CLIP_PATH_60 }))
+  for (const rate of new Set(CLIP_RATES)) {
+    await page.route(`**/__test-clip-${rate}.mp4`, (route) => route.fulfill({ path: clipPath(rate) }))
+  }
   const warnings = []
   page.on('console', (msg) => {
     // Any fallback defeats the probe's purpose: the whole-export realtime
@@ -80,18 +81,19 @@ try {
 
   // Seed a project with MP4 clips straight into IndexedDB.
   await page.evaluate(
-    async ({ clipCount, clipMs }) => {
+    async ({ rates, clipMs }) => {
       const { createProject, addClip, setOnboardingDismissed } = await import('/src/lib/storage.ts')
       await setOnboardingDismissed(true)
       const project = await createProject('Fast export probe')
-      const blob30 = await (await fetch('/__test-clip.mp4')).blob()
-      const blob60 = await (await fetch('/__test-clip-60.mp4')).blob()
-      const mp430 = new Blob([blob30], { type: 'video/mp4' })
-      const mp460 = new Blob([blob60], { type: 'video/mp4' })
-      for (let i = 0; i < clipCount; i += 1) {
+      const blobs = new Map()
+      for (const rate of rates) {
+        if (!blobs.has(rate)) {
+          const blob = await (await fetch(`/__test-clip-${rate}.mp4`)).blob()
+          blobs.set(rate, new Blob([blob], { type: 'video/mp4' }))
+        }
         await addClip({
           projectId: project.id,
-          blob: i % 2 === 0 ? mp430 : mp460,
+          blob: blobs.get(rate),
           mimeType: 'video/mp4',
           durationMs: clipMs,
           width: 360,
@@ -100,7 +102,7 @@ try {
       }
       return project.id
     },
-    { clipCount: CLIP_COUNT, clipMs: CLIP_SECONDS * 1000 },
+    { rates: CLIP_RATES, clipMs: CLIP_SECONDS * 1000 },
   )
 
   await page.reload({ waitUntil: 'networkidle' })
@@ -155,9 +157,9 @@ try {
     `streams=${streams.join(',')} duration=${duration.toFixed(2)}s`,
   )
   check(
-    `60fps sources are decimated to ~30fps output (${videoFps.toFixed(1)}fps)`,
-    videoFps > 24 && videoFps < 34,
-    'frame-rate inflation halves bits-per-frame',
+    `${CLIP_RATES.join('/')}fps sources are decimated to ~30fps output (${videoFps.toFixed(1)}fps)`,
+    videoFps > 24 && videoFps < 32,
+    'frame-rate inflation cuts bits-per-frame',
   )
 
   // Recovery: close the sheet, tap Go again — the persisted last export
