@@ -132,11 +132,13 @@ try {
   const download = await downloadPromise
   const savedPath = '/tmp/kv-fast-export-out'
   await download.saveAs(savedPath)
+  // -count_frames: decode and count REAL frames — avg_frame_rate reflects
+  // the declared track rate, which would hide frame-rate inflation.
   const probeOut = spawnSync(
     'ffprobe',
     [
-      '-v', 'error',
-      '-show_entries', 'format=duration:stream=codec_type,avg_frame_rate',
+      '-v', 'error', '-count_frames',
+      '-show_entries', 'format=duration:stream=codec_type,nb_read_frames',
       '-of', 'json', savedPath,
     ],
     { encoding: 'utf8' },
@@ -149,8 +151,8 @@ try {
     streams = (parsed.streams ?? []).map((s) => s.codec_type)
     duration = Number(parsed.format?.duration ?? 0)
     const video = (parsed.streams ?? []).find((s) => s.codec_type === 'video')
-    const [num, den] = String(video?.avg_frame_rate ?? '0/1').split('/')
-    videoFps = Number(den) > 0 ? Number(num) / Number(den) : 0
+    const frames = Number(video?.nb_read_frames ?? 0)
+    videoFps = duration > 0 ? frames / duration : 0
   } catch {}
   check(
     `output has video+audio and ~${totalSeconds}s duration`,
@@ -158,8 +160,8 @@ try {
     `streams=${streams.join(',')} duration=${duration.toFixed(2)}s`,
   )
   check(
-    `${CLIP_RATES.join('/')}fps sources are decimated to ~30fps output (${videoFps.toFixed(1)}fps)`,
-    videoFps > 24 && videoFps < 32,
+    `${CLIP_RATES.join('/')}fps sources are decimated to ~30fps output (${videoFps.toFixed(1)}fps decoded)`,
+    videoFps > 26 && videoFps < 31.5,
     'frame-rate inflation cuts bits-per-frame',
   )
 
