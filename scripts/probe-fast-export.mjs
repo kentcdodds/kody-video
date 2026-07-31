@@ -20,7 +20,8 @@ const CLIP_SECONDS = 4
 // but waves 40fps straight through.
 const CLIP_RATES = [30, 60, 40, 60]
 const CLIP_COUNT = CLIP_RATES.length
-const clipPath = (rate) => `/tmp/kv-test-clip-${rate}.mp4`
+// Cache key carries the fixture parameters so edits never reuse stale files.
+const clipPath = (rate) => `/tmp/kv-test-clip-${rate}fps-${CLIP_SECONDS}s-360x640.mp4`
 
 for (const rate of new Set(CLIP_RATES)) {
   if (existsSync(clipPath(rate))) continue

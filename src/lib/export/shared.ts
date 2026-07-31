@@ -387,7 +387,9 @@ async function decodeBlobAudio(blob: Blob, sampleRate: number): Promise<AudioBuf
       if (available <= 0) continue
       merged.copyToChannel(available < data.length ? data.subarray(0, available) : data, ch, offset)
     }
-    runningOffset = offset + piece.buffer.length
+    // Clamp to capacity: an offset past the end must not inflate the
+    // running position and pull later in-range pieces past it via the snap.
+    runningOffset = Math.min(offset + piece.buffer.length, merged.length)
   }
   if (sourceRate === sampleRate) return merged
 
