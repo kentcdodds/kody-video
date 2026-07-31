@@ -373,8 +373,13 @@ async function decodeBlobAudio(blob: Blob, sampleRate: number): Promise<AudioBuf
     sampleRate: sourceRate,
     numberOfChannels: channels,
   })
+  // Contiguous placement: rounding each piece's timestamp independently can
+  // drift ±1 sample against its neighbor, leaving one-sample overlaps/gaps
+  // (audible as faint crackle). Snap to the running end when they agree.
+  let runningOffset = 0
   for (const piece of pieces) {
-    const offset = Math.round(piece.timestamp * sourceRate)
+    const computed = Math.round(piece.timestamp * sourceRate)
+    const offset = Math.abs(computed - runningOffset) <= 2 ? runningOffset : computed
     for (let ch = 0; ch < channels; ch += 1) {
       const sourceChannel = Math.min(ch, piece.buffer.numberOfChannels - 1)
       const data = piece.buffer.getChannelData(sourceChannel)
@@ -382,6 +387,7 @@ async function decodeBlobAudio(blob: Blob, sampleRate: number): Promise<AudioBuf
       if (available <= 0) continue
       merged.copyToChannel(available < data.length ? data.subarray(0, available) : data, ch, offset)
     }
+    runningOffset = offset + piece.buffer.length
   }
   if (sourceRate === sampleRate) return merged
 

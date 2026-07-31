@@ -14,18 +14,24 @@ import { setTimeout as sleep } from 'node:timers/promises'
 const PORT = 4191
 const BASE = `http://127.0.0.1:${PORT}`
 const CLIP_PATH = '/tmp/kv-test-clip.mp4'
+const CLIP_PATH_60 = '/tmp/kv-test-clip-60.mp4'
 const CLIP_SECONDS = 4
 const CLIP_COUNT = 4
 
-if (!existsSync(CLIP_PATH)) {
+function makeClip(path, rate) {
+  if (existsSync(path)) return
   execFileSync('ffmpeg', [
     '-hide_banner', '-y',
-    '-f', 'lavfi', '-i', `testsrc2=size=360x640:rate=30:duration=${CLIP_SECONDS}`,
+    '-f', 'lavfi', '-i', `testsrc2=size=360x640:rate=${rate}:duration=${CLIP_SECONDS}`,
     '-f', 'lavfi', '-i', `sine=frequency=440:duration=${CLIP_SECONDS}:sample_rate=48000`,
     '-c:v', 'libx264', '-profile:v', 'high', '-pix_fmt', 'yuv420p',
-    '-c:a', 'aac', '-shortest', CLIP_PATH,
+    '-c:a', 'aac', '-shortest', path,
   ])
 }
+// Half the clips run at 60fps: the export must decimate them to the 30fps
+// output budget instead of encoding every frame at half the bits.
+makeClip(CLIP_PATH, 30)
+makeClip(CLIP_PATH_60, 60)
 
 // Dev server: probes that import /src modules in-page need vite transforms.
 const dev = spawn('npm', ['run', 'dev', '--', '--host', '127.0.0.1', '--port', String(PORT)], {
@@ -60,6 +66,7 @@ try {
   })
   const page = await context.newPage()
   await page.route('**/__test-clip.mp4', (route) => route.fulfill({ path: CLIP_PATH }))
+  await page.route('**/__test-clip-60.mp4', (route) => route.fulfill({ path: CLIP_PATH_60 }))
   const warnings = []
   page.on('console', (msg) => {
     // Any fallback defeats the probe's purpose: the whole-export realtime
@@ -77,12 +84,14 @@ try {
       const { createProject, addClip, setOnboardingDismissed } = await import('/src/lib/storage.ts')
       await setOnboardingDismissed(true)
       const project = await createProject('Fast export probe')
-      const blob = await (await fetch('/__test-clip.mp4')).blob()
-      const mp4 = new Blob([blob], { type: 'video/mp4' })
+      const blob30 = await (await fetch('/__test-clip.mp4')).blob()
+      const blob60 = await (await fetch('/__test-clip-60.mp4')).blob()
+      const mp430 = new Blob([blob30], { type: 'video/mp4' })
+      const mp460 = new Blob([blob60], { type: 'video/mp4' })
       for (let i = 0; i < clipCount; i += 1) {
         await addClip({
           projectId: project.id,
-          blob: mp4,
+          blob: i % 2 === 0 ? mp430 : mp460,
           mimeType: 'video/mp4',
           durationMs: clipMs,
           width: 360,
@@ -122,20 +131,33 @@ try {
   await download.saveAs(savedPath)
   const probeOut = spawnSync(
     'ffprobe',
-    ['-v', 'error', '-show_entries', 'format=duration:stream=codec_type', '-of', 'json', savedPath],
+    [
+      '-v', 'error',
+      '-show_entries', 'format=duration:stream=codec_type,avg_frame_rate',
+      '-of', 'json', savedPath,
+    ],
     { encoding: 'utf8' },
   )
   let streams = []
   let duration = 0
+  let videoFps = 0
   try {
     const parsed = JSON.parse(probeOut.stdout)
     streams = (parsed.streams ?? []).map((s) => s.codec_type)
     duration = Number(parsed.format?.duration ?? 0)
+    const video = (parsed.streams ?? []).find((s) => s.codec_type === 'video')
+    const [num, den] = String(video?.avg_frame_rate ?? '0/1').split('/')
+    videoFps = Number(den) > 0 ? Number(num) / Number(den) : 0
   } catch {}
   check(
     `output has video+audio and ~${totalSeconds}s duration`,
     streams.includes('video') && streams.includes('audio') && Math.abs(duration - totalSeconds) < 1.5,
     `streams=${streams.join(',')} duration=${duration.toFixed(2)}s`,
+  )
+  check(
+    `60fps sources are decimated to ~30fps output (${videoFps.toFixed(1)}fps)`,
+    videoFps > 24 && videoFps < 34,
+    'frame-rate inflation halves bits-per-frame',
   )
 
   // Recovery: close the sheet, tap Go again — the persisted last export
