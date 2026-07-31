@@ -87,6 +87,7 @@ Run locally with HTTPS or `localhost` (`npm run dev`). Camera/mic require a secu
 - [ ] Offline, existing projects open and clips play from IndexedDB
 - [ ] iOS Safari (browser tab): home shows the Share → Add to Home Screen tip; × dismisses it for good
 - [ ] Installed (standalone) and non-iOS browsers never show the iOS install tip
+- [ ] iOS installed app fills the whole screen: the app background paints behind the status bar clock (no mismatched opaque strip along the top), and no content hides under the Dynamic Island
 
 ## Storage
 - [ ] Home shows "X of Y used" in the footer line
