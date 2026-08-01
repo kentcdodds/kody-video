@@ -10,6 +10,7 @@ import {
   pickOutputSize,
   recordVideoLumaSample,
   seekTo,
+  tagExportError,
   wait,
   waitForPreviewCanvas,
   type ExportResult,
@@ -38,9 +39,21 @@ export async function exportRealtime(
   options: RealtimeExportOptions = {},
 ): Promise<ExportResult> {
   const probeClip = plan.segments[0].clip
-  const probe = await loadClipVideo(probeClip.blob, 8000, probeClip.mimeType)
-  const { width, height } = pickOutputSize(probe.video.videoWidth, probe.video.videoHeight)
-  probe.release()
+  let width: number
+  let height: number
+  try {
+    const probe = await loadClipVideo(probeClip.blob, 8000, probeClip.mimeType)
+    ;({ width, height } = pickOutputSize(probe.video.videoWidth, probe.video.videoHeight))
+    probe.release()
+  } catch (error) {
+    // Probing is not worth dying over: recorded clips carry their capture
+    // dimensions, and pickOutputSize has sane defaults for the rest.
+    if ((probeClip.width ?? 0) > 0 && (probeClip.height ?? 0) > 0) {
+      ;({ width, height } = pickOutputSize(probeClip.width!, probeClip.height!))
+    } else {
+      throw tagExportError(error, { engine: 'realtime', where: 'probe-size', clipIndex: 0 })
+    }
+  }
 
   // Encode from the overlay's on-DOM canvas whenever possible: iOS Safari's
   // canvas.captureStream() delivers BLACK frames for canvases that aren't
@@ -109,8 +122,19 @@ export async function exportRealtime(
   let paintedTotalMs = 0
   const frameCounter = { count: 0 }
   try {
-    for (const segment of plan.segments) {
-      const loaded = await loadClipVideo(segment.clip.blob, 8000, segment.clip.mimeType)
+    for (const [segmentIndex, segment] of plan.segments.entries()) {
+      let loaded: Awaited<ReturnType<typeof loadClipVideo>>
+      try {
+        loaded = await loadClipVideo(segment.clip.blob, 8000, segment.clip.mimeType)
+      } catch (error) {
+        // The realtime engine plays clips through elements — this clip is
+        // genuinely unopenable here. Tag which one for the error report.
+        throw tagExportError(error, {
+          engine: 'realtime',
+          where: 'segment-load',
+          clipIndex: segmentIndex,
+        })
+      }
       try {
         const clamped = clampSegmentToMedia(segment, loaded.mediaDurationMs)
         if (!clamped) continue

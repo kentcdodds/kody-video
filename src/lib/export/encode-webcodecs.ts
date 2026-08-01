@@ -28,6 +28,7 @@ import {
   decodeClipAudio,
   drawWatermark,
   loadClipVideo,
+  tagExportError,
   pickOutputSize,
   recordVideoLumaSample,
   seekTo,
@@ -178,7 +179,7 @@ export async function exportWithWebCodecs(
   const chapters: Mp4Chapter[] = []
 
   try {
-    for (const segment of plan.segments) {
+    for (const [segmentIndex, segment] of plan.segments.entries()) {
       const input = new Input({
         source: new BlobSource(segment.clip.blob),
         formats: ALL_FORMATS,
@@ -192,8 +193,24 @@ export async function exportWithWebCodecs(
           .catch(() => 0)
         let clamped = mediaDurationMs > 0 ? clampSegmentToMedia(segment, mediaDurationMs) : null
         if (!clamped) {
-          loaded = await loadClipVideo(segment.clip.blob, 8000, segment.clip.mimeType)
-          clamped = clampSegmentToMedia(segment, loaded.mediaDurationMs)
+          try {
+            loaded = await loadClipVideo(segment.clip.blob, 8000, segment.clip.mimeType)
+            clamped = clampSegmentToMedia(segment, loaded.mediaDurationMs)
+          } catch (error) {
+            // A stubborn element load (iOS WebKit can refuse a blob it
+            // recorded itself — KODY-VIDEO-A) must not kill the export when
+            // it was only measuring duration: the recorder already measured
+            // this clip's real media duration at capture time. Only the
+            // element PUMP truly needs the element.
+            clamped = clampSegmentToMedia(segment, segment.clip.durationMs)
+            if (!clamped) {
+              throw tagExportError(error, {
+                engine: 'webcodecs',
+                where: 'clip-duration',
+                clipIndex: segmentIndex,
+              })
+            }
+          }
         }
         if (!clamped) continue
         const segmentMs = clamped.endMs - clamped.startMs
@@ -235,7 +252,15 @@ export async function exportWithWebCodecs(
           // Per-clip fallback: undecodable/unsupported clips play through a
           // video element like before (realtime-paced, but correct).
           console.info('[export] segment video path: element (realtime-paced)')
-          loaded ??= await loadClipVideo(segment.clip.blob, 8000, segment.clip.mimeType)
+          try {
+            loaded ??= await loadClipVideo(segment.clip.blob, 8000, segment.clip.mimeType)
+          } catch (error) {
+            throw tagExportError(error, {
+              engine: 'webcodecs',
+              where: 'element-pump',
+              clipIndex: segmentIndex,
+            })
+          }
           await pumpSegmentVideo({ video: loaded.video, ...pumpShared })
         }
 
@@ -312,9 +337,9 @@ async function injectMetadataBestEffort(
 
 /** Output dimensions from the first clip's real (rotated) display size. */
 async function probeOutputSize(plan: ExportPlan): Promise<{ width: number; height: number }> {
-  const blob = plan.segments[0]!.clip.blob
+  const clip = plan.segments[0]!.clip
   try {
-    const input = new Input({ source: new BlobSource(blob), formats: ALL_FORMATS })
+    const input = new Input({ source: new BlobSource(clip.blob), formats: ALL_FORMATS })
     const track = await input.getPrimaryVideoTrack()
     if (track && track.displayWidth > 0 && track.displayHeight > 0) {
       return pickOutputSize(track.displayWidth, track.displayHeight)
@@ -322,11 +347,20 @@ async function probeOutputSize(plan: ExportPlan): Promise<{ width: number; heigh
   } catch {
     // Fall through to the element probe.
   }
-  const probe = await loadClipVideo(blob, 8000, plan.segments[0]!.clip.mimeType)
   try {
-    return pickOutputSize(probe.video.videoWidth, probe.video.videoHeight)
-  } finally {
-    probe.release()
+    const probe = await loadClipVideo(clip.blob, 8000, clip.mimeType)
+    try {
+      return pickOutputSize(probe.video.videoWidth, probe.video.videoHeight)
+    } finally {
+      probe.release()
+    }
+  } catch (error) {
+    // Recorded clips carry their capture dimensions — probing must never be
+    // the reason an export dies (pickOutputSize also has sane defaults).
+    if ((clip.width ?? 0) > 0 && (clip.height ?? 0) > 0) {
+      return pickOutputSize(clip.width!, clip.height!)
+    }
+    throw tagExportError(error, { engine: 'webcodecs', where: 'probe-size', clipIndex: 0 })
   }
 }
 
