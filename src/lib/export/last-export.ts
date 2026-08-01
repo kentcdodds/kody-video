@@ -8,7 +8,7 @@
 
 import { getDb, getSettings } from '../storage'
 import type { ClipRecord, ProjectId } from '../types'
-import { readOpfsFile, streamToOpfsFile } from './opfs'
+import { readOpfsFile, removeExportEntry, streamToOpfsFile } from './opfs'
 import type { ExportResult } from './shared'
 
 const LAST_EXPORT_PREFIX = 'last-export'
@@ -23,9 +23,14 @@ export function exportSignature(clips: ClipRecord[], watermarked: boolean): stri
 
 /**
  * Persist a finished export (best effort — OPFS may be unavailable, in
- * which case the feature simply doesn't exist on this browser). The blob
- * streams to disk, so disk-backed results never occupy RAM twice; the
- * metadata is committed only after the bytes are safely written.
+ * which case the feature simply doesn't exist on this browser).
+ *
+ * File-backed results are adopted in place — the export already lives on
+ * disk, and copying a ~1GB file just to rename it doubled the app's disk
+ * footprint. In-memory results (metadata-injected MP4s, the realtime
+ * engine) stream to a well-known name, and their now-superseded temp file
+ * is removed. Either way, the previously cached export file is dropped
+ * once the new record is committed.
  */
 export async function persistLastExport(args: {
   projectId: ProjectId
@@ -34,12 +39,24 @@ export async function persistLastExport(args: {
   watermarked: boolean
 }): Promise<void> {
   const { projectId, result, signature, watermarked } = args
-  const opfsName = `${LAST_EXPORT_PREFIX}.${result.fileExtension}`
-  const file = await streamToOpfsFile(opfsName, result.blob.stream())
-  if (!file || file.size !== result.blob.size) return
+
+  let opfsName: string
+  if (result.opfsBacked && result.opfsName) {
+    opfsName = result.opfsName
+  } else {
+    opfsName = `${LAST_EXPORT_PREFIX}.${result.fileExtension}`
+    const file = await streamToOpfsFile(opfsName, result.blob.stream())
+    if (!file || file.size !== result.blob.size) return
+    // The streaming temp behind this export (if any) is superseded by the
+    // copy we just wrote — reclaim it now instead of at the next sweep.
+    if (result.opfsName && result.opfsName !== opfsName) {
+      await removeExportEntry(result.opfsName).catch(() => undefined)
+    }
+  }
 
   const db = await getDb()
   const settings = await getSettings()
+  const previousName = settings.lastExport?.opfsName
   await db.put('meta', {
     ...settings,
     lastExport: {
@@ -52,6 +69,9 @@ export async function persistLastExport(args: {
       watermarked,
     },
   })
+  if (previousName && previousName !== opfsName) {
+    await removeExportEntry(previousName).catch(() => undefined)
+  }
 }
 
 export interface RecoveredExport {

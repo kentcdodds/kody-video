@@ -1,4 +1,5 @@
 import { openDB, type DBSchema, type IDBPDatabase } from 'idb'
+import { removeExportEntry } from './export/opfs'
 import {
   FREE_PROJECTS,
   MAX_PROJECTS,
@@ -191,10 +192,24 @@ export async function deleteProject(id: ProjectId): Promise<void> {
     tx.objectStore('undo').delete(id),
     tx.objectStore('projects').delete(id),
   ]
-  if (settings?.lastOpenedProjectId === id) {
-    ops.push(tx.objectStore('meta').put({ ...settings, lastOpenedProjectId: null }))
+  const dropsCachedExport = settings?.lastExport?.projectId === id
+  if (settings && (settings.lastOpenedProjectId === id || dropsCachedExport)) {
+    ops.push(
+      tx.objectStore('meta').put({
+        ...settings,
+        lastOpenedProjectId:
+          settings.lastOpenedProjectId === id ? null : settings.lastOpenedProjectId,
+        lastExport: dropsCachedExport ? undefined : settings.lastExport,
+      }),
+    )
   }
   await completeTransaction(ops, tx)
+
+  // The cached export can be ~1GB — deleting a project must actually free
+  // its space, not just its clips. Best-effort, after the commit.
+  if (dropsCachedExport && settings?.lastExport) {
+    await removeExportEntry(settings.lastExport.opfsName).catch(() => undefined)
+  }
 }
 
 export async function touchProject(id: ProjectId): Promise<void> {

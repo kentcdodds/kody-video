@@ -271,6 +271,7 @@ export async function exportWithWebCodecs(
     if (!buffer) throw new Error('Export produced no data')
     blob = new Blob([buffer], { type: mimeType })
   }
+  const diskBlob = blob
   if (choice.container === 'mp4') {
     blob = await injectMetadataBestEffort(blob, mimeType, chapters, clipsInPlan)
   }
@@ -278,6 +279,10 @@ export async function exportWithWebCodecs(
     blob,
     mimeType,
     fileExtension: choice.container,
+    opfsName: opfs?.name,
+    // Metadata injection returns a NEW in-memory blob; when it ran, the
+    // on-disk file no longer matches what the user gets.
+    opfsBacked: opfs !== null && blob === diskBlob,
   }
 }
 

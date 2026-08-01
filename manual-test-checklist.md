@@ -41,7 +41,11 @@ npm test           # unit tests
   downloads a `.kodyvideo` file and import restores it; import at the plan
   limit is refused with a clear message; slot order is stable
 - **Storage**: footer shows "X of Y used"; ≥80% shows the amber banner, ≥92%
-  turns critical
+  turns critical; the banner offers one-tap "Clear cached exports"; the boot
+  sweep removes orphaned cache files but keeps the referenced last export;
+  deleting a project drops its cached export; the About page shows the cache
+  size with a working Clear button; exactly one recoverable export lives on
+  disk after an export (no temp/zip/duplicate leaks)
 - **Desktop keyboard**: key hints on fine-pointer devices; hold Space
   records and a sub-120ms tap never sticks; E editor / Esc back / P play /
   Delete removes last; editor arrows select, Alt+arrows reorder, D

@@ -400,6 +400,15 @@
   border-color: color-mix(in srgb, var(--danger) 45%, transparent);
 }
 
+.storage-banner-action {
+  margin-top: 8px;
+  align-self: flex-start;
+  min-height: 36px;
+  padding: 0 14px;
+  border-radius: 999px;
+  font-size: 0.88rem;
+}
+
 .home-privacy .link-button {
   font-size: inherit;
 }

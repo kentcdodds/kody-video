@@ -551,4 +551,9 @@ export interface ExportResult {
   blob: Blob
   mimeType: string
   fileExtension: 'mp4' | 'webm'
+  /** Name of the OPFS exports-directory file this export streamed into. */
+  opfsName?: string
+  /** True when `blob` is exactly the bytes of the `opfsName` file (false
+   * when metadata injection produced a new in-memory blob). */
+  opfsBacked?: boolean
 }

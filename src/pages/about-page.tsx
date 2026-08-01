@@ -1,9 +1,11 @@
 import { useState } from 'react'
-import { Link } from 'react-router-dom'
+import { Link, useLoaderData, useRevalidator } from 'react-router-dom'
 import { IconBack } from '../components/icons'
 import { BrandMark } from '../components/brand-mark'
 import { checkForUpdates } from '../lib/app-update'
 import { buildDateLabel, shortVersion } from '../lib/build-info'
+import { clearExportCache, estimateExportCacheBytes } from '../lib/export/export-cache'
+import { estimateStorageSpace, formatBytes, type StorageSpace } from '../lib/storage-space'
 
 /** Prefilled GitHub issue so bug reports arrive with device context attached. */
 function reportProblemUrl(): string {
@@ -23,6 +25,19 @@ function reportProblemUrl(): string {
   return `https://github.com/kentcdodds/kody-video/issues/new?${params}`
 }
 
+export interface AboutLoaderData {
+  storage: StorageSpace | null
+  exportCacheBytes: number
+}
+
+export async function aboutLoader(): Promise<AboutLoaderData> {
+  const [storage, exportCacheBytes] = await Promise.all([
+    estimateStorageSpace(),
+    estimateExportCacheBytes(),
+  ])
+  return { storage, exportCacheBytes }
+}
+
 type UpdateStatus = 'idle' | 'checking' | 'current' | 'updating' | 'downloading' | 'unavailable'
 
 const UPDATE_STATUS_LABEL: Record<Exclude<UpdateStatus, 'idle'>, string> = {
@@ -35,7 +50,23 @@ const UPDATE_STATUS_LABEL: Record<Exclude<UpdateStatus, 'idle'>, string> = {
 
 /** Credits, inspiration, and the open-source pointer. */
 export function AboutPage() {
+  const { storage, exportCacheBytes } = useLoaderData() as AboutLoaderData
+  const revalidator = useRevalidator()
   const [updateStatus, setUpdateStatus] = useState<UpdateStatus>('idle')
+  const [cacheStatus, setCacheStatus] = useState<string | null>(null)
+  const [clearingCache, setClearingCache] = useState(false)
+
+  const onClearExportCache = () => {
+    if (clearingCache) return
+    setClearingCache(true)
+    void clearExportCache()
+      .then((freedBytes) => {
+        setCacheStatus(`Freed ${formatBytes(freedBytes)}.`)
+        void revalidator.revalidate()
+      })
+      .catch(() => setCacheStatus('Could not clear cached exports — try again.'))
+      .finally(() => setClearingCache(false))
+  }
 
   const onCheckForUpdates = () => {
     if (updateStatus === 'checking' || updateStatus === 'updating') return
@@ -146,6 +177,39 @@ export function AboutPage() {
             <kbd>Delete</kbd> deletes, and <kbd>Esc</kbd> goes back. During playback the arrows
             skip clips, <kbd>Space</kbd> pauses, and <kbd>Esc</kbd> closes.
           </p>
+        </section>
+
+        <section className="about-section">
+          <h2>Storage</h2>
+          <p>
+            {storage
+              ? `This app uses ${formatBytes(storage.usedBytes)} of the ${formatBytes(storage.quotaBytes)} the browser allows. `
+              : ''}
+            Your recordings are the big consumer — delete old projects from the home screen
+            (⋯ → Delete) to free the most space. The app also keeps your latest export cached so
+            tapping Go on an unchanged project is instant.
+          </p>
+          <p>
+            Cached export files: <strong>{formatBytes(exportCacheBytes)}</strong>
+            {exportCacheBytes > 0 ? (
+              <>
+                {' · '}
+                <button
+                  type="button"
+                  className="link-button"
+                  onClick={onClearExportCache}
+                  disabled={clearingCache}
+                >
+                  Clear
+                </button>
+              </>
+            ) : null}
+          </p>
+          {cacheStatus ? (
+            <p role="status" aria-live="polite">
+              {cacheStatus}
+            </p>
+          ) : null}
         </section>
 
         <section className="about-section">

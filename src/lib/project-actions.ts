@@ -13,6 +13,7 @@ import {
   undoDeleteLastClip,
   updateClipTrim,
 } from './storage'
+import { estimateExportCacheBytes } from './export/export-cache'
 import { estimateStorageSpace, type StorageSpace } from './storage-space'
 import { ensureClipThumbs } from './thumbs'
 import {
@@ -48,17 +49,20 @@ export interface ProjectLoaderData {
 export interface HomeLoaderData {
   projects: ProjectSummary[]
   storage: StorageSpace | null
+  /** Bytes held by cached export files (recoverable last export, scratch). */
+  exportCacheBytes: number
   /** True when the one-time Kody Video Plus purchase is unlocked. */
   plus: boolean
 }
 
 export async function loadHomePage(): Promise<HomeLoaderData> {
-  const [projects, storage, settings] = await Promise.all([
+  const [projects, storage, exportCacheBytes, settings] = await Promise.all([
     loadHomeProjects(),
     estimateStorageSpace(),
+    estimateExportCacheBytes(),
     getSettings(),
   ])
-  return { projects, storage, plus: settings.watermarkRemoved === true }
+  return { projects, storage, exportCacheBytes, plus: settings.watermarkRemoved === true }
 }
 
 export async function loadHomeProjects(): Promise<ProjectSummary[]> {

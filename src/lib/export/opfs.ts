@@ -8,6 +8,8 @@
  */
 
 export interface OpfsExportFile {
+  /** The file's name inside the exports directory. */
+  name: string
   writable: FileSystemWritableFileStream
   /** The finished, disk-backed file (call after the writer is closed). */
   getFile(): Promise<File>
@@ -17,11 +19,49 @@ export interface OpfsExportFile {
 
 const EXPORT_DIR = 'exports'
 
-/**
- * Returns null when OPFS isn't available (the caller falls back to an
- * in-memory buffer). Previous export files are cleaned up here — by the
- * time a new export starts, the UI has discarded any old result.
- */
+async function exportsDir(): Promise<FileSystemDirectoryHandle | null> {
+  try {
+    if (!navigator.storage?.getDirectory) return null
+    const root = await navigator.storage.getDirectory()
+    return await root.getDirectoryHandle(EXPORT_DIR, { create: true })
+  } catch {
+    return null
+  }
+}
+
+export interface OpfsExportEntry {
+  name: string
+  sizeBytes: number
+}
+
+/** Every file in the exports directory with its size (empty when OPFS is
+ * unavailable). */
+export async function listExportEntries(): Promise<OpfsExportEntry[]> {
+  const dir = await exportsDir()
+  if (!dir) return []
+  const entries: OpfsExportEntry[] = []
+  try {
+    for await (const name of (dir as unknown as { keys(): AsyncIterable<string> }).keys()) {
+      const sizeBytes = await dir
+        .getFileHandle(name)
+        .then((handle) => handle.getFile())
+        .then((file) => file.size)
+        .catch(() => 0)
+      entries.push({ name, sizeBytes })
+    }
+  } catch {
+    // Enumeration is best-effort.
+  }
+  return entries
+}
+
+/** Best-effort delete of one exports-directory file. */
+export async function removeExportEntry(name: string): Promise<void> {
+  const dir = await exportsDir()
+  if (!dir) return
+  await dir.removeEntry(name).catch(() => undefined)
+}
+
 /** Write a stream into a named OPFS file (overwriting), returning the
  * disk-backed File — or null when OPFS is unavailable. */
 export async function streamToOpfsFile(
@@ -29,9 +69,8 @@ export async function streamToOpfsFile(
   stream: ReadableStream<Uint8Array>,
 ): Promise<File | null> {
   try {
-    if (!navigator.storage?.getDirectory) return null
-    const root = await navigator.storage.getDirectory()
-    const dir = await root.getDirectoryHandle(EXPORT_DIR, { create: true })
+    const dir = await exportsDir()
+    if (!dir) return null
     const handle = await dir.getFileHandle(name, { create: true })
     const writable = await handle.createWritable()
     await stream.pipeTo(writable)
@@ -44,9 +83,8 @@ export async function streamToOpfsFile(
 /** Read a previously persisted OPFS file, or null when it's gone. */
 export async function readOpfsFile(name: string): Promise<File | null> {
   try {
-    if (!navigator.storage?.getDirectory) return null
-    const root = await navigator.storage.getDirectory()
-    const dir = await root.getDirectoryHandle(EXPORT_DIR, { create: true })
+    const dir = await exportsDir()
+    if (!dir) return null
     const handle = await dir.getFileHandle(name)
     return await handle.getFile()
   } catch {
@@ -54,29 +92,18 @@ export async function readOpfsFile(name: string): Promise<File | null> {
   }
 }
 
+/** Returns null when OPFS isn't available (the caller falls back to an
+ * in-memory buffer). Stale-file cleanup is the export-cache module's job —
+ * it knows which names are still referenced. */
 export async function createOpfsExportFile(extension: string): Promise<OpfsExportFile | null> {
   try {
-    if (!navigator.storage?.getDirectory) return null
-    const root = await navigator.storage.getDirectory()
-    const dir = await root.getDirectoryHandle(EXPORT_DIR, { create: true })
-
-    // Best-effort cleanup of earlier temp exports. Persisted artifacts
-    // (the recoverable last export, clip zips) are kept — they must survive
-    // a new export attempt that might fail.
-    try {
-      const names: string[] = []
-      for await (const name of (dir as unknown as { keys(): AsyncIterable<string> }).keys()) {
-        if (name.startsWith('export-')) names.push(name)
-      }
-      await Promise.all(names.map((name) => dir.removeEntry(name).catch(() => undefined)))
-    } catch {
-      // Cleanup is a nicety.
-    }
-
+    const dir = await exportsDir()
+    if (!dir) return null
     const name = `export-${Date.now()}.${extension}`
     const handle = await dir.getFileHandle(name, { create: true })
     const writable = await handle.createWritable()
     return {
+      name,
       writable,
       getFile: async () => {
         // Mediabunny closes the stream on finalize; close defensively for
