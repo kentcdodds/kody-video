@@ -2,7 +2,7 @@ import { reportError } from '../error-reporting'
 import type { ClipRecord } from '../types'
 import { exportRealtime } from './encode-realtime'
 import { exportWithWebCodecs, supportsWebCodecsExport } from './encode-webcodecs'
-import { sweepExportCache } from './export-cache'
+import { sweepExportCache, withExportCacheReserved } from './export-cache'
 import { planExport } from './plan'
 import {
   AUDIO_SILENCE_PEAK,
@@ -57,6 +57,17 @@ export async function exportProject(
   // export survives — it's still the recovery net if this export fails.
   await sweepExportCache().catch(() => undefined)
 
+  // Reserved for the whole encode: the streaming temp file has no metadata
+  // reference yet, and a sweep or "clear cached exports" from another tab
+  // must not delete it mid-write.
+  return withExportCacheReserved(() => runExport(plan, options, watermarkImage))
+}
+
+async function runExport(
+  plan: ReturnType<typeof planExport>,
+  options: ExportOptions,
+  watermarkImage: Awaited<ReturnType<typeof loadWatermarkImage>> | null,
+): Promise<ExportResult> {
   resetAudioDiagnostics()
   resetVideoDiagnostics()
   if (supportsWebCodecsExport()) {

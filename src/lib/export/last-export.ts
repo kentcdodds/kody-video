@@ -8,6 +8,7 @@
 
 import { getDb, getSettings } from '../storage'
 import type { ClipRecord, ProjectId } from '../types'
+import { withExportCacheReserved } from './export-cache'
 import { readOpfsFile, removeExportEntry, streamToOpfsFile } from './opfs'
 import type { ExportResult } from './shared'
 
@@ -33,6 +34,17 @@ export function exportSignature(clips: ClipRecord[], watermarked: boolean): stri
  * once the new record is committed.
  */
 export async function persistLastExport(args: {
+  projectId: ProjectId
+  result: ExportResult
+  signature: string
+  watermarked: boolean
+}): Promise<void> {
+  // Reserved against concurrent sweeps: the file being adopted/copied has
+  // no committed metadata reference until the put below lands.
+  await withExportCacheReserved(() => persistLastExportInner(args))
+}
+
+async function persistLastExportInner(args: {
   projectId: ProjectId
   result: ExportResult
   signature: string

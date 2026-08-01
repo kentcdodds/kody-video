@@ -64,7 +64,11 @@ export function AboutPage() {
         setCacheStatus(`Freed ${formatBytes(freedBytes)}.`)
         void revalidator.revalidate()
       })
-      .catch(() => setCacheStatus('Could not clear cached exports — try again.'))
+      .catch((err) =>
+        setCacheStatus(
+          err instanceof Error ? err.message : 'Could not clear cached exports — try again.',
+        ),
+      )
       .finally(() => setClearingCache(false))
   }
 

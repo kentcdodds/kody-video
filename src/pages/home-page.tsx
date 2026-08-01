@@ -86,6 +86,8 @@ export function HomePage() {
   // gigabytes — when storage runs hot, the fix must be one tap away.
   const onClearExportCache = () => {
     setBusy(true)
+    setError(null)
+    setNotice(null)
     void clearExportCache()
       .then((freedBytes) => {
         setNotice(`Cleared cached export files — freed ${formatBytes(freedBytes)}.`)
@@ -93,7 +95,9 @@ export function HomePage() {
       })
       .catch((err) => {
         reportError(err, 'clear-export-cache')
-        setError('Could not clear cached exports — try again.')
+        setError(
+          err instanceof Error ? err.message : 'Could not clear cached exports — try again.',
+        )
       })
       .finally(() => {
         setBusy(false)
