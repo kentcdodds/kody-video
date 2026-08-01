@@ -52,8 +52,17 @@ async function persistLastExportInner(args: {
 }): Promise<void> {
   const { projectId, result, signature, watermarked } = args
 
+  // Adoption must verify the file is really there: between the export
+  // finishing and this reservation being acquired there is a microscopic
+  // window where another tab's sweep could have deleted the unreferenced
+  // temp — recording a missing name would leave stale restore metadata.
+  const adoptable =
+    result.opfsBacked && result.opfsName
+      ? await readOpfsFile(result.opfsName).then((file) => file !== null && file.size > 0)
+      : false
+
   let opfsName: string
-  if (result.opfsBacked && result.opfsName) {
+  if (adoptable && result.opfsName) {
     opfsName = result.opfsName
   } else {
     opfsName = `${LAST_EXPORT_PREFIX}.${result.fileExtension}`

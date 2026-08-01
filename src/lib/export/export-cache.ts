@@ -67,9 +67,12 @@ async function clearLastExportMeta(): Promise<void> {
 export async function clearExportCache(): Promise<number> {
   const freed = await tryExclusive(async () => {
     const entries = await listExportEntries()
+    const beforeBytes = entries.reduce((sum, entry) => sum + entry.sizeBytes, 0)
     await clearLastExportMeta()
     await Promise.all(entries.map((entry) => removeExportEntry(entry.name)))
-    return entries.reduce((sum, entry) => sum + entry.sizeBytes, 0)
+    // Removals are best-effort — report what actually left the disk.
+    const remaining = await listExportEntries()
+    return beforeBytes - remaining.reduce((sum, entry) => sum + entry.sizeBytes, 0)
   })
   if (freed === null) {
     throw new Error('An export is in progress — try again when it finishes.')
