@@ -36,10 +36,11 @@ export async function buildClipsZip(clips: ClipRecord[]): Promise<Blob> {
         input: clip.blob,
       })),
     )
-  // Reserved against cache sweeps/clears: the archive streams into the
-  // exports directory and must not be deleted mid-write by another tab.
+  // Reserved against cache sweeps/clears (must not be deleted mid-write by
+  // another tab), and uniquely named so concurrent zips in two tabs can
+  // never interleave into one file. Orphans are reclaimed by the sweep.
   const file = await withExportCacheReserved(() =>
-    streamToOpfsFile('clips.zip', createStream()),
+    streamToOpfsFile(`clips-${Date.now()}.zip`, createStream()),
   )
   if (file) return new Blob([file], { type: 'application/zip' })
   return new Response(createStream()).blob()
