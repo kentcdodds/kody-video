@@ -4,6 +4,7 @@ import { IconBack } from '../components/icons'
 import { BrandMark } from '../components/brand-mark'
 import { checkForUpdates } from '../lib/app-update'
 import { buildDateLabel, shortVersion } from '../lib/build-info'
+import { reportError } from '../lib/error-reporting'
 import { clearExportCache, estimateExportCacheBytes } from '../lib/export/export-cache'
 import { estimateStorageSpace, formatBytes, type StorageSpace } from '../lib/storage-space'
 
@@ -64,11 +65,12 @@ export function AboutPage() {
         setCacheStatus(`Freed ${formatBytes(freedBytes)}.`)
         void revalidator.revalidate()
       })
-      .catch((err) =>
+      .catch((err) => {
+        reportError(err, 'clear-export-cache')
         setCacheStatus(
           err instanceof Error ? err.message : 'Could not clear cached exports — try again.',
-        ),
-      )
+        )
+      })
       .finally(() => setClearingCache(false))
   }
 

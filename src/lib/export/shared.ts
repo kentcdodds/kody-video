@@ -17,7 +17,20 @@ export interface LoadedClipVideo {
  * on Android and iOS WebKit — which can report the race as
  * MEDIA_ERR_SRC_NOT_SUPPORTED even for a blob that played moments earlier.
  */
-const MEDIA_LOAD_RETRY_DELAYS_MS = [200, 500, 1000]
+const MEDIA_LOAD_RETRY_DELAYS_MS = [200, 500, 1000, 2000]
+
+/**
+ * Attach diagnostic detail (engine, clip index, load purpose) to an error
+ * on its way up — remote export failures are undebuggable without knowing
+ * WHICH clip and WHICH code path rejected.
+ */
+export function tagExportError(error: unknown, detail: Record<string, unknown>): unknown {
+  if (error && typeof error === 'object') {
+    const target = error as { exportDetail?: Record<string, unknown> }
+    target.exportDetail = { ...target.exportDetail, ...detail }
+  }
+  return error
+}
 
 /**
  * Prefer the clip's recorded MIME type when the Blob's type is missing,
