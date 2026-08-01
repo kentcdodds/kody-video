@@ -280,7 +280,10 @@ export function ProjectPage() {
             err instanceof MediaElementFailureError ? err.mediaErrorCode : undefined,
           // Which engine, which clip, which load purpose — attached at the
           // failing callsite (KODY-VIDEO-A was undebuggable without it).
-          exportDetail: (err as { exportDetail?: Record<string, unknown> }).exportDetail,
+          exportDetail:
+            err && typeof err === 'object'
+              ? (err as { exportDetail?: Record<string, unknown> }).exportDetail
+              : undefined,
         })
         if (exportRunRef.current !== runId) return
         setExportState({

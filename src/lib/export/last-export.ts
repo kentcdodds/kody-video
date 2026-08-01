@@ -65,7 +65,11 @@ async function persistLastExportInner(args: {
   if (adoptable && result.opfsName) {
     opfsName = result.opfsName
   } else {
-    opfsName = `${LAST_EXPORT_PREFIX}.${result.fileExtension}`
+    // Unique name per write: reusing one canonical name meant an
+    // interrupted write (tab close mid-stream) could leave OLD metadata
+    // describing NEW bytes — restore would silently serve the wrong file.
+    // With unique names a torn write is just an orphan for the sweep.
+    opfsName = `${LAST_EXPORT_PREFIX}-${Date.now()}.${result.fileExtension}`
     const file = await streamToOpfsFile(opfsName, result.blob.stream())
     if (!file || file.size !== result.blob.size) return
     // The streaming temp behind this export (if any) is superseded by the
