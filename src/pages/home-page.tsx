@@ -18,6 +18,7 @@ import {
   serializeProject,
 } from '../lib/project-transfer'
 import { deleteProject, getClipsForProject, renameProject } from '../lib/storage'
+import { clearExportCache } from '../lib/export/export-cache'
 import { reportError } from '../lib/error-reporting'
 import { canPromptInstall, promptInstall, subscribeInstallPrompt } from '../lib/install-prompt'
 import { dismissIosInstallHint, shouldShowIosInstallHint } from '../lib/install-hint'
@@ -48,7 +49,7 @@ export async function homeLoader(): Promise<HomeLoaderData> {
 }
 
 export function HomePage() {
-  const { projects, storage, plus } = useLoaderData() as HomeLoaderData
+  const { projects, storage, exportCacheBytes, plus } = useLoaderData() as HomeLoaderData
   const revalidator = useRevalidator()
   const navigate = useNavigate()
   const [error, setError] = useState<string | null>(null)
@@ -79,6 +80,28 @@ export function HomePage() {
   // an untouched new project leaves no empty project behind.
   const openNewProject = () => {
     navigate(`/project/${NEW_PROJECT_ID}`)
+  }
+
+  // Cached export files (the recoverable last export + scratch) can hold
+  // gigabytes — when storage runs hot, the fix must be one tap away.
+  const onClearExportCache = () => {
+    setBusy(true)
+    setError(null)
+    setNotice(null)
+    void clearExportCache()
+      .then((freedBytes) => {
+        setNotice(`Cleared cached export files — freed ${formatBytes(freedBytes)}.`)
+        refresh()
+      })
+      .catch((err) => {
+        reportError(err, 'clear-export-cache')
+        setError(
+          err instanceof Error ? err.message : 'Could not clear cached exports — try again.',
+        )
+      })
+      .finally(() => {
+        setBusy(false)
+      })
   }
 
   const backupProject = (project: ProjectSummary) => {
@@ -195,6 +218,16 @@ export function HomePage() {
               ? ` Free space fast: delete an old project (⋯ on “${oldestProject.name}”, then Delete).`
               : ' Free space by clearing other site data or files on this device.'}
           </span>
+          {exportCacheBytes > 0 ? (
+            <button
+              type="button"
+              className="btn btn-secondary storage-banner-action"
+              disabled={busy}
+              onClick={onClearExportCache}
+            >
+              Clear cached exports ({formatBytes(exportCacheBytes)})
+            </button>
+          ) : null}
         </div>
       ) : null}
 

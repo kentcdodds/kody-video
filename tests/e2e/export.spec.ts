@@ -80,5 +80,31 @@ test.describe('Go / export', () => {
     // Nothing left the device: no non-GET requests to any non-local host
     // during recording, export, save, or zip.
     expect(offsiteWrites).toEqual([])
+
+    // Cache hygiene: exactly ONE recoverable export remains on disk after a
+    // boot sweep — no stray temp files, no zip scratch, no duplicate copy of
+    // the export (the double-store was how "storage full" survived deleting
+    // every project).
+    await page.locator('.export-sheet').getByRole('button', { name: 'Done' }).click()
+    await expect
+      .poll(() =>
+        page.evaluate(async () => {
+          const storage = await import('/src/lib/storage.ts')
+          return (await storage.getSettings()).lastExport?.opfsName ?? null
+        }),
+      )
+      .not.toBeNull()
+    await page.reload()
+    await waitForCameraReady(page)
+    const cacheEntries = await page.evaluate(async () => {
+      const root = await navigator.storage.getDirectory()
+      const dir = await root.getDirectoryHandle('exports', { create: true })
+      const names: string[] = []
+      for await (const name of (dir as unknown as { keys(): AsyncIterable<string> }).keys()) {
+        names.push(name)
+      }
+      return names
+    })
+    expect(cacheEntries).toHaveLength(1)
   })
 })
