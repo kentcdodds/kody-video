@@ -344,12 +344,17 @@ export function useCamera(): UseCameraResult {
     const previousFacing = facingRef.current
     const nextFacing: FacingMode = previousFacing === 'environment' ? 'user' : 'environment'
     facingRef.current = nextFacing
-    setFacing(nextFacing)
     setError(null)
     try {
       const rememberedLens =
         nextFacing === 'environment' ? await resolveRearLens() : undefined
       const next = await openCombinedOrVideoStream(nextFacing, rememberedLens)
+      // The facing STATE (which drives the preview's mirror transform)
+      // changes only once the new stream is in hand: setting it up front
+      // mirrored the still-showing old feed for the whole camera warm-up.
+      // Both updates land in one React commit, so mirror and feed swap
+      // together.
+      setFacing(nextFacing)
       replaceStream(next)
       void syncRearLenses(next)
     } catch (err) {
