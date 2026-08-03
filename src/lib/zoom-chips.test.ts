@@ -25,6 +25,10 @@ describe('zoomChipLevels', () => {
   it('collapses degenerate ranges to a single chip', () => {
     expect(zoomChipLevels({ min: 1, max: 1 })).toEqual([1])
   })
+
+  it('never emits a chip below a minimum that exceeds the cap', () => {
+    expect(zoomChipLevels({ min: 12, max: 30 })).toEqual([12])
+  })
 })
 
 describe('formatZoomLabel', () => {

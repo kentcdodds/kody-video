@@ -17,7 +17,9 @@ export const ZOOM_CHIP_MAX = 10
  * chip cap (e.g. 0.5×, 1×, 2×, 10×). */
 export function zoomChipLevels(zoom: ZoomRangeLike): number[] {
   const { min, max } = zoom
-  const chipMax = Math.min(max, ZOOM_CHIP_MAX)
+  // The cap never dips below the device minimum — a hypothetical 12–30×
+  // range must not produce a 10× chip the camera can't reach.
+  const chipMax = Math.min(max, Math.max(ZOOM_CHIP_MAX, min))
   const candidates = [1, 2]
   if (chipMax > 2.05) {
     const rounded = Math.round(chipMax)
