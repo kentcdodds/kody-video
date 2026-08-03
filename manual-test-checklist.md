@@ -91,6 +91,8 @@ see the README) — plain `http://<lan-ip>` fails in most browsers.
   overrides the memory until the seamless lens is opened again
 - [ ] Dragging up/down during a hold zooms; edge presses keep a minimum ramp;
   small tremble (<~14px) doesn't zoom; release eases back to the pre-take level
+- [ ] A zoom readout (e.g. "2.3×") appears near the top of the preview while
+  the zoom changes (drag, chip tap, or ease-back) and fades out ~1s after
 - [ ] Camera preview stays smooth while recording (no visible frame drops)
 - [ ] Ending a take does not flash the preview black (Android regression)
 - [ ] Backgrounding releases camera/mic (green dot goes out); returning

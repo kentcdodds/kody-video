@@ -107,25 +107,47 @@ interface InputDeviceWithCapabilities extends MediaDeviceInfo {
  * below 1× on the main one — reaching them requires opening that device.
  * Labels/capabilities are only populated once camera permission is granted.
  */
+function deviceFacing(device: InputDeviceWithCapabilities): string[] {
+  try {
+    const facing = device.getCapabilities?.().facingMode
+    return Array.isArray(facing) ? facing : []
+  } catch {
+    return []
+  }
+}
+
+function looksRear(device: InputDeviceWithCapabilities): boolean {
+  const facing = deviceFacing(device)
+  if (facing.length > 0) return facing.includes('environment')
+  return /\bback\b|\brear\b|environment/i.test(device.label)
+}
+
+function looksFront(device: InputDeviceWithCapabilities): boolean {
+  const facing = deviceFacing(device)
+  if (facing.length > 0) return facing.includes('user')
+  return /\bfront\b|\buser\b|selfie/i.test(device.label)
+}
+
 export async function listRearCameras(): Promise<string[]> {
   if (!navigator.mediaDevices?.enumerateDevices) return []
   try {
     const devices = await navigator.mediaDevices.enumerateDevices()
-    return devices
-      .filter((device): device is InputDeviceWithCapabilities => device.kind === 'videoinput')
-      .filter((device) => {
-        try {
-          const facing = device.getCapabilities?.().facingMode
-          if (Array.isArray(facing) && facing.length > 0) {
-            return facing.includes('environment')
-          }
-        } catch {
-          // Fall through to the label heuristic.
-        }
-        return /\bback\b|\brear\b|environment/i.test(device.label)
-      })
-      .map((device) => device.deviceId)
-      .filter((id) => id.length > 0)
+    const videos = devices.filter(
+      (device): device is InputDeviceWithCapabilities => device.kind === 'videoinput',
+    )
+    let rear = videos.filter(looksRear)
+    // Some Chrome/OS builds label lenses without any facing hint ("Camera
+    // 0") and report no facingMode capability. When the positive heuristics
+    // find NOTHING but at least one device is identifiably front-facing,
+    // treat the rest as rear — better than hiding the lens switcher on
+    // phones that clearly have rear cameras.
+    if (rear.length === 0) {
+      const fronts = videos.filter(looksFront)
+      if (fronts.length > 0 && fronts.length < videos.length) {
+        rear = videos.filter((device) => !looksFront(device))
+      }
+    }
+    return rear.map((device) => device.deviceId).filter((id) => id.length > 0)
   } catch {
     return []
   }

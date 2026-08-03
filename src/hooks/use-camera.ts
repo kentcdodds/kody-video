@@ -125,6 +125,8 @@ export interface UseCameraResult {
   getStream: () => MediaStream | null
   /** The live preview element — for zero-cost frame capture at take end. */
   getVideoElement: () => HTMLVideoElement | null
+  /** Latest zoom range from the ref (safe to read right after awaits). */
+  getZoom: () => CameraZoomRange | null
 }
 
 interface ZoomCapability {
@@ -595,6 +597,7 @@ export function useCamera(): UseCameraResult {
 
   const getStream = useCallback(() => streamRef.current, [])
   const getVideoElement = useCallback(() => videoElRef.current, [])
+  const getZoom = useCallback(() => zoomRangeRef.current, [])
 
   return {
     videoRef,
@@ -620,6 +623,7 @@ export function useCamera(): UseCameraResult {
     releaseMic,
     getStream,
     getVideoElement,
+    getZoom,
   }
 }
 
