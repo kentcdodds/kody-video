@@ -231,6 +231,7 @@ export function useCamera(): UseCameraResult {
 
   const replaceStream = useCallback(
     (next: MediaStream) => {
+      const hadMic = (streamRef.current?.getAudioTracks().length ?? 0) > 0
       stopStream(streamRef.current)
       streamRef.current = next
       setStream(next)
@@ -244,11 +245,16 @@ export function useCamera(): UseCameraResult {
       if (HOLD_MIC_WITH_CAMERA) {
         if (next.getAudioTracks().length > 0) {
           setMicPermission('granted')
-          // External Bluetooth mics (DJI etc.): iOS only routes capture to
-          // them after this post-grant audio-session kick — see
-          // audio-session.ts. Must run AFTER getUserMedia resolved.
+          // External mics (DJI transmitters, AirPods, wired headsets): iOS
+          // only routes capture to them after this post-grant audio-session
+          // kick — see audio-session.ts. Must run AFTER getUserMedia
+          // resolved.
           engageRecordAudioSession()
         } else {
+          // A combined reopen can fall back to video-only (mic mid-flip
+          // failure) — a sticky play-and-record session with no mic held
+          // would degrade playback until the camera fully stops.
+          if (hadMic) releaseRecordAudioSession()
           void queryMicrophonePermission().then(setMicPermission)
         }
       }

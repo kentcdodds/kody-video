@@ -123,7 +123,7 @@ Verified approach: `npm run build && npm run preview`, load once online, then De
 
 - **iOS Safari:** WebCodecs audio support is incomplete; the realtime fallback engine covers it, but Chromium (especially Android) is the primary target.
 - **iOS microphone:** WebKit can deliver muted audio tracks when mic and camera come from separate `getUserMedia` calls, so on iOS the mic is acquired together with the camera and held while the preview is open (everywhere else the mic is grabbed per-take). A live level monitor warns "Mic isn't picking up sound" during silent takes on every platform.
-- **External mics on iOS (DJI, AirPods, wired):** iOS pins web capture to the built-in mic by
+- **External mics on iOS (DJI transmitters, AirPods, wired headsets):** iOS pins web capture to the built-in mic by
   default. After the camera opens, the app kicks WebKit's `navigator.audioSession` into
   `play-and-record` — the documented nudge that re-routes capture to a connected external mic —
   and restores the session when the camera closes. Best-effort: routing remains OS-controlled.

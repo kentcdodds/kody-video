@@ -1,10 +1,10 @@
 import { isIosBrowser } from './media'
 
 /**
- * iOS external-microphone routing (DJI mics, AirPods, wired headsets).
+ * iOS external-microphone routing (DJI transmitters, AirPods, wired headsets).
  *
  * WebKit captures from whatever input the audio session routes to, and by
- * default that pins the BUILT-IN mic even when an external Bluetooth mic is
+ * default that pins the BUILT-IN mic even when an external microphone is
  * connected — the native camera app uses it, the web app doesn't. The one
  * lever the web has is the (WebKit-only) `navigator.audioSession` API:
  * setting `type = 'play-and-record'` AFTER capture starts kicks iOS into
