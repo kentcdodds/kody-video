@@ -81,6 +81,8 @@ see the README) — plain `http://<lan-ip>` fails in most browsers.
 - [ ] A take with a dead/covered mic shows "Mic isn't picking up sound" after
   ~2.5s; a take with sound clears it
 - [ ] Torch toggle appears on devices with a flash; zoom chips when supported
+- [ ] Long digital ranges: the top zoom chip caps at 10× but drag-zoom still
+  reaches the camera's true max (e.g. 30×), with the HUD showing real values
 - [ ] Multi-rear-lens Androids show the lens chip (e.g. "1/3"); choice sticks
   across flips and restarts. iOS: NO lens chip; multi-lens iPhones open the
   virtual device so zoom spans 0.5×–max
