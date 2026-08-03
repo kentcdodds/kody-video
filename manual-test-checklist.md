@@ -84,6 +84,10 @@ see the README) — plain `http://<lan-ip>` fails in most browsers.
 - [ ] Multi-rear-lens Androids show the lens chip (e.g. "1/3"); choice sticks
   across flips and restarts. iOS: NO lens chip; multi-lens iPhones open the
   virtual device so zoom spans 0.5×–max
+- [ ] Android phones exposing a logical multi-camera (a rear lens whose zoom
+  chips include 0.5×/0.6×): after opening that lens once, the app reopens it
+  on every session and drag-zoom hands off between physical lenses
+  seamlessly, including mid-recording
 - [ ] Dragging up/down during a hold zooms; edge presses keep a minimum ramp;
   small tremble (<~14px) doesn't zoom; release eases back to the pre-take level
 - [ ] Camera preview stays smooth while recording (no visible frame drops)
