@@ -186,7 +186,14 @@ export function EditorScreen({
     for (const clip of pending) {
       refineAttemptedRef.current.add(clip.id)
     }
-    void Promise.all(pending.map((clip) => refineClipFilmstrip(clip))).then(refresh)
+    // Serial, like the loader backfill: Android caps concurrent video
+    // decoders hard, and each refinement decodes a clip.
+    void (async () => {
+      for (const clip of pending) {
+        await refineClipFilmstrip(clip)
+      }
+      refresh()
+    })()
   })
 
   const bindKeyboard = useCallback(
