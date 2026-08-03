@@ -25,6 +25,7 @@ import { Timeline } from './timeline'
 import { TrimStrip } from './trim-strip'
 import type { ToastAction } from './record-screen'
 import { isInteractiveTarget } from '../lib/keyboard'
+import { THUMB_COUNT, refineClipFilmstrip } from '../lib/thumbs'
 
 interface EditorScreenProps {
   project: Project
@@ -161,12 +162,31 @@ export function EditorScreen({
   const onWindowKeyDown = useCallback((event: KeyboardEvent) => {
     keyActionRef.current(event)
   }, [])
+  // New recordings carry a single live-captured frame (decoding for a full
+  // filmstrip behind the live camera preview causes the post-take black
+  // flash). Here the camera is released, so upgrade them to the real
+  // evenly-spaced strip.
+  const refineRanRef = useRef(false)
+  const refineFilmstrips = useCallback(() => {
+    if (refineRanRef.current) return
+    refineRanRef.current = true
+    const pending = clips.filter(
+      (clip) => (clip.thumbs?.length ?? 0) > 0 && (clip.thumbs?.length ?? 0) < THUMB_COUNT,
+    )
+    if (pending.length === 0) return
+    void Promise.all(pending.map((clip) => refineClipFilmstrip(clip))).then(refresh)
+  }, [clips, refresh])
+
   const bindKeyboard = useCallback(
     (element: HTMLDivElement | null) => {
-      if (element) window.addEventListener('keydown', onWindowKeyDown)
-      else window.removeEventListener('keydown', onWindowKeyDown)
+      if (element) {
+        window.addEventListener('keydown', onWindowKeyDown)
+        refineFilmstrips()
+      } else {
+        window.removeEventListener('keydown', onWindowKeyDown)
+      }
     },
-    [onWindowKeyDown],
+    [onWindowKeyDown, refineFilmstrips],
   )
 
   return (

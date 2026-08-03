@@ -13,6 +13,7 @@ import {
   type ScreenRecordingSession,
 } from '../lib/screen-recorder'
 import { setLocationTaggingEnabled } from '../lib/storage'
+import { captureLiveThumbs } from '../lib/thumbs'
 import {
   formatStoragePercent,
   storageSeverity,
@@ -426,6 +427,10 @@ export function RecordScreen({
       // Detach this take's fix before any await so a quick next hold can own the ref.
       const pendingForThisTake = pendingFixRef.current
       pendingFixRef.current = null
+      // Grab the poster/thumb straight off the still-live preview NOW —
+      // decoding the recorded blob for thumbnails while the preview runs
+      // blanks it on many Androids (the post-take black flash).
+      const capturedThumbs = captureLiveThumbs(camera.getVideoElement()).catch(() => null)
       try {
         const result = await recorderRef.current.stop()
         if (!result) {
@@ -442,12 +447,16 @@ export function RecordScreen({
             }),
           ])
         }
-        await appendRecording(await ensureProjectId(), {
-          ...result,
-          ...(fix
-            ? { lat: fix.lat, lng: fix.lng, locationAccuracyM: fix.accuracyM }
-            : {}),
-        })
+        await appendRecording(
+          await ensureProjectId(),
+          {
+            ...result,
+            ...(fix
+              ? { lat: fix.lat, lng: fix.lng, locationAccuracyM: fix.accuracyM }
+              : {}),
+          },
+          { capturedThumbs: await capturedThumbs },
+        )
         refresh()
       } catch (err) {
         // Real store failures (quota, bad blob) must still reach Sentry as

@@ -25,6 +25,25 @@ test.describe('camera & hold-to-record', () => {
     // A second hold appends to the same project.
     await recordClip(page)
     expect(await totalClipCount(page)).toBe(2)
+
+    // Takes carry a poster/thumb captured from the LIVE preview — decoding
+    // the fresh blob behind the running camera is the post-take black
+    // flash, so the loader backfill must find nothing left to generate.
+    await expect
+      .poll(
+        () =>
+          page.evaluate(async () => {
+            const storage = await import('/src/lib/storage.ts')
+            const projects = await storage.listProjects()
+            const clips = await storage.getClipsForProject(projects[0]!.id)
+            return clips.every(
+              (clip: { thumbs?: Blob[]; poster?: Blob }) =>
+                (clip.thumbs?.length ?? 0) > 0 && !!clip.poster,
+            )
+          }),
+        { timeout: 10_000 },
+      )
+      .toBe(true)
   })
 
   test('recording shows the REC pill with elapsed time', async ({ page }) => {
