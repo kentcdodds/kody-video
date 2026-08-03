@@ -50,6 +50,27 @@ test.describe('camera & hold-to-record', () => {
         { thumbs: 1, poster: true },
         { thumbs: 1, poster: true },
       ])
+
+    // The poster must carry a real camera frame — a black poster means the
+    // capture path (the detached mirror element) never delivered pixels.
+    const posterLuma = await page.evaluate(async () => {
+      const storage = await import('/src/lib/storage.ts')
+      const projects = await storage.listProjects()
+      const clips = await storage.getClipsForProject(projects[0]!.id)
+      const bitmap = await createImageBitmap(clips[0]!.poster as Blob)
+      const canvas = document.createElement('canvas')
+      canvas.width = bitmap.width
+      canvas.height = bitmap.height
+      const ctx = canvas.getContext('2d')!
+      ctx.drawImage(bitmap, 0, 0)
+      const data = ctx.getImageData(0, 0, canvas.width, canvas.height).data
+      let sum = 0
+      for (let i = 0; i < data.length; i += 4) {
+        sum += 0.299 * data[i]! + 0.587 * data[i + 1]! + 0.114 * data[i + 2]!
+      }
+      return sum / (data.length / 4)
+    })
+    expect(posterLuma).toBeGreaterThan(8)
   })
 
   test('recording shows the REC pill with elapsed time', async ({ page }) => {
