@@ -114,6 +114,15 @@ test.describe('home & app shell', () => {
     await expect(meta('twitter:card')).toHaveAttribute('content', 'summary_large_image')
   })
 
+  test('camera inspector reports what the browser exposes', async ({ page }) => {
+    await page.goto('/about')
+    await page.getByRole('button', { name: 'Inspect cameras' }).click()
+    const report = page.locator('.camera-report')
+    await expect(report).toBeVisible()
+    await expect(report).toContainText('Active camera:')
+    await expect(report).toContainText(/Detected rear lenses: \d+/)
+  })
+
   test('about, privacy, and terms pages render', async ({ page }) => {
     await gotoHome(page)
     await page.getByRole('link', { name: 'About' }).click()

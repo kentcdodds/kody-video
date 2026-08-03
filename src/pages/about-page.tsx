@@ -6,6 +6,7 @@ import { checkForUpdates } from '../lib/app-update'
 import { buildDateLabel, shortVersion } from '../lib/build-info'
 import { reportError } from '../lib/error-reporting'
 import { clearExportCache, estimateExportCacheBytes } from '../lib/export/export-cache'
+import { listRearCameras } from '../lib/media'
 import { estimateStorageSpace, formatBytes, type StorageSpace } from '../lib/storage-space'
 
 /** Prefilled GitHub issue so bug reports arrive with device context attached. */
@@ -56,6 +57,58 @@ export function AboutPage() {
   const [updateStatus, setUpdateStatus] = useState<UpdateStatus>('idle')
   const [cacheStatus, setCacheStatus] = useState<string | null>(null)
   const [clearingCache, setClearingCache] = useState(false)
+
+  const [cameraReport, setCameraReport] = useState<string | null>(null)
+  const [inspectingCameras, setInspectingCameras] = useState(false)
+
+  /**
+   * On-device camera diagnostic: what the browser exposes varies wildly by
+   * phone and Chrome build (labels, facingMode capability, zoom ranges),
+   * and remote bug reports about lenses are unresolvable without it.
+   */
+  const onInspectCameras = () => {
+    if (inspectingCameras) return
+    setInspectingCameras(true)
+    void (async () => {
+      let probe: MediaStream | null = null
+      try {
+        probe = await navigator.mediaDevices.getUserMedia({ video: true })
+        const track = probe.getVideoTracks()[0]
+        const caps = track?.getCapabilities?.() as
+          | (MediaTrackCapabilities & { zoom?: { min?: number; max?: number } })
+          | undefined
+        const lines: string[] = [`Active camera: ${track?.label || '(no label)'}`]
+        if (caps?.zoom && typeof caps.zoom.min === 'number') {
+          lines.push(`Active zoom range: ${caps.zoom.min}–${caps.zoom.max}×`)
+        } else {
+          lines.push('Active zoom range: not exposed')
+        }
+        const rear = await listRearCameras()
+        lines.push(`Detected rear lenses: ${rear.length}`)
+        const devices = await navigator.mediaDevices.enumerateDevices()
+        for (const device of devices) {
+          if (device.kind !== 'videoinput') continue
+          const facing = (
+            device as MediaDeviceInfo & { getCapabilities?: () => MediaTrackCapabilities }
+          ).getCapabilities?.()?.facingMode
+          const facingLabel =
+            Array.isArray(facing) && facing.length > 0 ? ` [${facing.join(', ')}]` : ''
+          const rearMark = rear.includes(device.deviceId) ? ' — rear' : ''
+          lines.push(`• ${device.label || '(no label)'}${facingLabel}${rearMark}`)
+        }
+        setCameraReport(lines.join('\n'))
+      } catch (err) {
+        setCameraReport(
+          err instanceof Error ? `Could not inspect: ${err.message}` : 'Could not inspect cameras.',
+        )
+      } finally {
+        probe?.getTracks().forEach((track) => {
+          track.stop()
+        })
+        setInspectingCameras(false)
+      }
+    })()
+  }
 
   const onClearExportCache = () => {
     if (clearingCache) return
@@ -216,6 +269,25 @@ export function AboutPage() {
               {cacheStatus}
             </p>
           ) : null}
+        </section>
+
+        <section className="about-section">
+          <h2>Cameras</h2>
+          <p>
+            Wondering why a lens or zoom level isn&rsquo;t available? Browsers expose cameras
+            very differently across phones —{' '}
+            <button
+              type="button"
+              className="link-button"
+              onClick={onInspectCameras}
+              disabled={inspectingCameras}
+            >
+              {inspectingCameras ? 'Inspecting…' : 'Inspect cameras'}
+            </button>{' '}
+            shows exactly what this browser reports (nothing is sent anywhere — attach it to a
+            bug report if something looks wrong).
+          </p>
+          {cameraReport ? <pre className="camera-report">{cameraReport}</pre> : null}
         </section>
 
         <section className="about-section">

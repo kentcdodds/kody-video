@@ -198,6 +198,22 @@ export function RecordScreen({
    * OK Video behavior: drag-to-zoom only lasts for the take. When the finger
    * lifts, ease the lens back to the zoom the user had before recording.
    */
+  // Live zoom readout: updated imperatively (refs, no React state) so
+  // drag-to-zoom mid-recording never causes a re-render. Fades out shortly
+  // after the value stops changing.
+  const zoomHudRef = useRef<HTMLDivElement | null>(null)
+  const zoomHudTimerRef = useRef(0)
+  const showZoomHud = useCallback((value: number) => {
+    const hud = zoomHudRef.current
+    if (!hud) return
+    hud.textContent = formatZoomLabel(value)
+    hud.classList.add('is-visible')
+    window.clearTimeout(zoomHudTimerRef.current)
+    zoomHudTimerRef.current = window.setTimeout(() => {
+      hud.classList.remove('is-visible')
+    }, 900)
+  }, [])
+
   const restoreZoomAfterHold = useCallback(() => {
     if (!dragZoomMovedRef.current) return
     dragZoomMovedRef.current = false
@@ -211,7 +227,9 @@ export function RecordScreen({
     const tick = () => {
       const t = Math.min(1, (performance.now() - started) / durationMs)
       const eased = 1 - (1 - t) * (1 - t)
-      camera.setZoom(from + (to - from) * eased)
+      const value = from + (to - from) * eased
+      camera.setZoom(value)
+      showZoomHud(value)
       if (t < 1) {
         zoomRestoreRafRef.current = requestAnimationFrame(tick)
       } else {
@@ -219,7 +237,7 @@ export function RecordScreen({
       }
     }
     zoomRestoreRafRef.current = requestAnimationFrame(tick)
-  }, [camera])
+  }, [camera, showZoomHud])
 
   const releaseWakeLock = useCallback(() => {
     wakeLockGenRef.current += 1
@@ -811,6 +829,7 @@ export function RecordScreen({
           dragZoomMovedRef.current = true
           dragZoomLastValueRef.current = next
           camera.setZoom(next)
+          showZoomHud(next)
         }}
         onPointerUp={(event) => {
           if (keyboardTakeRef.current) return
@@ -877,6 +896,8 @@ export function RecordScreen({
             <span>release to stop</span>
           </div>
         ) : null}
+
+        <div className="zoom-hud" ref={zoomHudRef} aria-hidden="true" />
 
         {needsPermission ? (
           <div className="permission-panel">
@@ -1012,6 +1033,7 @@ export function RecordScreen({
                   cancelAnimationFrame(zoomRestoreRafRef.current)
                   zoomBaselineRef.current = level
                   camera.setZoom(level)
+                  showZoomHud(level)
                 }}
               >
                 {formatZoomLabel(level)}

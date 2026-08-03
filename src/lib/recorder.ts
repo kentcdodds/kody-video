@@ -18,6 +18,7 @@ const MIN_TAKE_MS = 120
  */
 export class HoldRecorder {
   private recorder: MediaRecorder | null = null
+  private recordStream: MediaStream | null = null
   private chunks: BlobPart[] = []
   private startedAt = 0
   private mimeType = ''
@@ -27,6 +28,17 @@ export class HoldRecorder {
 
   get isRecording(): boolean {
     return this.recorder?.state === 'recording'
+  }
+
+  /** Recording consumes CLONES of the preview's tracks: MediaRecorder
+   * attaching/detaching directly on the live camera track makes some
+   * Android HALs reconfigure the capture pipeline, blanking the preview for
+   * a frame right when the take ends. Clones detach invisibly. */
+  private stopClones(): void {
+    this.recordStream?.getTracks().forEach((track) => {
+      track.stop()
+    })
+    this.recordStream = null
   }
 
   /** @returns true when a new recording actually started */
@@ -41,13 +53,17 @@ export class HoldRecorder {
     this.trackWidth = settings?.width
     this.trackHeight = settings?.height
 
+    this.stopClones()
+    const recordStream = new MediaStream(stream.getTracks().map((track) => track.clone()))
+    this.recordStream = recordStream
+
     const recorder = this.mimeType
-      ? new MediaRecorder(stream, {
+      ? new MediaRecorder(recordStream, {
           mimeType: this.mimeType,
           videoBitsPerSecond: 3_500_000,
           audioBitsPerSecond: 192_000,
         })
-      : new MediaRecorder(stream)
+      : new MediaRecorder(recordStream)
 
     this.mimeType = recorder.mimeType || this.mimeType || 'video/webm'
     recorder.ondataavailable = (event) => {
@@ -63,6 +79,7 @@ export class HoldRecorder {
     if (!recorder || recorder.state === 'inactive') {
       this.recorder = null
       this.stopping = false
+      this.stopClones()
       return Promise.resolve(null)
     }
 
@@ -71,6 +88,7 @@ export class HoldRecorder {
 
     return new Promise((resolve, reject) => {
       recorder.onstop = () => {
+        this.stopClones()
         const blob = new Blob(this.chunks, { type: this.mimeType })
         const width = this.trackWidth
         const height = this.trackHeight
@@ -111,6 +129,7 @@ export class HoldRecorder {
           })
       }
       recorder.onerror = () => {
+        this.stopClones()
         this.recorder = null
         this.stopping = false
         reject(new Error('Recording failed'))
@@ -123,6 +142,7 @@ export class HoldRecorder {
     const recorder = this.recorder
     if (!recorder) {
       this.stopping = false
+      this.stopClones()
       return
     }
     recorder.ondataavailable = null
@@ -133,6 +153,7 @@ export class HoldRecorder {
         // ignore
       }
     }
+    this.stopClones()
     this.recorder = null
     this.chunks = []
     this.stopping = false

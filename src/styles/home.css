@@ -481,6 +481,19 @@
   line-height: 1.55;
 }
 
+.camera-report {
+  margin: 10px 0 0;
+  padding: 10px 12px;
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--ink) 8%, transparent);
+  border: 1px solid var(--line);
+  color: var(--ink);
+  font-size: 0.78rem;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
 .about-section a {
   color: var(--accent);
   font-weight: 600;

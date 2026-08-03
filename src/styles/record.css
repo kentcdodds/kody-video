@@ -315,6 +315,29 @@
   cursor: not-allowed;
 }
 
+.zoom-hud {
+  position: absolute;
+  top: 18%;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 3;
+  padding: 6px 14px;
+  border-radius: 999px;
+  background: rgba(0, 0, 0, 0.55);
+  border: 1px solid rgba(255, 255, 255, 0.28);
+  color: #fff;
+  font-weight: 700;
+  font-size: 1.05rem;
+  font-variant-numeric: tabular-nums;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 160ms ease;
+}
+
+.zoom-hud.is-visible {
+  opacity: 1;
+}
+
 .lens-chip {
   display: inline-flex;
   align-items: center;
