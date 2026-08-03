@@ -160,6 +160,43 @@ export function RecordScreen({
    * OK Video behavior: drag-to-zoom only lasts for the take. When the finger
    * lifts, ease the lens back to the zoom the user had before recording.
    */
+  /**
+   * Thumbnail capture mirror: a DETACHED video element fed by the same
+   * camera stream for the take's duration. Post-take thumbs are drawn from
+   * it instead of the on-screen preview — reading back the on-screen
+   * element kicks it out of Android's zero-copy overlay compositing path
+   * for a frame, which is the post-take black flash. A detached element
+   * was never in the compositor, so its readback can't blink anything.
+   */
+  const thumbMirrorRef = useRef<HTMLVideoElement | null>(null)
+  const stopThumbMirror = useCallback(() => {
+    const mirror = thumbMirrorRef.current
+    thumbMirrorRef.current = null
+    if (mirror) {
+      mirror.srcObject = null
+    }
+  }, [])
+  const startThumbMirror = useCallback(
+    (stream: MediaStream) => {
+      stopThumbMirror()
+      const mirror = document.createElement('video')
+      mirror.muted = true
+      mirror.playsInline = true
+      mirror.srcObject = stream
+      void mirror.play().catch(() => undefined)
+      thumbMirrorRef.current = mirror
+    },
+    [stopThumbMirror],
+  )
+  const captureTakeThumbs = useCallback(async () => {
+    const mirror = thumbMirrorRef.current
+    const fromMirror = mirror ? await captureLiveThumbs(mirror) : null
+    // Ultra-short takes can end before the mirror got its first frame —
+    // the on-screen element is the (blink-risking) fallback, still better
+    // than the loader decoding the fresh blob behind the live preview.
+    return fromMirror ?? captureLiveThumbs(camera.getVideoElement())
+  }, [camera])
+
   // Live zoom readout: updated imperatively (refs, no React state) so
   // drag-to-zoom mid-recording never causes a re-render. Fades out shortly
   // after the value stops changing.
@@ -338,6 +375,7 @@ export function RecordScreen({
         if (locationTaggingRef.current) {
           pendingFixRef.current = getLocationFix()
         }
+        startThumbMirror(stream)
         acquireWakeLock()
         // Watch the live mic level: users must learn about a dead mic while
         // holding, not after sharing a silent video (Sentry: near-zero clip
@@ -407,10 +445,11 @@ export function RecordScreen({
       // Detach this take's fix before any await so a quick next hold can own the ref.
       const pendingForThisTake = pendingFixRef.current
       pendingFixRef.current = null
-      // Grab the poster/thumb straight off the still-live preview NOW —
-      // decoding the recorded blob for thumbnails while the preview runs
-      // blanks it on many Androids (the post-take black flash).
-      const capturedThumbs = captureLiveThumbs(camera.getVideoElement()).catch(() => null)
+      // Grab the poster/thumb from the detached mirror NOW (synchronous
+      // draw at finger-lift) — decoding the recorded blob for thumbnails
+      // while the preview runs blanks it on many Androids, and reading
+      // back the on-screen element blinks its overlay path.
+      const capturedThumbs = captureTakeThumbs().catch(() => null)
       try {
         const result = await recorderRef.current.stop()
         if (!result) {
@@ -456,10 +495,22 @@ export function RecordScreen({
           micMonitorRef.current = null
           camera.releaseMic()
           releaseWakeLock()
+          // A quick next hold already replaced the mirror via
+          // startThumbMirror — only tear it down when this take is the last.
+          stopThumbMirror()
         }
       }
     },
-    [camera, ensureProjectId, recording, refresh, releaseWakeLock, showToast],
+    [
+      camera,
+      captureTakeThumbs,
+      ensureProjectId,
+      recording,
+      refresh,
+      releaseWakeLock,
+      showToast,
+      stopThumbMirror,
+    ],
   )
 
   const startSelfTimer = useCallback(() => {
@@ -546,10 +597,11 @@ export function RecordScreen({
     micMonitorRef.current?.stop()
     micMonitorRef.current = null
     recorderRef.current.cancel()
+    stopThumbMirror()
     // Leaving the screen mustn't lose an active screen take — save it.
     void finishScreenRecord()
     releaseWakeLock()
-  }, [clearCountdown, finishScreenRecord, releaseWakeLock])
+  }, [clearCountdown, finishScreenRecord, releaseWakeLock, stopThumbMirror])
 
   // Release the camera whenever the app leaves the foreground — Android keeps
   // the privacy indicator (green dot) lit as long as any track is live. An
