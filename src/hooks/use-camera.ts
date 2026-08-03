@@ -274,11 +274,15 @@ export function useCamera(): UseCameraResult {
     // between physical lenses (ultra-wide/wide/tele) as zoom crosses their
     // boundaries, native-camera style, even mid-recording. Lock onto it as
     // the remembered lens so every future session opens it directly.
-    // A later manual chip switch still overwrites this (the user wins).
+    // A still-valid manual chip choice is never displaced from here: opens
+    // land in this path incidentally too (getUserMedia fallbacks), and the
+    // user's explicit pick must survive those. The chip's own switch
+    // handler re-locks the logical lens when the user returns to it.
     const zoomRange = zoomRangeRef.current
     if (zoomRange && zoomRange.min < 1 && activeId && index >= 0) {
       const remembered = rememberedRearLens()
-      if (remembered?.id !== activeId) {
+      const rememberedValid = remembered !== null && lenses.includes(remembered.id)
+      if (!rememberedValid || remembered.id === activeId) {
         rememberRearLens({ id: activeId, index })
       }
     }
