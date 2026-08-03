@@ -268,6 +268,24 @@ export function useCamera(): UseCameraResult {
     const index = lenses.indexOf(activeId)
     rearLensIndexRef.current = index >= 0 ? index : 0
     setRearLensIndex(index >= 0 ? index : 0)
+
+    // Seamless multi-lens discovery: a rear lens whose zoom range reaches
+    // below 1× is Android's logical multi-camera — the HAL hands off
+    // between physical lenses (ultra-wide/wide/tele) as zoom crosses their
+    // boundaries, native-camera style, even mid-recording. Lock onto it as
+    // the remembered lens so every future session opens it directly.
+    // A still-valid manual chip choice is never displaced from here: opens
+    // land in this path incidentally too (getUserMedia fallbacks), and the
+    // user's explicit pick must survive those. The chip's own switch
+    // handler re-locks the logical lens when the user returns to it.
+    const zoomRange = zoomRangeRef.current
+    if (zoomRange && zoomRange.min < 1 && activeId && index >= 0) {
+      const remembered = rememberedRearLens()
+      const rememberedValid = remembered !== null && lenses.includes(remembered.id)
+      if (!rememberedValid || remembered.id === activeId) {
+        rememberRearLens({ id: activeId, index })
+      }
+    }
   }, [])
 
   const start = useCallback(async () => {

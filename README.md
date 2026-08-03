@@ -129,6 +129,12 @@ Verified approach: `npm run build && npm run preview`, load once online, then De
 - **Ultra-wide (0.5×):** Android usually exposes the ultra-wide/telephoto as *separate* rear
   cameras, not as zoom below 1× — the lens chip next to the zoom chips switches between them.
   Some devices don't expose the extra lenses to browsers at all; the chip is hidden there.
+  Phones that expose Android's *logical multi-camera* to the browser (zoom range below 1×,
+  common on Samsung) get native-style seamless lens hand-off through the zoom gesture instead —
+  the app detects such a lens the first time it's opened (cycle the chip once) and locks onto
+  it for future sessions. Switching lenses with the chip afterward replaces that memory (your
+  explicit choice always wins); opening the seamless lens again re-locks it. iPhones always
+  work this way via the OS multi-lens camera.
 
 ## Desktop keyboard support
 
