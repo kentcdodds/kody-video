@@ -1012,10 +1012,13 @@ export function RecordScreen({
                 cancelAnimationFrame(zoomRestoreRafRef.current)
                 zoomBaselineRef.current = null
                 dragZoomMovedRef.current = false
-                void camera.switchRearLens().then(() => {
-                  const range = camera.getZoom()
-                  if (range) showZoomHud(range.value)
-                })
+                void camera
+                  .switchRearLens()
+                  .then(() => {
+                    const range = camera.getZoom()
+                    if (range) showZoomHud(range.value)
+                  })
+                  .catch(() => undefined)
               }}
             >
               <IconLens size={14} />
