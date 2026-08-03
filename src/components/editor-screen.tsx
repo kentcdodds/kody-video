@@ -165,28 +165,28 @@ export function EditorScreen({
   // New recordings carry a single live-captured frame (decoding for a full
   // filmstrip behind the live camera preview causes the post-take black
   // flash). Here the camera is released, so upgrade them to the real
-  // evenly-spaced strip.
-  const refineRanRef = useRef(false)
-  const refineFilmstrips = useCallback(() => {
-    if (refineRanRef.current) return
-    refineRanRef.current = true
-    const pending = clips.filter(
-      (clip) => (clip.thumbs?.length ?? 0) > 0 && (clip.thumbs?.length ?? 0) < THUMB_COUNT,
-    )
+  // evenly-spaced strip. Runs after every commit with a per-clip attempted
+  // set — clips can also arrive through later revalidations (duplicates,
+  // stale-then-fresh loader data), not just the mount.
+  const refineAttemptedRef = useRef<Set<string>>(new Set())
+  useLayoutEffect(() => {
+    const pending = clips.filter((clip) => {
+      const count = clip.thumbs?.length ?? 0
+      return count > 0 && count < THUMB_COUNT && !refineAttemptedRef.current.has(clip.id)
+    })
     if (pending.length === 0) return
+    for (const clip of pending) {
+      refineAttemptedRef.current.add(clip.id)
+    }
     void Promise.all(pending.map((clip) => refineClipFilmstrip(clip))).then(refresh)
-  }, [clips, refresh])
+  })
 
   const bindKeyboard = useCallback(
     (element: HTMLDivElement | null) => {
-      if (element) {
-        window.addEventListener('keydown', onWindowKeyDown)
-        refineFilmstrips()
-      } else {
-        window.removeEventListener('keydown', onWindowKeyDown)
-      }
+      if (element) window.addEventListener('keydown', onWindowKeyDown)
+      else window.removeEventListener('keydown', onWindowKeyDown)
     },
-    [onWindowKeyDown, refineFilmstrips],
+    [onWindowKeyDown],
   )
 
   return (
