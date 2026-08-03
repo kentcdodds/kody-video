@@ -1,3 +1,4 @@
+import { ALL_FORMATS, BlobSource, Input } from 'mediabunny'
 import { loadClipVideo } from './export/shared'
 import type { ClipRecord } from './types'
 
@@ -306,6 +307,23 @@ export function pickRecordingMimeType(): string {
  * WebM files that report Infinity until seeked past the end).
  */
 export async function measureBlobDuration(blob: Blob, timeoutMs = 5000): Promise<number> {
+  // Demux first: parsing the container needs no <video> element and no
+  // hardware decoder. Opening a decoder right after a take — while the
+  // camera preview is live — blanks the preview on many Androids (the
+  // post-take black flash), and it's slower besides. Deadline-guarded so a
+  // malformed blob can't hang the parse past the caller's budget.
+  try {
+    const input = new Input({ source: new BlobSource(blob), formats: ALL_FORMATS })
+    const seconds = await Promise.race([
+      input.computeDuration(),
+      new Promise<number>((_, reject) => {
+        window.setTimeout(() => reject(new Error('Demux duration timed out')), timeoutMs)
+      }),
+    ])
+    if (Number.isFinite(seconds) && seconds > 0) return Math.round(seconds * 1000)
+  } catch {
+    // Unparseable container — let the element path judge it.
+  }
   const loaded = await loadClipVideo(blob, timeoutMs)
   try {
     return loaded.mediaDurationMs

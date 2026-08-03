@@ -25,6 +25,31 @@ test.describe('camera & hold-to-record', () => {
     // A second hold appends to the same project.
     await recordClip(page)
     expect(await totalClipCount(page)).toBe(2)
+
+    // Takes carry a poster/thumb captured from the LIVE preview — decoding
+    // the fresh blob behind the running camera is the post-take black
+    // flash, so the loader backfill must find nothing left to generate.
+    // EXACTLY one frame proves the live-capture path persisted them: the
+    // decode-based backfill generates THUMB_COUNT (3) frames, so this
+    // assertion fails if capture broke and the backfill covered for it.
+    await expect
+      .poll(
+        () =>
+          page.evaluate(async () => {
+            const storage = await import('/src/lib/storage.ts')
+            const projects = await storage.listProjects()
+            const clips = await storage.getClipsForProject(projects[0]!.id)
+            return clips.map((clip: { thumbs?: Blob[]; poster?: Blob }) => ({
+              thumbs: clip.thumbs?.length ?? 0,
+              poster: !!clip.poster,
+            }))
+          }),
+        { timeout: 10_000 },
+      )
+      .toEqual([
+        { thumbs: 1, poster: true },
+        { thumbs: 1, poster: true },
+      ])
   })
 
   test('recording shows the REC pill with elapsed time', async ({ page }) => {

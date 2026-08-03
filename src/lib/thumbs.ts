@@ -88,6 +88,92 @@ function canvasToBlob(canvas: HTMLCanvasElement, quality: number): Promise<Blob 
   })
 }
 
+/**
+ * Capture a poster + single filmstrip frame straight off the LIVE camera
+ * preview at take end. Zero decoder cost: decoding the fresh blob in a
+ * hidden <video> while the preview runs blanks the preview on many Androids
+ * (the post-take black flash). The frame is drawn synchronously; only the
+ * JPEG encode is async. Returns null when the preview has no frame to give.
+ */
+export async function captureLiveThumbs(
+  video: HTMLVideoElement | null,
+): Promise<GeneratedThumbs | null> {
+  if (!video || video.readyState < 2 || video.videoWidth <= 0 || video.videoHeight <= 0) {
+    return null
+  }
+  const aspect = video.videoWidth / video.videoHeight
+  const thumbHeight = THUMB_HEIGHT
+  const thumbWidth = Math.max(2, Math.round(thumbHeight * aspect))
+  const canvas = document.createElement('canvas')
+  canvas.width = thumbWidth
+  canvas.height = thumbHeight
+  const ctx = canvas.getContext('2d', { alpha: false })
+
+  const posterHeight = Math.min(POSTER_HEIGHT, video.videoHeight)
+  const posterWidth = Math.max(2, Math.round(posterHeight * aspect))
+  const posterCanvas = document.createElement('canvas')
+  posterCanvas.width = posterWidth
+  posterCanvas.height = posterHeight
+  const posterCtx = posterCanvas.getContext('2d', { alpha: false })
+  if (!ctx || !posterCtx) return null
+
+  try {
+    ctx.drawImage(video, 0, 0, thumbWidth, thumbHeight)
+    posterCtx.drawImage(video, 0, 0, posterWidth, posterHeight)
+  } catch {
+    return null
+  }
+  const [thumb, poster] = await Promise.all([
+    canvasToBlob(canvas, 0.72),
+    canvasToBlob(posterCanvas, 0.82),
+  ])
+  if (!thumb) return null
+  return {
+    thumbs: [thumb],
+    poster: poster ?? thumb,
+    thumbWidth,
+    thumbHeight,
+    videoWidth: video.videoWidth,
+    videoHeight: video.videoHeight,
+  }
+}
+
+const refineInFlight = new Map<string, Promise<void>>()
+
+/**
+ * Upgrade a live-captured single-frame filmstrip to the full evenly-spaced
+ * strip. Only called where the camera is released (the editor), because
+ * this decodes the clip — doing that behind a live preview is exactly the
+ * black flash the live capture avoids.
+ */
+export function refineClipFilmstrip(clip: ClipRecord): Promise<void> {
+  const count = clip.thumbs?.length ?? 0
+  if (count === 0 || count >= THUMB_COUNT) return Promise.resolve()
+  if (failedThisSession.has(clip.id)) return Promise.resolve()
+  const existing = refineInFlight.get(clip.id)
+  if (existing) return existing
+
+  const run = (async () => {
+    try {
+      let generated: GeneratedThumbs
+      try {
+        generated = await generateClipThumbs(clip.blob)
+      } catch {
+        // Undecodable media — retrying costs a media timeout every visit.
+        failedThisSession.add(clip.id)
+        return
+      }
+      // Transient persistence failure is NOT a decode failure: leave the
+      // clip unmarked so a later editor visit retries the (cheap) save.
+      await updateClipThumbs(clip.id, generated).catch(() => undefined)
+    } finally {
+      refineInFlight.delete(clip.id)
+    }
+  })()
+  refineInFlight.set(clip.id, run)
+  return run
+}
+
 const inFlight = new Map<string, Promise<ClipRecord>>()
 /** Clips whose thumbnail generation failed this session — don't retry on
  * every load (an unreadable blob costs an 8s media timeout per attempt). */

@@ -25,6 +25,7 @@ import { Timeline } from './timeline'
 import { TrimStrip } from './trim-strip'
 import type { ToastAction } from './record-screen'
 import { isInteractiveTarget } from '../lib/keyboard'
+import { THUMB_COUNT, refineClipFilmstrip } from '../lib/thumbs'
 
 interface EditorScreenProps {
   project: Project
@@ -161,6 +162,40 @@ export function EditorScreen({
   const onWindowKeyDown = useCallback((event: KeyboardEvent) => {
     keyActionRef.current(event)
   }, [])
+  // New recordings carry a single live-captured frame (decoding for a full
+  // filmstrip behind the live camera preview causes the post-take black
+  // flash). Here the camera is released, so upgrade them to the real
+  // evenly-spaced strip. Runs after every commit with a per-clip attempted
+  // set — clips can also arrive through later revalidations (duplicates,
+  // stale-then-fresh loader data), not just the mount.
+  const refineAttemptedRef = useRef<Set<string>>(new Set())
+  useLayoutEffect(() => {
+    // Ids leave the attempted set when their clip leaves the list: a
+    // delete + undo restores the clip from a snapshot that may predate the
+    // refinement, and it must get another shot. Clips still present keep
+    // their entry, so a failed refinement can't refresh-loop.
+    const ids = new Set(clips.map((clip) => clip.id))
+    for (const id of refineAttemptedRef.current) {
+      if (!ids.has(id)) refineAttemptedRef.current.delete(id)
+    }
+    const pending = clips.filter((clip) => {
+      const count = clip.thumbs?.length ?? 0
+      return count > 0 && count < THUMB_COUNT && !refineAttemptedRef.current.has(clip.id)
+    })
+    if (pending.length === 0) return
+    for (const clip of pending) {
+      refineAttemptedRef.current.add(clip.id)
+    }
+    // Serial, like the loader backfill: Android caps concurrent video
+    // decoders hard, and each refinement decodes a clip.
+    void (async () => {
+      for (const clip of pending) {
+        await refineClipFilmstrip(clip)
+      }
+      refresh()
+    })()
+  })
+
   const bindKeyboard = useCallback(
     (element: HTMLDivElement | null) => {
       if (element) window.addEventListener('keydown', onWindowKeyDown)
