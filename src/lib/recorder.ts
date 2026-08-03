@@ -16,85 +16,106 @@ const MIN_TAKE_MS = 120
  * Hold-to-record helper around MediaRecorder.
  * Starts on press, stops on release; returns a Blob for IndexedDB storage.
  */
-export class HoldRecorder {
-  private recorder: MediaRecorder | null = null
-  private recordStream: MediaStream | null = null
-  private chunks: BlobPart[] = []
-  private startedAt = 0
-  private mimeType = ''
-  private stopping = false
-  private trackWidth: number | undefined
-  private trackHeight: number | undefined
-
-  get isRecording(): boolean {
-    return this.recorder?.state === 'recording'
-  }
-
+/** One take's private state. Handlers close over their own session, so a
+ * stale MediaRecorder event (a canceled take's stop arriving after the next
+ * take began) can only ever touch its own clones and chunks. */
+interface RecordingSession {
+  recorder: MediaRecorder
   /** Recording consumes CLONES of the preview's tracks: MediaRecorder
    * attaching/detaching directly on the live camera track makes some
-   * Android HALs reconfigure the capture pipeline, blanking the preview for
-   * a frame right when the take ends. Clones detach invisibly. */
-  private stopClones(): void {
-    this.recordStream?.getTracks().forEach((track) => {
-      track.stop()
-    })
-    this.recordStream = null
+   * Android HALs reconfigure the capture pipeline, blanking the preview
+   * for a frame right when the take ends. Clones detach invisibly. */
+  stream: MediaStream
+  chunks: BlobPart[]
+  mimeType: string
+  startedAt: number
+  trackWidth: number | undefined
+  trackHeight: number | undefined
+}
+
+function stopSessionTracks(session: RecordingSession): void {
+  session.stream.getTracks().forEach((track) => {
+    track.stop()
+  })
+}
+
+export class HoldRecorder {
+  private session: RecordingSession | null = null
+  private stopping = false
+
+  get isRecording(): boolean {
+    return this.session?.recorder.state === 'recording'
   }
 
   /** @returns true when a new recording actually started */
   start(stream: MediaStream): boolean {
     if (this.isRecording || this.stopping) return false
 
-    this.mimeType = pickRecordingMimeType()
-    this.chunks = []
-    this.startedAt = performance.now()
-
     const settings = stream.getVideoTracks()[0]?.getSettings()
-    this.trackWidth = settings?.width
-    this.trackHeight = settings?.height
+    const clones = stream.getTracks().map((track) => track.clone())
+    const recordStream = new MediaStream(clones)
 
-    this.stopClones()
-    const recordStream = new MediaStream(stream.getTracks().map((track) => track.clone()))
-    this.recordStream = recordStream
+    let recorder: MediaRecorder
+    try {
+      const preferredMime = pickRecordingMimeType()
+      recorder = preferredMime
+        ? new MediaRecorder(recordStream, {
+            mimeType: preferredMime,
+            videoBitsPerSecond: 3_500_000,
+            audioBitsPerSecond: 192_000,
+          })
+        : new MediaRecorder(recordStream)
 
-    const recorder = this.mimeType
-      ? new MediaRecorder(recordStream, {
-          mimeType: this.mimeType,
-          videoBitsPerSecond: 3_500_000,
-          audioBitsPerSecond: 192_000,
-        })
-      : new MediaRecorder(recordStream)
-
-    this.mimeType = recorder.mimeType || this.mimeType || 'video/webm'
-    recorder.ondataavailable = (event) => {
-      if (event.data.size > 0) this.chunks.push(event.data)
+      const session: RecordingSession = {
+        recorder,
+        stream: recordStream,
+        chunks: [],
+        mimeType: recorder.mimeType || preferredMime || 'video/webm',
+        startedAt: performance.now(),
+        trackWidth: settings?.width,
+        trackHeight: settings?.height,
+      }
+      recorder.ondataavailable = (event) => {
+        if (event.data.size > 0) session.chunks.push(event.data)
+      }
+      recorder.start(250)
+      this.session = session
+      return true
+    } catch {
+      // Constructor/start can throw (unsupported params, dead tracks) —
+      // the clones must not outlive the failed attempt.
+      recordStream.getTracks().forEach((track) => {
+        track.stop()
+      })
+      return false
     }
-    this.recorder = recorder
-    recorder.start(250)
-    return true
   }
 
   stop(): Promise<RecordingResult | null> {
-    const recorder = this.recorder
-    if (!recorder || recorder.state === 'inactive') {
-      this.recorder = null
+    const session = this.session
+    if (!session || session.recorder.state === 'inactive') {
+      if (session) stopSessionTracks(session)
+      this.session = null
       this.stopping = false
-      this.stopClones()
       return Promise.resolve(null)
     }
 
     this.stopping = true
-    const wallClockMs = Math.max(0, Math.round(performance.now() - this.startedAt))
+    const wallClockMs = Math.max(0, Math.round(performance.now() - session.startedAt))
+    const finishSession = () => {
+      stopSessionTracks(session)
+      if (this.session === session) {
+        this.session = null
+        this.stopping = false
+      }
+    }
 
     return new Promise((resolve, reject) => {
-      recorder.onstop = () => {
-        this.stopClones()
-        const blob = new Blob(this.chunks, { type: this.mimeType })
-        const width = this.trackWidth
-        const height = this.trackHeight
-        this.recorder = null
-        this.chunks = []
-        this.stopping = false
+      session.recorder.onstop = () => {
+        finishSession()
+        const blob = new Blob(session.chunks, { type: session.mimeType })
+        const width = session.trackWidth
+        const height = session.trackHeight
         if (blob.size === 0 || wallClockMs < MIN_TAKE_MS) {
           resolve(null)
           return
@@ -105,7 +126,7 @@ export class HoldRecorder {
           .then((measuredMs) => {
             resolve({
               blob,
-              mimeType: this.mimeType || blob.type || 'video/webm',
+              mimeType: session.mimeType || blob.type || 'video/webm',
               durationMs: measuredMs > 0 ? measuredMs : wallClockMs,
               width,
               height,
@@ -121,41 +142,38 @@ export class HoldRecorder {
             }
             resolve({
               blob,
-              mimeType: this.mimeType || blob.type || 'video/webm',
+              mimeType: session.mimeType || blob.type || 'video/webm',
               durationMs: wallClockMs,
               width,
               height,
             })
           })
       }
-      recorder.onerror = () => {
-        this.stopClones()
-        this.recorder = null
-        this.stopping = false
+      session.recorder.onerror = () => {
+        finishSession()
         reject(new Error('Recording failed'))
       }
-      recorder.stop()
+      session.recorder.stop()
     })
   }
 
   cancel(): void {
-    const recorder = this.recorder
-    if (!recorder) {
-      this.stopping = false
-      this.stopClones()
-      return
-    }
-    recorder.ondataavailable = null
-    if (recorder.state !== 'inactive') {
+    const session = this.session
+    this.session = null
+    this.stopping = false
+    if (!session) return
+    // Stale events from this session must only clean up after themselves.
+    session.recorder.ondataavailable = null
+    session.recorder.onstop = () => stopSessionTracks(session)
+    session.recorder.onerror = () => stopSessionTracks(session)
+    if (session.recorder.state !== 'inactive') {
       try {
-        recorder.stop()
+        session.recorder.stop()
+        return
       } catch {
-        // ignore
+        // Fall through — stop the clones directly.
       }
     }
-    this.stopClones()
-    this.recorder = null
-    this.chunks = []
-    this.stopping = false
+    stopSessionTracks(session)
   }
 }
