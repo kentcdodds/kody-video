@@ -87,7 +87,8 @@ see the README) — plain `http://<lan-ip>` fails in most browsers.
 - [ ] Android phones exposing a logical multi-camera (a rear lens whose zoom
   chips include 0.5×/0.6×): after opening that lens once, the app reopens it
   on every session and drag-zoom hands off between physical lenses
-  seamlessly, including mid-recording
+  seamlessly, including mid-recording; a manual chip switch afterwards
+  overrides the memory until the seamless lens is opened again
 - [ ] Dragging up/down during a hold zooms; edge presses keep a minimum ramp;
   small tremble (<~14px) doesn't zoom; release eases back to the pre-take level
 - [ ] Camera preview stays smooth while recording (no visible frame drops)
