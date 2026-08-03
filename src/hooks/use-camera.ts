@@ -1,4 +1,5 @@
 import { useCallback, useRef, useState, type RefCallback } from 'react'
+import { engageRecordAudioSession, releaseRecordAudioSession } from '../lib/audio-session'
 import {
   canFlipCamera,
   isIosBrowser,
@@ -230,6 +231,7 @@ export function useCamera(): UseCameraResult {
 
   const replaceStream = useCallback(
     (next: MediaStream) => {
+      const hadMic = (streamRef.current?.getAudioTracks().length ?? 0) > 0
       stopStream(streamRef.current)
       streamRef.current = next
       setStream(next)
@@ -241,8 +243,20 @@ export function useCamera(): UseCameraResult {
       // denial though (the combined open also falls back on transient
       // failures) — only the Permissions API may claim "blocked".
       if (HOLD_MIC_WITH_CAMERA) {
-        if (next.getAudioTracks().length > 0) setMicPermission('granted')
-        else void queryMicrophonePermission().then(setMicPermission)
+        if (next.getAudioTracks().length > 0) {
+          setMicPermission('granted')
+          // External mics (DJI transmitters, AirPods, wired headsets): iOS
+          // only routes capture to them after this post-grant audio-session
+          // kick — see audio-session.ts. Must run AFTER getUserMedia
+          // resolved.
+          engageRecordAudioSession()
+        } else {
+          // A combined reopen can fall back to video-only (mic mid-flip
+          // failure) — a sticky play-and-record session with no mic held
+          // would degrade playback until the camera fully stops.
+          if (hadMic) releaseRecordAudioSession()
+          void queryMicrophonePermission().then(setMicPermission)
+        }
       }
       setIsReady(true)
     },
@@ -567,6 +581,7 @@ export function useCamera(): UseCameraResult {
 
   const stop = useCallback(() => {
     cameraEpochRef.current += 1
+    const hadMic = (streamRef.current?.getAudioTracks().length ?? 0) > 0
     stopStream(streamRef.current)
     streamRef.current = null
     setStream(null)
@@ -577,6 +592,9 @@ export function useCamera(): UseCameraResult {
     if (videoElRef.current) {
       videoElRef.current.srcObject = null
     }
+    // The play-and-record session is sticky after capture ends and degrades
+    // playback output — restore hi-fi routing (no-op off iOS).
+    if (hadMic) releaseRecordAudioSession()
   }, [applyZoomState])
 
   const videoRef = useCallback<RefCallback<HTMLVideoElement>>(
