@@ -1,6 +1,6 @@
 import { useCallback, useLayoutEffect, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
-import type { CameraZoomRange, UseCameraResult } from '../hooks/use-camera'
+import type { UseCameraResult } from '../hooks/use-camera'
 import { dragZoomValue } from '../lib/drag-zoom'
 import { getLocationFix, type LocationFix } from '../lib/location'
 import { startMicLevelMonitor, type MicLevelMonitor } from '../lib/mic-monitor'
@@ -14,6 +14,7 @@ import {
 } from '../lib/screen-recorder'
 import { setLocationTaggingEnabled } from '../lib/storage'
 import { captureLiveThumbs } from '../lib/thumbs'
+import { formatZoomLabel, nearestZoomLevel, zoomChipLevels } from '../lib/zoom-chips'
 import {
   formatStoragePercent,
   storageSeverity,
@@ -74,45 +75,6 @@ interface RecordScreenProps {
   onPlay: () => void
   showToast: (message: string, action?: ToastAction) => void
   refresh: () => void
-}
-
-/** Build a small set of zoom chip levels clamped to device min/max (e.g. 1×, 2×, 5×). */
-function zoomChipLevels(zoom: CameraZoomRange): number[] {
-  const { min, max } = zoom
-  const candidates = [1, 2]
-  if (max > 2.05) {
-    const rounded = Math.round(max)
-    // Prefer a clean integer near max (4×/5×); otherwise use the true max.
-    candidates.push(Math.abs(rounded - max) <= 0.35 ? rounded : Number(max.toFixed(1)))
-  }
-  const levels = candidates
-    .map((level) => Math.min(max, Math.max(min, level)))
-    .filter((level, index, arr) => arr.findIndex((other) => Math.abs(other - level) < 0.05) === index)
-    .sort((a, b) => a - b)
-  // Always include device min when it isn't already represented (ultra-wide lenses).
-  if (levels.every((level) => Math.abs(level - min) > 0.05)) {
-    levels.unshift(min)
-  }
-  return levels
-}
-
-function formatZoomLabel(level: number): string {
-  const rounded = Math.round(level * 10) / 10
-  if (Number.isInteger(rounded)) return `${rounded}×`
-  return `${rounded.toFixed(1)}×`
-}
-
-function nearestZoomLevel(levels: number[], value: number): number {
-  let best = levels[0]!
-  let bestDist = Math.abs(value - best)
-  for (const level of levels) {
-    const dist = Math.abs(value - level)
-    if (dist < bestDist) {
-      best = level
-      bestDist = dist
-    }
-  }
-  return best
 }
 
 export function RecordScreen({
