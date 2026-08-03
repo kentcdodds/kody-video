@@ -155,10 +155,17 @@ export function refineClipFilmstrip(clip: ClipRecord): Promise<void> {
 
   const run = (async () => {
     try {
-      const generated = await generateClipThumbs(clip.blob)
-      await updateClipThumbs(clip.id, generated)
-    } catch {
-      failedThisSession.add(clip.id)
+      let generated: GeneratedThumbs
+      try {
+        generated = await generateClipThumbs(clip.blob)
+      } catch {
+        // Undecodable media — retrying costs a media timeout every visit.
+        failedThisSession.add(clip.id)
+        return
+      }
+      // Transient persistence failure is NOT a decode failure: leave the
+      // clip unmarked so a later editor visit retries the (cheap) save.
+      await updateClipThumbs(clip.id, generated).catch(() => undefined)
     } finally {
       refineInFlight.delete(clip.id)
     }
