@@ -170,6 +170,14 @@ export function EditorScreen({
   // stale-then-fresh loader data), not just the mount.
   const refineAttemptedRef = useRef<Set<string>>(new Set())
   useLayoutEffect(() => {
+    // Ids leave the attempted set when their clip leaves the list: a
+    // delete + undo restores the clip from a snapshot that may predate the
+    // refinement, and it must get another shot. Clips still present keep
+    // their entry, so a failed refinement can't refresh-loop.
+    const ids = new Set(clips.map((clip) => clip.id))
+    for (const id of refineAttemptedRef.current) {
+      if (!ids.has(id)) refineAttemptedRef.current.delete(id)
+    }
     const pending = clips.filter((clip) => {
       const count = clip.thumbs?.length ?? 0
       return count > 0 && count < THUMB_COUNT && !refineAttemptedRef.current.has(clip.id)
