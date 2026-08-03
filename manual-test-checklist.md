@@ -78,6 +78,10 @@ see the README) — plain `http://<lan-ip>` fails in most browsers.
   mic is NOT held while idle (no OS mic indicator) — except iOS, where it is
   held while previewing (muted-track workaround)
 - [ ] iOS: recordings have audible sound (mic + camera in one combined request)
+- [ ] iOS with an external Bluetooth mic (DJI, AirPods, wired headset):
+  recordings capture from the external mic, not the built-in one (the
+  audio-session kick after camera open re-routes); playback audio quality is
+  normal after leaving the camera
 - [ ] A take with a dead/covered mic shows "Mic isn't picking up sound" after
   ~2.5s; a take with sound clears it
 - [ ] Torch toggle appears on devices with a flash; zoom chips when supported
