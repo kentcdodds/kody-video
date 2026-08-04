@@ -8,10 +8,12 @@ In the Cursor Cloud VM, Node 24 is installed via `nvm` and made the default.
 The VM also ships a system Node 22 at `/exec-daemon/node` that would otherwise
 win on `PATH`, so `~/.bashrc` prepends the nvm Node 24 `bin` to `PATH`. New
 shells get Node 24 automatically; if you spawn a non-login shell and see Node
-22, run:
+22, select the nvm-managed Node 24 (no hard-coded patch version):
 
 ```bash
-export PATH="$HOME/.nvm/versions/node/v24.19.0/bin:$PATH"
+nvm use 24
+# or, if nvm isn't loaded in this shell:
+export PATH="$(dirname "$(nvm which 24)"):$PATH"
 ```
 
 ## Install caveats
