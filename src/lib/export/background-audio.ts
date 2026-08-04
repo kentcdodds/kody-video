@@ -30,56 +30,77 @@ export interface GainPoint {
   volume: number
 }
 
-type GainSegment = Pick<PlannedSegment, 'offsetMs'> & {
-  clip: Pick<PlannedSegment['clip'], 'audioVolume'>
-  startMs: number
-  endMs: number
-}
-
 export interface BackgroundFades {
   fadeIn: boolean
   fadeOut: boolean
 }
 
+export interface SegmentGainArgs {
+  /** This clip's music volume. */
+  volume: number
+  /** The segment's REAL duration (after media clamping), in ms. */
+  durationMs: number
+  /** Ramp in from the previous clip's volume (omit at the film start). */
+  entry?: { fromVolume: number; halfMs: number }
+  /** Ramp out toward the next clip's volume (omit at the film end). */
+  exit?: { toVolume: number; halfMs: number }
+  fades: BackgroundFades
+}
+
 /**
- * Piecewise-linear gain envelope for the whole output timeline. Boundary
- * ramps are centered on each clip transition and clamped to the shorter
- * neighbor, so even sub-second clips keep a monotonic envelope. Disabled
- * fades still get an inaudible edge ramp — a hard cut mid-waveform clicks.
+ * Piecewise-linear gain envelope for ONE segment, on the segment's local
+ * timeline (0..durationMs). Built per segment from real clamped durations —
+ * planning the whole film's envelope up front drifted whenever media
+ * clamping shortened a clip. Boundary ramps are centered on the clip
+ * transition: the outgoing segment carries the first half (volume → the
+ * two clips' midpoint), the incoming segment carries the second (midpoint →
+ * its volume). Disabled film-edge fades still get an inaudible edge ramp —
+ * a hard cut mid-waveform clicks.
  */
-export function planBackgroundGain(
-  segments: GainSegment[],
-  defaultVolume: number,
-  totalMs: number,
-  fades: BackgroundFades,
-): GainPoint[] {
-  if (segments.length === 0 || totalMs <= 0) return []
-  const volumes = segments.map((segment) => clipAudioVolume(segment.clip, defaultVolume))
-  const durations = segments.map((segment) => segment.endMs - segment.startMs)
-
-  const fadeIn = Math.min(fades.fadeIn ? FADE_IN_MS : EDGE_RAMP_MS, totalMs / 2)
-  const fadeOut = Math.min(fades.fadeOut ? FADE_OUT_MS : EDGE_RAMP_MS, totalMs / 2)
-
-  const points: GainPoint[] = [
-    { tMs: 0, volume: 0 },
-    { tMs: fadeIn, volume: volumes[0] },
-  ]
-  for (let i = 1; i < segments.length; i += 1) {
-    if (volumes[i] === volumes[i - 1]) continue
-    const boundary = segments[i].offsetMs
-    const half = Math.min(VOLUME_RAMP_MS / 2, durations[i - 1] / 2, durations[i] / 2)
-    points.push({ tMs: boundary - half, volume: volumes[i - 1] })
-    points.push({ tMs: boundary + half, volume: volumes[i] })
+export function planSegmentGain({
+  volume,
+  durationMs,
+  entry,
+  exit,
+  fades,
+}: SegmentGainArgs): GainPoint[] {
+  if (durationMs <= 0) return []
+  const points: GainPoint[] = []
+  if (entry) {
+    points.push({ tMs: 0, volume: (entry.fromVolume + volume) / 2 })
+    points.push({ tMs: Math.min(entry.halfMs, durationMs / 2), volume })
+  } else {
+    const fadeIn = Math.min(fades.fadeIn ? FADE_IN_MS : EDGE_RAMP_MS, durationMs / 2)
+    points.push({ tMs: 0, volume: 0 })
+    points.push({ tMs: fadeIn, volume })
   }
-  points.push({ tMs: totalMs - fadeOut, volume: volumes[volumes.length - 1] })
-  points.push({ tMs: totalMs, volume: 0 })
-
+  if (exit) {
+    points.push({ tMs: durationMs - Math.min(exit.halfMs, durationMs / 2), volume })
+    points.push({ tMs: durationMs, volume: (volume + exit.toVolume) / 2 })
+  } else {
+    const fadeOut = Math.min(fades.fadeOut ? FADE_OUT_MS : EDGE_RAMP_MS, durationMs / 2)
+    points.push({ tMs: durationMs - fadeOut, volume })
+    points.push({ tMs: durationMs, volume: 0 })
+  }
   // Overlapping ramps (very short clips) collapse into steps instead of
   // travelling back in time.
   for (let i = 1; i < points.length; i += 1) {
     points[i].tMs = Math.max(points[i].tMs, points[i - 1].tMs)
   }
   return points
+}
+
+/** Centered boundary-ramp half length, clamped to the shorter neighbor. */
+export function boundaryRampHalfMs(aDurationMs: number, bDurationMs: number): number {
+  return Math.min(VOLUME_RAMP_MS / 2, aDurationMs / 2, bDurationMs / 2)
+}
+
+/** Music volume for one planned segment (override or default). */
+export function segmentVolume(
+  segment: Pick<PlannedSegment, 'clip'>,
+  defaultVolume: number,
+): number {
+  return clipAudioVolume(segment.clip, defaultVolume)
 }
 
 /** Envelope gain at an output-timeline position (linear between points). */
@@ -106,17 +127,15 @@ export interface SequentialBackgroundSource {
 }
 
 export interface BackgroundMixer {
-  /** Add the playlist into a segment slice's channels, in place. Slices
-   * must be requested in output order (tracks are decoded lazily, one at a
-   * time, and released once the timeline passes them). `gainBaseMs` is the
-   * slice's position on the envelope's (planned) timeline — passing the
-   * planned segment offset keeps per-clip ramps and fades aligned with
-   * their clips even when media clamping shifted the real frame positions;
-   * it defaults to the frame-derived position. */
+  /** Add the playlist into a segment slice's channels, in place, with the
+   * gain following `points` — the slice's own local envelope (its time 0 is
+   * the slice's first sample). Slices must be requested in output order
+   * (tracks are decoded lazily, one at a time, and released once the
+   * timeline passes them). */
   mixInto: (
     channels: Float32Array[],
     sliceStartFrame: number,
-    gainBaseMs?: number,
+    points: GainPoint[],
   ) => Promise<void>
 }
 
@@ -124,18 +143,17 @@ export interface BackgroundMixer {
  * Sequential playlist mixer: track 0 starts at output frame 0, each next
  * track starts where the previous one's decoded samples end, and when the
  * playlist runs out the rest of the film simply has no music. Gain follows
- * the envelope; the sum hard-clamps to [-1, 1].
+ * each slice's local envelope; the sum hard-clamps to [-1, 1].
  */
 export function createBackgroundMixer(
   source: SequentialBackgroundSource,
-  points: GainPoint[],
   sampleRate: number,
 ): BackgroundMixer {
   let trackIndex = -1
   /** Output frame where the current track begins. */
   let trackStartFrame = 0
   let current: Float32Array[] | null = null
-  let exhausted = source.trackCount === 0 || points.length === 0
+  let exhausted = source.trackCount === 0
 
   /** Advance until the current track covers `frame` (false = playlist over). */
   const ensureTrackFor = async (frame: number): Promise<boolean> => {
@@ -161,9 +179,9 @@ export function createBackgroundMixer(
   const mixInto = async (
     channels: Float32Array[],
     sliceStartFrame: number,
-    gainBaseMs = (sliceStartFrame / sampleRate) * 1000,
+    points: GainPoint[],
   ): Promise<void> => {
-    if (channels.length === 0) return
+    if (channels.length === 0 || points.length === 0) return
     const sliceLength = channels[0].length
     let i = 0
     let cursor = 0
@@ -176,7 +194,7 @@ export function createBackgroundMixer(
       const runEnd = Math.min(sliceLength, trackStartFrame + track[0].length - sliceStartFrame)
       for (; i < runEnd; i += 1) {
         const outFrame = sliceStartFrame + i
-        const tMs = gainBaseMs + (i / sampleRate) * 1000
+        const tMs = (i / sampleRate) * 1000
         while (cursor < points.length && points[cursor].tMs < tMs) cursor += 1
         let gain: number
         if (cursor === 0) {

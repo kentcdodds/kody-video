@@ -249,9 +249,12 @@ export async function exportRealtime(
       throw new Error('No video frames could be exported')
     }
 
-    // Ease the music out instead of cutting it mid-note.
+    // End-of-film safety ramp: with Fade out on it just finishes what the
+    // scheduled fade started; with it off, a click-kill too short to hear
+    // as a fade (mirrors the WebCodecs edge ramp).
     if (backgroundGain && audioContext) {
-      backgroundGain.gain.setTargetAtTime(0, audioContext.currentTime, 0.06)
+      const tau = options.background?.fadeOut ? 0.06 : 0.008
+      backgroundGain.gain.setTargetAtTime(0, audioContext.currentTime, tau)
     }
     // Hold the last frame briefly so the final GOP isn't truncated.
     await wait(180)

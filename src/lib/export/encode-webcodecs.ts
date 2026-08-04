@@ -20,8 +20,10 @@ import { deriveProjectLocation } from '../geo'
 import { isIosBrowser } from '../platform'
 import type { ClipRecord } from '../types'
 import {
+  boundaryRampHalfMs,
   createBackgroundMixer,
-  planBackgroundGain,
+  planSegmentGain,
+  segmentVolume,
   type BackgroundAudio,
 } from './background-audio'
 import { injectMp4Metadata, type Mp4Chapter } from './mp4-metadata'
@@ -187,8 +189,12 @@ export async function exportWithWebCodecs(
 
   // Background music: playlist tracks are decoded lazily (one at a time,
   // released as the timeline passes them) and mixed into each segment's
-  // audio slice at the envelope gain — per-clip volumes with ramped
-  // transitions, plus the optional fade-in/fade-out.
+  // audio slice under a per-segment gain envelope — per-clip volumes with
+  // ramped transitions, plus the optional fade-in/fade-out. Envelopes are
+  // built from each segment's REAL (clamped) duration as it is mixed, so
+  // ramps and fades stay on their clips even when clamping shifts the
+  // timeline; only ramp-length clamping peeks at the next clip's planned
+  // duration.
   const backgroundMixer =
     background && background.tracks.length > 0
       ? createBackgroundMixer(
@@ -205,10 +211,13 @@ export async function exportWithWebCodecs(
               )
             },
           },
-          planBackgroundGain(plan.segments, background.defaultVolume, plan.totalMs, background),
           AUDIO_SAMPLE_RATE,
         )
       : null
+  const plannedDurationsMs = plan.segments.map((s) => s.endMs - s.startMs)
+  /** Volume + real duration of the previous MIXED segment (dropped
+   * segments must not become ramp anchors). */
+  let previousMixed: { volume: number; durationMs: number } | null = null
 
   try {
     for (const [segmentIndex, segment] of plan.segments.entries()) {
@@ -259,18 +268,39 @@ export async function exportWithWebCodecs(
         // by position, so segments can never drift.
         const buffer = await decodeClipAudio(segment.clip.blob, AUDIO_SAMPLE_RATE)
         const slice = sliceSegmentAudio(buffer, clamped.startMs, segmentMs)
-        if (backgroundMixer) {
+        if (backgroundMixer && background) {
+          const volume = segmentVolume(segment, background.defaultVolume)
+          const nextPlanned = plan.segments[segmentIndex + 1]
           await backgroundMixer.mixInto(
             Array.from({ length: slice.numberOfChannels }, (_, ch) => slice.getChannelData(ch)),
             // Frames already written = the real position of this slice, even
-            // when clamping shortened an earlier segment…
+            // when clamping shortened an earlier segment.
             Math.round(state.outputOffsetSec * AUDIO_SAMPLE_RATE),
-            // …while gains follow the PLANNED timeline: the envelope was
-            // built from planned offsets, so anchoring each slice's gain at
-            // its planned offset keeps per-clip volumes and fades on their
-            // clips even when clamping shifted the real frame positions.
-            segment.offsetMs,
+            planSegmentGain({
+              volume,
+              durationMs: segmentMs,
+              entry: previousMixed
+                ? {
+                    fromVolume: previousMixed.volume,
+                    halfMs: boundaryRampHalfMs(
+                      previousMixed.durationMs,
+                      plannedDurationsMs[segmentIndex],
+                    ),
+                  }
+                : undefined,
+              exit: nextPlanned
+                ? {
+                    toVolume: segmentVolume(nextPlanned, background.defaultVolume),
+                    halfMs: boundaryRampHalfMs(
+                      segmentMs,
+                      plannedDurationsMs[segmentIndex + 1],
+                    ),
+                  }
+                : undefined,
+              fades: background,
+            }),
           )
+          previousMixed = { volume, durationMs: segmentMs }
         }
         await audioSource.add(slice)
 
