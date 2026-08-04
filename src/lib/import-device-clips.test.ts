@@ -26,10 +26,13 @@ describe('mimeTypeForDeviceFile', () => {
 })
 
 describe('isLikelyVideoFile', () => {
-  it('accepts video/* and known extensions', () => {
+  it('accepts video/* and ambiguous gallery picks', () => {
     expect(isLikelyVideoFile({ name: 'a.bin', type: 'video/webm' })).toBe(true)
     expect(isLikelyVideoFile({ name: 'a.mp4', type: '' })).toBe(true)
     expect(isLikelyVideoFile({ name: 'a.MOV', type: 'application/octet-stream' })).toBe(true)
+    // Android content URIs often lack both a useful type and an extension.
+    expect(isLikelyVideoFile({ name: 'content', type: '' })).toBe(true)
+    expect(isLikelyVideoFile({ name: 'content', type: 'application/octet-stream' })).toBe(true)
   })
 
   it('rejects obvious non-video types', () => {

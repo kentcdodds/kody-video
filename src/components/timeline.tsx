@@ -161,6 +161,12 @@ export function Timeline(handle: Handle<TimelineProps>) {
 
   const onPointerDown = (event: PointerEvent, clip: ClipRecord, index: number) => {
     if (event.button !== 0) return
+    // During device import, clips land in IndexedDB before props.clips
+    // refreshes — a reorder against the stale id list throws. Select only.
+    if (props.addingFromDevice) {
+      selectClip(clip.id)
+      return
+    }
     stopFling()
     // A previous session that never reached finishPointer (e.g. its tile
     // unmounted mid-drag) must not leak into this gesture.
@@ -258,6 +264,10 @@ export function Timeline(handle: Handle<TimelineProps>) {
     let insertAt = gap
     if (gap > fromIndex) insertAt = gap - 1
     if (insertAt === fromIndex) {
+      selectClip(clipId)
+      return
+    }
+    if (props.addingFromDevice) {
       selectClip(clipId)
       return
     }

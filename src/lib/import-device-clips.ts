@@ -45,8 +45,11 @@ export function mimeTypeForDeviceFile(file: Pick<File, 'name' | 'type'>): string
 export function isLikelyVideoFile(file: Pick<File, 'name' | 'type'>): boolean {
   const typed = (file.type || '').trim().toLowerCase()
   if (typed.startsWith('video/')) return true
+  // Reject clear non-video MIME types. Empty type / octet-stream is common for
+  // Android content-URI picks (often extension-less names like "content") —
+  // let probeDeviceClip decide playability for those.
   if (typed && !typed.startsWith('application/octet-stream')) return false
-  return /\.(mp4|m4v|webm|mov|mkv)$/i.test(file.name)
+  return true
 }
 
 async function demuxClipMeta(
