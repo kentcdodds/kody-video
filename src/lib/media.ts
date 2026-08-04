@@ -1,6 +1,7 @@
-import { ALL_FORMATS, BlobSource, Input } from 'mediabunny'
-import { loadClipVideo } from './export/shared'
+import { isMobileBrowser } from './platform'
 import type { ClipRecord } from './types'
+
+export { isIosBrowser, isMobileBrowser } from './platform'
 
 export type FacingMode = 'environment' | 'user'
 
@@ -334,7 +335,12 @@ export async function measureBlobDuration(blob: Blob, timeoutMs = 5000): Promise
   // camera preview is live — blanks the preview on many Androids (the
   // post-take black flash), and it's slower besides. Deadline-guarded so a
   // malformed blob can't hang the parse past the caller's budget.
+  //
+  // Dynamic import: mediabunny is large and only needed after a take /
+  // during export. Keeping it out of the home-shell graph is what makes
+  // first paint cheap.
   try {
+    const { ALL_FORMATS, BlobSource, Input } = await import('mediabunny')
     const input = new Input({ source: new BlobSource(blob), formats: ALL_FORMATS })
     const seconds = await Promise.race([
       input.computeDuration(),
@@ -346,6 +352,7 @@ export async function measureBlobDuration(blob: Blob, timeoutMs = 5000): Promise
   } catch {
     // Unparseable container — let the element path judge it.
   }
+  const { loadClipVideo } = await import('./export/shared')
   const loaded = await loadClipVideo(blob, timeoutMs)
   try {
     return loaded.mediaDurationMs
@@ -363,17 +370,6 @@ export async function canFlipCamera(): Promise<boolean> {
   } catch {
     return false
   }
-}
-
-export function isMobileBrowser(): boolean {
-  return /Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent)
-}
-
-/** All iOS browsers share WebKit (and its quirks), whatever their brand. */
-export function isIosBrowser(): boolean {
-  if (/iPhone|iPad|iPod/i.test(navigator.userAgent)) return true
-  // iPadOS masquerades as macOS but is the only "Mac" with touch points.
-  return navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1
 }
 
 export async function downloadBlob(blob: Blob, filename: string): Promise<void> {

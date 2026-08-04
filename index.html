@@ -5,7 +5,7 @@
     <link rel="icon" type="image/png" href="/favicon.png" />
     <meta
       name="viewport"
-      content="width=device-width, initial-scale=1.0, viewport-fit=cover, maximum-scale=1.0, user-scalable=no, interactive-widget=resizes-content"
+      content="width=device-width, initial-scale=1.0, viewport-fit=cover, interactive-widget=resizes-content"
     />
     <meta name="theme-color" media="(prefers-color-scheme: dark)" content="#2F3E46" />
     <meta name="theme-color" media="(prefers-color-scheme: light)" content="#EEF5F1" />
@@ -44,6 +44,155 @@
     />
     <meta name="twitter:image" content="https://kody.video/og-image.png" />
     <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+    <link
+      rel="preload"
+      as="image"
+      href="/art/kody-holding-camera-192.webp"
+      type="image/webp"
+      fetchpriority="high"
+    />
+    <!-- Critical first-paint styles for the permanent boot hero. Lives outside
+         #app so SPA boot cannot destroy it; that was lantern's multi-second
+         LCP "render delay" when the hero was re-created by JS. -->
+    <style>
+      :root {
+        color-scheme: dark;
+        --bg-deep: #172126;
+        --bg: #2f3e46;
+        --bg-bottom: #10171a;
+        --ink: #f3f5f4;
+        --ink-muted: #b0b8bc;
+        --accent: #44d7a8;
+        --glow-accent: rgba(68, 215, 168, 0.2);
+        --glow-mist: rgba(176, 184, 188, 0.18);
+        --font-display: 'Fraunces', Georgia, serif;
+        --font-body: 'DM Sans', 'Segoe UI', sans-serif;
+        --safe-top: env(safe-area-inset-top, 0px);
+        --safe-bottom: env(safe-area-inset-bottom, 0px);
+      }
+      @media (prefers-color-scheme: light) {
+        :root {
+          color-scheme: light;
+          --bg-deep: #dfeae4;
+          --bg: #eef5f1;
+          --bg-bottom: #cfdcd5;
+          --ink: #1a2824;
+          --ink-muted: #5a6d66;
+          --accent: #1f8a68;
+          --glow-accent: rgba(31, 138, 104, 0.18);
+          --glow-mist: rgba(95, 133, 117, 0.16);
+        }
+      }
+      /* Must match global.css from first paint — otherwise the desktop
+         phone frame reflows when border-box arrives (large CLS). */
+      *,
+      *::before,
+      *::after {
+        box-sizing: border-box;
+      }
+      html {
+        /* Reserve scrollbar space so desktop overflow:auto cannot shift the
+           centered #root when the SPA paints taller content. */
+        scrollbar-gutter: stable;
+      }
+      html,
+      body,
+      #root,
+      #app {
+        margin: 0;
+        min-height: 100%;
+        height: 100%;
+      }
+      #root {
+        width: min(480px, 100%);
+      }
+      body {
+        font-family: var(--font-body);
+        color: var(--ink);
+        background:
+          radial-gradient(120% 80% at 10% -10%, var(--glow-accent), transparent 55%),
+          radial-gradient(90% 70% at 100% 0%, var(--glow-mist), transparent 50%),
+          linear-gradient(180deg, var(--bg) 0%, var(--bg-deep) 58%, var(--bg-bottom) 100%);
+        -webkit-font-smoothing: antialiased;
+        overflow: hidden;
+      }
+      #root {
+        position: relative;
+        max-width: 480px;
+        margin-left: auto;
+        margin-right: auto;
+      }
+      #boot-hero {
+        position: absolute;
+        top: calc(12px + var(--safe-top));
+        left: 0;
+        right: 0;
+        z-index: 2;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        text-align: center;
+        gap: 2px;
+        pointer-events: none;
+      }
+      #boot-hero .brand-hero-art {
+        width: 96px;
+        height: 96px;
+        margin: 0 0 4px;
+        border-radius: 24px;
+        background: rgba(243, 245, 244, 0.06);
+        display: block;
+      }
+      #boot-hero .brand {
+        font-family: var(--font-display);
+        font-weight: 700;
+        letter-spacing: -0.03em;
+        font-size: clamp(1.65rem, 7vw, 2.1rem);
+        line-height: 0.95;
+        margin: 0;
+      }
+      #boot-hero .brand span {
+        color: var(--accent);
+      }
+      #boot-hero .lede {
+        margin: 4px 0 0;
+        color: var(--ink-muted);
+        font-size: 0.86rem;
+        line-height: 1.3;
+      }
+      html[data-route='app'] #boot-hero {
+        display: none;
+      }
+      /* Desktop: SPA paints the hero. Reserve the phone-chrome frame here so
+         applying the full stylesheet does not shift the whole page (CLS). */
+      @media (min-width: 720px) {
+        body {
+          overflow: auto;
+        }
+        #boot-hero {
+          display: none;
+        }
+        #root {
+          margin-top: 24px;
+          margin-bottom: 24px;
+          height: min(920px, calc(100dvh - 48px));
+          border-radius: 28px;
+          /* Match full stylesheet: reserve border box so 1px border + shadow
+             cannot reflow the frame after CSS arrives. */
+          border: 1px solid rgba(243, 245, 244, 0.16);
+          overflow: hidden;
+        }
+      }
+      @media (min-width: 720px) and (prefers-color-scheme: light) {
+        #root {
+          border-color: rgba(26, 40, 36, 0.12);
+        }
+      }
+      #app {
+        position: relative;
+        z-index: 1;
+      }
+    </style>
     <script>
       // Fathom Analytics (cookieless, anonymous page-view counts). Loaded
       // only on real deployments so dev servers and test runs stay out of
@@ -57,16 +206,25 @@
         document.head.appendChild(fathomScript)
       }
     </script>
-    <link rel="preconnect" href="https://fonts.googleapis.com" />
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-    <link
-      href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,400;0,9..40,500;0,9..40,600;0,9..40,700;1,9..40,400&family=Fraunces:opsz,wght@9..144,500;9..144,700&display=swap"
-      rel="stylesheet"
-    />
     <title>Kody Video</title>
   </head>
   <body>
-    <div id="root"></div>
+    <div id="root">
+      <header id="boot-hero">
+        <img
+          class="brand-hero-art"
+          width="96"
+          height="96"
+          src="/art/kody-holding-camera-192.webp"
+          alt=""
+          decoding="sync"
+          fetchpriority="high"
+        />
+        <h1 class="brand">Kody <span>Video</span></h1>
+        <p class="lede">Hold to record. Tap Go to share.</p>
+      </header>
+      <div id="app"></div>
+    </div>
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>

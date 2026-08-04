@@ -13,6 +13,17 @@
   flex: 0 0 auto;
 }
 
+/* Reserves home-hero space while #boot-hero paints the real brand/LCP. */
+.home-hero-spacer {
+  visibility: hidden;
+}
+
+@media (min-width: 720px) {
+  .home-hero-spacer {
+    visibility: visible;
+  }
+}
+
 .home-hero-art {
   width: 100%;
   display: flex;
@@ -239,8 +250,13 @@
   margin: 8px 0 0;
   text-align: center;
   color: var(--ink-muted);
-  font-size: 0.78rem;
-  line-height: 1.3;
+  /* Keep the painted box smaller than the 96×96 boot-hero art so this
+     late-rendered line cannot steal LCP after the SPA mounts. */
+  font-size: 0.72rem;
+  line-height: 1.25;
+  max-width: 16rem;
+  margin-left: auto;
+  margin-right: auto;
   flex: 0 0 auto;
 }
 

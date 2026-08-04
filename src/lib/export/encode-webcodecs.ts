@@ -17,7 +17,7 @@ import {
   type VideoCodec,
 } from 'mediabunny'
 import { deriveProjectLocation } from '../geo'
-import { isIosBrowser } from '../media'
+import { isIosBrowser } from '../platform'
 import type { ClipRecord } from '../types'
 import { injectMp4Metadata, type Mp4Chapter } from './mp4-metadata'
 import { createOpfsExportFile } from './opfs'

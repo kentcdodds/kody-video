@@ -208,9 +208,20 @@ export function HomePage(handle: Handle) {
 
     return (
       <div className="screen home-screen">
-        <div className="home-hero">
-          <div className="home-hero-art" aria-hidden="true">
-            <BrandMark size={96} className="brand-hero-art" variant="camera" />
+        {/* On mobile, the visible brand/LCP hero lives in index.html
+            (#boot-hero) so first paint is not gated on JS — this block is a
+            layout spacer there. Desktop hides #boot-hero and shows this. */}
+        <div
+          className="home-hero home-hero-spacer"
+          aria-hidden={typeof window !== 'undefined' && window.matchMedia('(max-width: 719px)').matches}
+        >
+          <div className="home-hero-art">
+            <BrandMark
+              size={96}
+              className="brand-hero-art"
+              variant="camera"
+              priority={typeof window !== 'undefined' && window.matchMedia('(max-width: 719px)').matches}
+            />
           </div>
           <h1 className="brand">
             Kody <span>Video</span>

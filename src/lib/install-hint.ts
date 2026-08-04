@@ -4,7 +4,7 @@
  * decides when nudging about that is actually useful.
  */
 
-import { isIosBrowser } from './media'
+import { isIosBrowser } from './platform'
 
 const DISMISSED_KEY = 'kody-video:install-hint-dismissed'
 

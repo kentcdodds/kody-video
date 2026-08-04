@@ -1,4 +1,4 @@
-import { isIosBrowser } from './media'
+import { isIosBrowser } from './platform'
 
 /**
  * iOS external-microphone routing (DJI transmitters, AirPods, wired headsets).

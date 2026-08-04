@@ -1,4 +1,3 @@
-import * as Sentry from '@sentry/browser'
 import { COMMIT_SHA } from './build-info'
 
 /** Publishable client key for the kody-video Sentry project (not a secret). */
@@ -38,6 +37,15 @@ type FilterableSentryEvent = {
   }
   message?: string
 }
+
+type SentryLike = {
+  init: (options: Record<string, unknown>) => void
+  captureException: (error: unknown, context?: Record<string, unknown>) => void
+  captureMessage: (message: string, context?: Record<string, unknown>) => void
+}
+
+/** Set after the dynamic `@sentry/browser` import resolves on reporting hosts. */
+let sentry: SentryLike | null = null
 
 /** True for intentional monitoring self-test events (narrow signature only). */
 export function isMonitoringSelfTestEvent(event: FilterableSentryEvent): boolean {
@@ -97,7 +105,7 @@ function reportExportSessionDeath(): void {
     if (!raw) return
     sessionStorage.removeItem(EXPORT_MARKER_KEY)
     const info = JSON.parse(raw) as Record<string, unknown>
-    Sentry.captureMessage('Export session died (page reloaded mid-export, likely OOM/crash)', {
+    sentry?.captureMessage('Export session died (page reloaded mid-export, likely OOM/crash)', {
       level: 'error',
       tags: { step: 'export-crash' },
       extra: info,
@@ -152,30 +160,34 @@ export function coarsePlatformTags(): Record<string, string> {
 
 export function initErrorReporting(): void {
   if (!REPORTING_HOSTNAMES.has(location.hostname)) return
-  Sentry.init({
-    dsn: SENTRY_DSN,
-    release: COMMIT_SHA,
-    environment: location.hostname === 'kody.video' ? 'production' : 'legacy-pages-dev',
-    initialScope: { tags: coarsePlatformTags() },
-    // Crash reports only: no tracing, no session replay, no PII. Clips and
-    // media never leave the device — this reports errors and stack traces.
-    // These settings ENFORCE the privacy-page wording ("error message, stack
-    // trace, browser/OS, failed step — nothing else"); keep them in sync.
-    sendDefaultPii: false,
-    tracesSampleRate: 0,
-    maxBreadcrumbs: 0,
-    beforeBreadcrumb: () => null,
-    beforeSend(event) {
-      // Never attach user context (Sentry would otherwise infer an IP-based
-      // user) or request metadata (URL/headers).
-      delete event.user
-      delete event.request
-      if (isMonitoringSelfTestEvent(event)) return null
-      if (isCloudflareInsightsBeaconEvent(event)) return null
-      return event
-    },
+  // Defer the Sentry SDK so it is not in the critical home-shell parse.
+  void import('@sentry/browser').then((Sentry) => {
+    sentry = Sentry
+    Sentry.init({
+      dsn: SENTRY_DSN,
+      release: COMMIT_SHA,
+      environment: location.hostname === 'kody.video' ? 'production' : 'legacy-pages-dev',
+      initialScope: { tags: coarsePlatformTags() },
+      // Crash reports only: no tracing, no session replay, no PII. Clips and
+      // media never leave the device — this reports errors and stack traces.
+      // These settings ENFORCE the privacy-page wording ("error message, stack
+      // trace, browser/OS, failed step — nothing else"); keep them in sync.
+      sendDefaultPii: false,
+      tracesSampleRate: 0,
+      maxBreadcrumbs: 0,
+      beforeBreadcrumb: () => null,
+      beforeSend(event) {
+        // Never attach user context (Sentry would otherwise infer an IP-based
+        // user) or request metadata (URL/headers).
+        delete event.user
+        delete event.request
+        if (isMonitoringSelfTestEvent(event)) return null
+        if (isCloudflareInsightsBeaconEvent(event)) return null
+        return event
+      },
+    })
+    reportExportSessionDeath()
   })
-  reportExportSessionDeath()
 }
 
 /**
@@ -188,7 +200,14 @@ export function reportError(
   step: string,
   extra?: Record<string, unknown>,
 ): void {
-  Sentry.captureException(error, { tags: { step }, ...(extra ? { extra } : {}) })
+  if (sentry) {
+    sentry.captureException(error, { tags: { step }, ...(extra ? { extra } : {}) })
+    return
+  }
+  // SDK still loading — queue via dynamic import so early failures are not lost.
+  void import('@sentry/browser').then((Sentry) => {
+    Sentry.captureException(error, { tags: { step }, ...(extra ? { extra } : {}) })
+  })
 }
 
 /**
@@ -198,7 +217,15 @@ export function reportError(
  */
 export function reportComponentError(error: unknown): void {
   console.error('Uncaught component error', error)
-  Sentry.captureException(error, {
-    mechanism: { type: 'remix.componentError', handled: false },
+  if (sentry) {
+    sentry.captureException(error, {
+      mechanism: { type: 'remix.componentError', handled: false },
+    })
+    return
+  }
+  void import('@sentry/browser').then((Sentry) => {
+    Sentry.captureException(error, {
+      mechanism: { type: 'remix.componentError', handled: false },
+    })
   })
 }
