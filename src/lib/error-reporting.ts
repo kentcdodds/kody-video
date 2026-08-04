@@ -61,6 +61,21 @@ export function isMonitoringSelfTestEvent(event: FilterableSentryEvent): boolean
   )
 }
 
+/**
+ * Soft project-cap / free-plan gate (createProject). Expected UX noise —
+ * drop even if something captures outside reportError.
+ */
+export function isProjectLimitEvent(event: FilterableSentryEvent): boolean {
+  const exceptionValues = event.exception?.values ?? []
+  for (const value of exceptionValues) {
+    if (value.type === 'ProjectLimitError') return true
+    const text = value.value ?? ''
+    if (text.includes('The free plan includes 1 project')) return true
+    if (/^Project limit reached \(\d+\)/.test(text)) return true
+  }
+  return false
+}
+
 function frameUrl(frame: FilterableStackFrame): string {
   return frame.abs_path ?? frame.filename ?? ''
 }
@@ -192,6 +207,7 @@ function loadSentry(): Promise<SentryLike> {
         delete event.request
         if (isMonitoringSelfTestEvent(event)) return null
         if (isCloudflareInsightsBeaconEvent(event)) return null
+        if (isProjectLimitEvent(event)) return null
         return event
       },
     })
@@ -223,6 +239,15 @@ export function initErrorReporting(): void {
 }
 
 /**
+ * True for expected product gates that must never become crash reports.
+ * Matched by `error.name` so this module stays free of a storage import
+ * (storage pulls idb/OPFS; reportError is on the idle-deferred Sentry path).
+ */
+export function isExpectedUserError(error: unknown): boolean {
+  return error instanceof Error && error.name === 'ProjectLimitError'
+}
+
+/**
  * Explicit capture for errors we catch and surface as in-app messages
  * (export error sheet, import error banner, …) — the user sees a friendly
  * message, we see the cause. The step lands as a searchable Sentry tag.
@@ -232,6 +257,9 @@ export function reportError(
   step: string,
   extra?: Record<string, unknown>,
 ): void {
+  // Plan/project caps are product UX (toast / upsell), not failures to triage.
+  if (isExpectedUserError(error)) return
+
   if (sentry) {
     sentry.captureException(error, { tags: { step }, ...(extra ? { extra } : {}) })
     return

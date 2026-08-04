@@ -1,8 +1,12 @@
 import { describe, expect, it } from 'vitest'
 import {
   isCloudflareInsightsBeaconEvent,
+  isExpectedUserError,
   isMonitoringSelfTestEvent,
+  isProjectLimitEvent,
+  reportError,
 } from './error-reporting'
+import { ProjectLimitError } from './storage'
 
 describe('isMonitoringSelfTestEvent', () => {
   it('drops the setup-agent synthetic exception signature', () => {
@@ -41,6 +45,78 @@ describe('isMonitoringSelfTestEvent', () => {
 
   it('keeps events with no exception payload', () => {
     expect(isMonitoringSelfTestEvent({})).toBe(false)
+  })
+})
+
+describe('isProjectLimitEvent', () => {
+  it('drops ProjectLimitError by exception type', () => {
+    expect(
+      isProjectLimitEvent({
+        exception: {
+          values: [
+            {
+              type: 'ProjectLimitError',
+              value: 'The free plan includes 1 project — Kody Video Plus unlocks 6.',
+            },
+          ],
+        },
+      }),
+    ).toBe(true)
+  })
+
+  it('drops the free-plan copy even when typed as Error (pre-fix events)', () => {
+    expect(
+      isProjectLimitEvent({
+        exception: {
+          values: [
+            {
+              type: 'Error',
+              value:
+                'The free plan includes 1 project — Kody Video Plus unlocks 6 (and removes the watermark).',
+            },
+          ],
+        },
+      }),
+    ).toBe(true)
+  })
+
+  it('drops the hard project-cap copy', () => {
+    expect(
+      isProjectLimitEvent({
+        exception: {
+          values: [
+            {
+              type: 'Error',
+              value: 'Project limit reached (6). Delete a project to create another.',
+            },
+          ],
+        },
+      }),
+    ).toBe(true)
+  })
+
+  it('keeps unrelated application errors', () => {
+    expect(
+      isProjectLimitEvent({
+        exception: {
+          values: [{ type: 'Error', value: 'Export failed: encoder closed' }],
+        },
+      }),
+    ).toBe(false)
+  })
+})
+
+describe('isExpectedUserError / reportError', () => {
+  it('recognizes ProjectLimitError instances', () => {
+    expect(isExpectedUserError(new ProjectLimitError('capped'))).toBe(true)
+    expect(isExpectedUserError(new Error('Export failed'))).toBe(false)
+  })
+
+  it('reportError returns without throwing for ProjectLimitError', () => {
+    // Short-circuits before the idle-deferred SDK load — no capture queued.
+    expect(() =>
+      reportError(new ProjectLimitError('The free plan includes 1 project'), 'save-clip'),
+    ).not.toThrow()
   })
 })
 
