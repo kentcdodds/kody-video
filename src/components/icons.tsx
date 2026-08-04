@@ -89,14 +89,18 @@ export function IconPause(handle: Handle<IconProps>) {
   )
 }
 
+/** Filmstrip: mirrors the clip timeline the editor button opens. */
 export function IconEditor(handle: Handle<IconProps>) {
   return () => (
     <svg {...baseProps(handle.props.size ?? 22)}>
-      <circle cx="6.5" cy="6.5" r="2.25" />
-      <circle cx="6.5" cy="17.5" r="2.25" />
-      <path d="M19.5 4.5L8.7 15.3" />
-      <path d="M14.2 5L19.5 10.3" />
-      <path d="M8.7 8.7L19.5 19.5" />
+      <rect x="3" y="4.5" width="18" height="15" rx="2" />
+      <path d="M7.5 4.5v15" />
+      <path d="M16.5 4.5v15" />
+      <path d="M3 9.5h4.5" />
+      <path d="M3 14.5h4.5" />
+      <path d="M16.5 9.5H21" />
+      <path d="M16.5 14.5H21" />
+      <path d="M7.5 12h9" />
     </svg>
   )
 }
@@ -112,14 +116,15 @@ export function IconDeleteLast(handle: Handle<IconProps>) {
   )
 }
 
+/** Straight-sided bin with a rounded base; sturdier than a tapered can at small sizes. */
 export function IconTrash(handle: Handle<IconProps>) {
   return () => (
     <svg {...baseProps(handle.props.size ?? 22)}>
-      <path d="M5 7h14" />
-      <path d="M9 7V5.5A1.5 1.5 0 0110.5 4h3A1.5 1.5 0 0115 5.5V7" />
-      <path d="M8 7l.7 11.2A1.5 1.5 0 0010.2 19.5h3.6a1.5 1.5 0 001.5-1.3L16 7" />
-      <path d="M10.5 11v5" />
-      <path d="M13.5 11v5" />
+      <path d="M4.5 7h15" />
+      <path d="M9.5 7V5.5A1.5 1.5 0 0111 4h2a1.5 1.5 0 011.5 1.5V7" />
+      <path d="M18 7v11a2.5 2.5 0 01-2.5 2.5h-7A2.5 2.5 0 016 18V7" />
+      <path d="M10 11v5.5" />
+      <path d="M14 11v5.5" />
     </svg>
   )
 }
