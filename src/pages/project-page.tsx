@@ -436,6 +436,7 @@ export function ProjectPage(handle: Handle<ProjectPageProps>) {
         ) : (
           <EditorScreen
             project={project}
+            ensureProjectId={ensureProjectId}
             clips={clips}
             canUndo={data.canUndo}
             interactionLocked={overlayOpen}

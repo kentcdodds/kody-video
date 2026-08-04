@@ -29,6 +29,9 @@ interface TimelineProps {
   clips: ClipRecord[]
   selectedClipId: ClipId | null
   onSelect: (id: ClipId) => void
+  /** Open the device file picker to append gallery videos. */
+  onAddFromDevice?: () => void
+  addingFromDevice?: boolean
   refresh: () => void
 }
 
@@ -158,6 +161,12 @@ export function Timeline(handle: Handle<TimelineProps>) {
 
   const onPointerDown = (event: PointerEvent, clip: ClipRecord, index: number) => {
     if (event.button !== 0) return
+    // During device import, clips land in IndexedDB before props.clips
+    // refreshes — a reorder against the stale id list throws. Select only.
+    if (props.addingFromDevice) {
+      selectClip(clip.id)
+      return
+    }
     stopFling()
     // A previous session that never reached finishPointer (e.g. its tile
     // unmounted mid-drag) must not leak into this gesture.
@@ -258,18 +267,38 @@ export function Timeline(handle: Handle<TimelineProps>) {
       selectClip(clipId)
       return
     }
+    if (props.addingFromDevice) {
+      selectClip(clipId)
+      return
+    }
     nextIds.splice(insertAt, 0, removed)
     selectClip(clipId)
     void reorderClips(props.projectId, nextIds).then(() => props.refresh())
   }
 
   return () => {
-    const { clips, selectedClipId } = props
+    const { clips, selectedClipId, onAddFromDevice, addingFromDevice } = props
 
     if (clips.length === 0) {
       return (
         <div key="timeline-empty" className="timeline" aria-label="Timeline empty">
-          <p className="timeline-empty muted">Hold the preview to add clips</p>
+          {onAddFromDevice ? (
+            <button
+              type="button"
+              className="timeline-empty-add"
+              disabled={addingFromDevice}
+              mix={on('click', () => onAddFromDevice())}
+            >
+              <span className="timeline-empty-add-title">
+                {addingFromDevice ? 'Adding…' : 'Add clips from your device'}
+              </span>
+              <span className="timeline-empty-add-sub muted">
+                Or go back and hold the preview to record
+              </span>
+            </button>
+          ) : (
+            <p className="timeline-empty muted">Hold the preview to add clips</p>
+          )}
         </div>
       )
     }
@@ -349,6 +378,21 @@ export function Timeline(handle: Handle<TimelineProps>) {
         })}
         {draggingId !== null && gapIndex === clips.length ? (
           <div className="timeline-drop-indicator timeline-drop-trailing" aria-hidden />
+        ) : null}
+        {onAddFromDevice && draggingId === null ? (
+          <div className="timeline-slot">
+            <button
+              type="button"
+              className="timeline-add-tile"
+              aria-label="Add clips from device"
+              disabled={addingFromDevice}
+              mix={on('click', () => onAddFromDevice())}
+            >
+              <span className="timeline-add-plus" aria-hidden>
+                +
+              </span>
+            </button>
+          </div>
         ) : null}
       </div>
     )

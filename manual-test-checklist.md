@@ -27,7 +27,8 @@ npm test           # unit tests
 - **Editor**: opens at the most recent clip; tap selects; tiles show
   filmstrip thumbnails; duplicate inserts the copy right after the selection;
   delete offers Undo; trim strip opens, dragging the end handle + Done
-  persists `trimEndMs` and updates the tile duration
+  persists `trimEndMs` and updates the tile duration; **Add** imports a
+  video from the device onto the timeline
 - **Playback**: whole cut with segmented progress; edge taps skip
   next/previous; middle tap stops; auto-closes at the end of the cut
 - **Go / export**: full export to a ready sheet with format + size; Save

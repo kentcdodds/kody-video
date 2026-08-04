@@ -144,6 +144,59 @@
   font-size: 0.9rem;
 }
 
+.timeline-empty-add {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+  width: 100%;
+  margin: 8px 4px;
+  padding: 14px 16px;
+  border-radius: 16px;
+  text-align: left;
+  color: var(--ink);
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+  border: 1px dashed color-mix(in srgb, var(--accent) 45%, transparent);
+}
+
+.timeline-empty-add:disabled {
+  opacity: 0.6;
+  cursor: wait;
+}
+
+.timeline-empty-add-title {
+  font-size: 0.95rem;
+  font-weight: 700;
+}
+
+.timeline-empty-add-sub {
+  font-size: 0.78rem;
+  line-height: 1.3;
+}
+
+.timeline-add-tile {
+  display: grid;
+  place-items: center;
+  width: 56px;
+  height: var(--editor-tile-h);
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--ink) 6%, transparent);
+  border: 1px dashed color-mix(in srgb, var(--ink) 28%, transparent);
+  color: var(--ink-muted);
+  flex: 0 0 auto;
+}
+
+.timeline-add-tile:disabled {
+  opacity: 0.5;
+  cursor: wait;
+}
+
+.timeline-add-plus {
+  font-size: 1.6rem;
+  font-weight: 500;
+  line-height: 1;
+}
+
 .timeline-slot {
   display: flex;
   align-items: center;
@@ -461,6 +514,13 @@
   justify-content: space-between;
 }
 
+.editor-toolbar-start {
+  display: flex;
+  gap: 4px;
+  align-items: center;
+  min-width: 0;
+}
+
 .editor-toolbar .btn {
-  flex: 1;
+  flex: 0 1 auto;
 }

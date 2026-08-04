@@ -32,7 +32,7 @@ For a phone on the same network, use your machine’s LAN URL over HTTPS, or tun
 - Hold-to-record anywhere on the preview; drag up/down while holding to zoom
 - Self-timer for hands-free takes (tap to stop)
 - Recording feedback (REC pill + elapsed) with a page that does **not** re-render per frame — capture stays smooth
-- Editor: filmstrip timeline (thumbnails, width ∝ duration), drag to reorder, duplicate, delete w/ undo, **in-timeline trim with drag handles**
+- Editor: filmstrip timeline (thumbnails, width ∝ duration), drag to reorder, duplicate, delete w/ undo, **in-timeline trim with drag handles**, **add clips from your device/gallery**
 - Project preview playback: tap edges to skip clips, tap middle to stop
 - Up to **6** stable project slots (create / open / rename / delete, poster art from your clips)
 - Big Go CTA: on-device export to **one video file**, then Share (system sheet) or Save
