@@ -13,8 +13,11 @@ export default defineConfig({
     __BUILD_DATE__: JSON.stringify(new Date().toISOString()),
   },
   build: {
-    // Generated for Sentry upload, never referenced from the served bundles.
-    sourcemap: sentryUpload ? 'hidden' : false,
+    // Open-source app: ship public source maps for DevTools / PSI, and still
+    // upload the same maps to Sentry when the CI token is present.
+    sourcemap: true,
+    // Modern baselines only — matches Vite 7 defaults; keeps transforms lean.
+    target: ['chrome107', 'edge107', 'firefox104', 'safari16'],
   },
   esbuild: {
     jsx: 'automatic',
@@ -27,7 +30,8 @@ export default defineConfig({
             org: 'kent-c-dodds-tech-llc',
             project: 'kody-video',
             release: { name: commitSha },
-            sourcemaps: { filesToDeleteAfterUpload: 'dist/**/*.map' },
+            // Keep *.map in the Pages deploy so browsers can fetch them.
+            sourcemaps: { filesToDeleteAfterUpload: [] },
           }),
         ]
       : []),
@@ -105,7 +109,8 @@ export default defineConfig({
         globPatterns: ['**/*.{js,css,html,ico,png,svg,webp,woff2}'],
         // Not part of the app shell: the social card is for link scrapers
         // and the icon master is only the source for generated icons.
-        globIgnores: ['**/og-image.png', '**/art/kody-video-icon.png'],
+        // Source maps are served on demand for debugging — do not precache.
+        globIgnores: ['**/og-image.png', '**/art/kody-video-icon.png', '**/*.map'],
         navigateFallback: '/index.html',
         // Never SPA-fallback these: opening the social card in a tab with an
         // active service worker was "redirecting" to the app, and the API
@@ -117,6 +122,7 @@ export default defineConfig({
           /^\/sitemap\.xml$/,
           /^\/llms\.txt$/,
           /^\/assets\//,
+          /\.map$/,
         ],
         maximumFileSizeToCacheInBytes: 3 * 1024 * 1024,
       },
