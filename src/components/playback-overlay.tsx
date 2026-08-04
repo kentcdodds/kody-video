@@ -246,6 +246,9 @@ export function PlaybackOverlay(handle: Handle<PlaybackOverlayProps>) {
       return
     }
     index = Math.max(0, Math.min(resolveSegments().length - 1, nextIndex))
+    // Jump the music to the new position now — waiting for the next clip's
+    // metadata would leave the old position playing through the load gap.
+    syncMusicPosition()
     void handle.update()
   }
 
