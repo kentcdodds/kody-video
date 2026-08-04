@@ -261,6 +261,9 @@ export function PlaybackOverlay(handle: Handle<PlaybackOverlayProps>) {
     }
     segmentProgress = 0
     index = index + 1
+    // Positionally a no-op (segments abut on the timeline), but keeps the
+    // playlist hand-off logic on one path with manual skips.
+    syncMusicPosition()
     void handle.update()
   }
 
