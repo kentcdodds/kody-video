@@ -49,18 +49,24 @@ for what it covers and the remaining real-device-only checks.
 
 ## Architecture
 
+Built with [Remix 3](https://github.com/remix-run/remix) (`remix@3.0.0-beta.5`,
+pinned — v3 is prerelease) as a pure client-side app: `remix/ui` components
+rendered with `createRoot`, no server rendering.
+
 ```
 src/
   lib/storage.ts            IndexedDB (idb) — projects, clip blobs + thumbnails, undo
-  lib/project-actions.ts    Loader/mutation helpers for routes
+  lib/project-actions.ts    Loader/mutation helpers for pages
+  lib/camera.ts             Camera controller (open/flip/zoom/lens/mic lifecycle)
   lib/recorder.ts           Hold-to-record MediaRecorder wrapper (hardware-codec aware)
   lib/media.ts              getUserMedia/permissions/share/download helpers
   lib/thumbs.ts             Filmstrip thumbnail generation (stored per clip)
+  lib/sheet-modal.ts        Bottom-sheet modality (focus trap, Esc, sheet stack)
   lib/export/               Export engines (see below)
   components/record-screen  Camera surface (capture, zoom, timer, dock)
   components/editor-screen  Timeline, trim, clip actions
   pages/                    Home (project slots) + Project (record/editor shell)
-  router.tsx                React Router data routers (loaders)
+  router.tsx                Tiny client router (route-pattern matching + history)
 ```
 
 ### Chapters & optional location
@@ -91,12 +97,17 @@ before this feature simply lack the data and degrade gracefully.
 - The elapsed timer is a leaf component writing `textContent` from rAF; nothing else re-renders during capture.
 - A screen wake lock is held while recording.
 
-### React data flow (no `useEffect` for app logic)
+### Remix data flow (explicit updates, no hooks)
 
-- **Route loaders** (`homeLoader` / `projectLoader`) load IndexedDB state; mutations call `useRevalidator()`.
-- **Camera** attaches via a **video ref callback** (start on mount, stop on unmount).
-- **Blob URLs** bind/revoke in media ref callbacks (`BlobVideo`, `BlobImage`, `TimelineThumbImage`).
-- **Sheets** reset with `key={id}` instead of syncing props → state in an effect.
+- **Components** are Remix 3 setup + render functions: state lives in plain
+  setup-scope variables, re-renders happen only on explicit `handle.update()`.
+- **Pages own their data**: each page loads IndexedDB state in setup and
+  exposes `refresh()`; mutations write storage then call `refresh()`.
+- **Camera** attaches via the **`ref()` mixin** (start on insert, stop when
+  the element's abort signal fires).
+- **Blob URLs** bind/revoke in `ref()` mixins (`BlobVideo`, `BlobImage`,
+  `TimelineThumbImage`), re-synced from render when the blob changes.
+- **Sheets** reset with `key={id}`; modality comes from `lib/sheet-modal.ts`.
 - **Timers / toasts** use `requestAnimationFrame` / `setTimeout` started from event handlers.
 
 ### Storage (refresh-safe + personal)
