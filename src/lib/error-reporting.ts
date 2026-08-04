@@ -46,6 +46,8 @@ type SentryLike = {
 
 /** Set after the dynamic `@sentry/browser` import resolves on reporting hosts. */
 let sentry: SentryLike | null = null
+/** In-flight SDK load + init so early captures share one import. */
+let sentryLoad: Promise<SentryLike> | null = null
 
 /** True for intentional monitoring self-test events (narrow signature only). */
 export function isMonitoringSelfTestEvent(event: FilterableSentryEvent): boolean {
@@ -99,13 +101,13 @@ export function clearExportMarker(): void {
   }
 }
 
-function reportExportSessionDeath(): void {
+function reportExportSessionDeath(client: SentryLike): void {
   try {
     const raw = sessionStorage.getItem(EXPORT_MARKER_KEY)
     if (!raw) return
     sessionStorage.removeItem(EXPORT_MARKER_KEY)
     const info = JSON.parse(raw) as Record<string, unknown>
-    sentry?.captureMessage('Export session died (page reloaded mid-export, likely OOM/crash)', {
+    client.captureMessage('Export session died (page reloaded mid-export, likely OOM/crash)', {
       level: 'error',
       tags: { step: 'export-crash' },
       extra: info,
@@ -158,12 +160,19 @@ export function coarsePlatformTags(): Record<string, string> {
   return { 'app.os': os, 'app.browser': browser, 'app.installed': String(installed) }
 }
 
-export function initErrorReporting(): void {
-  if (!REPORTING_HOSTNAMES.has(location.hostname)) return
-  // Defer the Sentry SDK so it is not in the critical home-shell parse.
-  void import('@sentry/browser').then((Sentry) => {
-    sentry = Sentry
-    Sentry.init({
+/**
+ * Load only the crash-reporting surface from `@sentry/browser`.
+ * Assigning the whole module namespace kept Session Replay / rrweb in the
+ * chunk (Legacy JS Array.from override + ~500KB), even though we never
+ * enable replay.
+ */
+function loadSentry(): Promise<SentryLike> {
+  if (sentry) return Promise.resolve(sentry)
+  if (sentryLoad) return sentryLoad
+
+  sentryLoad = import('@sentry/browser').then(({ init, captureException, captureMessage }) => {
+    const client: SentryLike = { init, captureException, captureMessage }
+    client.init({
       dsn: SENTRY_DSN,
       release: COMMIT_SHA,
       environment: location.hostname === 'kody.video' ? 'production' : 'legacy-pages-dev',
@@ -176,7 +185,7 @@ export function initErrorReporting(): void {
       tracesSampleRate: 0,
       maxBreadcrumbs: 0,
       beforeBreadcrumb: () => null,
-      beforeSend(event) {
+      beforeSend(event: FilterableSentryEvent & Record<string, unknown>) {
         // Never attach user context (Sentry would otherwise infer an IP-based
         // user) or request metadata (URL/headers).
         delete event.user
@@ -186,8 +195,31 @@ export function initErrorReporting(): void {
         return event
       },
     })
-    reportExportSessionDeath()
+    sentry = client
+    reportExportSessionDeath(client)
+    return client
   })
+
+  return sentryLoad
+}
+
+/**
+ * Schedule Sentry after the home shell is interactive. PSI / Lighthouse still
+ * see a hostname-gated import eventually; idle defer keeps it off the LCP
+ * critical request chain.
+ */
+export function initErrorReporting(): void {
+  if (!REPORTING_HOSTNAMES.has(location.hostname)) return
+
+  const start = () => {
+    void loadSentry().catch(() => undefined)
+  }
+
+  if (typeof window.requestIdleCallback === 'function') {
+    window.requestIdleCallback(start, { timeout: 4000 })
+    return
+  }
+  window.setTimeout(start, 2500)
 }
 
 /**
@@ -204,10 +236,12 @@ export function reportError(
     sentry.captureException(error, { tags: { step }, ...(extra ? { extra } : {}) })
     return
   }
-  // SDK still loading — queue via dynamic import so early failures are not lost.
-  void import('@sentry/browser').then((Sentry) => {
-    Sentry.captureException(error, { tags: { step }, ...(extra ? { extra } : {}) })
-  })
+  // SDK still loading / idle-deferred — queue via the shared loader.
+  void loadSentry()
+    .then((client) => {
+      client.captureException(error, { tags: { step }, ...(extra ? { extra } : {}) })
+    })
+    .catch(() => undefined)
 }
 
 /**
@@ -223,9 +257,11 @@ export function reportComponentError(error: unknown): void {
     })
     return
   }
-  void import('@sentry/browser').then((Sentry) => {
-    Sentry.captureException(error, {
-      mechanism: { type: 'remix.componentError', handled: false },
+  void loadSentry()
+    .then((client) => {
+      client.captureException(error, {
+        mechanism: { type: 'remix.componentError', handled: false },
+      })
     })
-  })
+    .catch(() => undefined)
 }

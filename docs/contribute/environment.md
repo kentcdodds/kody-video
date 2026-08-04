@@ -26,7 +26,9 @@ postinstall scripts (`esbuild`, `@sentry/cli`). This is safe to ignore:
 
 - `esbuild` works via its `@esbuild/linux-x64` optional dependency.
 - `@sentry/cli` is only needed for source-map upload at build time, which is
-  skipped unless `SENTRY_AUTH_TOKEN` is set.
+  skipped unless `SENTRY_AUTH_TOKEN` is set. Production builds always emit
+  public `*.map` files in `dist/` (open source); when the token is present,
+  those same maps are also uploaded to Sentry and left in the deploy.
 
 `npm run build`, `npm run dev`, and the test suites all work without approving
 those scripts.
