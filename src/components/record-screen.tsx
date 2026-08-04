@@ -4,7 +4,12 @@ import '../styles/record.css'
 import type { Camera } from '../lib/camera'
 import { dragZoomValue } from '../lib/drag-zoom'
 import { getLocationFix, type LocationFix } from '../lib/location'
-import { startMicLevelMonitor, type MicLevelMonitor } from '../lib/mic-monitor'
+import { pickRecordingMimeType, warmDurationProbe } from '../lib/media'
+import {
+  startMicLevelMonitor,
+  warmMicMonitorContext,
+  type MicLevelMonitor,
+} from '../lib/mic-monitor'
 import { reportError } from '../lib/error-reporting'
 import { appendRecording, removeClip, undoLastDelete } from '../lib/project-actions'
 import { HoldRecorder } from '../lib/recorder'
@@ -123,6 +128,24 @@ export function RecordScreen(handle: Handle<RecordScreenProps>) {
   let locationTagging = props.locationTaggingEnabled ?? false
 
   const screenRecordingSupported = isScreenRecordingSupported()
+
+  // Pre-warm the first take's one-time costs while the screen sits idle
+  // (typically during the camera open): the mic-monitor AudioContext, the
+  // MediaRecorder mime probe, and the duration probe's demux module
+  // otherwise all land inside the first hold-to-record — profiling showed
+  // them as the first-take stutter right at recording start/stop.
+  let warmIdleHandle = 0
+  let warmTimerHandle = 0
+  const warmFirstTakePath = () => {
+    warmMicMonitorContext()
+    pickRecordingMimeType()
+    warmDurationProbe()
+  }
+  if (typeof window.requestIdleCallback === 'function') {
+    warmIdleHandle = window.requestIdleCallback(warmFirstTakePath, { timeout: 3000 })
+  } else {
+    warmTimerHandle = window.setTimeout(warmFirstTakePath, 1500)
+  }
 
   const storageState = () => (props.storage ? storageSeverity(props.storage.ratio) : 'ok')
 
@@ -568,6 +591,8 @@ export function RecordScreen(handle: Handle<RecordScreenProps>) {
   }
 
   const cleanupOnUnmount = () => {
+    if (warmIdleHandle) window.cancelIdleCallback?.(warmIdleHandle)
+    window.clearTimeout(warmTimerHandle)
     window.clearTimeout(countdownTimer)
     countdownTimer = 0
     cancelAnimationFrame(zoomRestoreRaf)
