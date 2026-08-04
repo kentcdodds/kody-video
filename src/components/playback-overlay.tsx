@@ -1,6 +1,7 @@
 import type { Handle } from 'remix/ui'
 import { on, ref } from 'remix/ui'
 import { planExport } from '../lib/export'
+import { FADE_OUT_MS } from '../lib/export/background-audio'
 import { clipAudioVolume, type ClipRecord, type ProjectAudioRecord } from '../lib/types'
 import { IconPlay } from './icons'
 import { isInteractiveTarget } from '../lib/keyboard'
@@ -75,7 +76,19 @@ export function PlaybackOverlay(handle: Handle<PlaybackOverlayProps>) {
     const segment = currentSegment()
     const track = props.audio
     if (!segment || !track) return 0
-    return clipAudioVolume(segment.clip, track.defaultVolume)
+    return clipAudioVolume(segment.clip, track.defaultVolume) * fadeOutScale()
+  }
+
+  /** Mirror the export's end-of-film fade-out in the live preview: inside
+   * the final FADE_OUT_MS the music target scales down toward silence. */
+  const fadeOutScale = () => {
+    if (!props.audio?.fadeOut) return 1
+    const segs = resolveSegments()
+    const last = segs[segs.length - 1]
+    if (!last) return 1
+    const totalMs = last.offsetMs + (last.endMs - last.startMs)
+    const remainingMs = totalMs - timelinePositionMs()
+    return Math.max(0, Math.min(1, remainingMs / FADE_OUT_MS))
   }
 
   /** Playhead position on the output timeline, in ms. */

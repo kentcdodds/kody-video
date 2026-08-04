@@ -103,6 +103,7 @@ export async function exportRealtime(
   // reaches it — this engine paints in realtime, so Web Audio's own
   // ramping does the work.
   let backgroundGain: GainNode | null = null
+  let startBackground: (() => void) | null = null
   let stopBackground: (() => void) | null = null
   const backgroundTracks = options.background?.tracks ?? []
   if (backgroundTracks.length > 0 && audioContext && dest) {
@@ -127,7 +128,12 @@ export async function exportRealtime(
         activeSource = source
         source.start()
       }
-      void playFrom(0)
+      // Deferred to the first painted segment: starting here would let the
+      // music advance through clip preload before any frame is recorded.
+      startBackground = () => {
+        startBackground = null
+        void playFrom(0)
+      }
       stopBackground = () => {
         stopped = true
         try {
@@ -139,6 +145,7 @@ export async function exportRealtime(
       backgroundGain = gain
     } catch {
       backgroundGain = null
+      startBackground = null
       stopBackground = null
     }
   }
@@ -190,6 +197,7 @@ export async function exportRealtime(
         const clamped = clampSegmentToMedia(segment, loaded.mediaDurationMs)
         if (!clamped) continue
         if (backgroundGain && audioContext && options.background) {
+          startBackground?.()
           const volume = clipAudioVolume(segment.clip, options.background.defaultVolume)
           const now = audioContext.currentTime
           if (segmentIndex === 0 && !options.background.fadeIn) {
