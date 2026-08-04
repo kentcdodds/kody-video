@@ -1,9 +1,10 @@
-import { test, expect } from '@playwright/test'
+import { test, expect, type Page } from '@playwright/test'
 import {
   openNewProject,
   pressStageUntilRecording,
   recordClip,
   totalClipCount,
+  waitForCameraReady,
 } from './helpers'
 
 test.describe('camera & hold-to-record', () => {
@@ -165,5 +166,69 @@ test.describe('camera & hold-to-record', () => {
         { timeout: 15_000 },
       )
       .toEqual({ lat: 40.2338, lng: -111.6585 })
+  })
+})
+
+test.describe('camera resume after suspension', () => {
+  const activeTrackId = (page: Page) =>
+    page.evaluate(() => {
+      const video = document.querySelector<HTMLVideoElement>('.camera-video')
+      const stream = video?.srcObject as MediaStream | null
+      const track = stream?.getVideoTracks()[0]
+      return track && track.readyState === 'live' ? track.id : null
+    })
+
+  test('resuming without a visible transition restarts the camera (iOS PWA)', async ({
+    page,
+  }) => {
+    await openNewProject(page)
+
+    // Phone off / app closed: the page reports hidden, the camera stops.
+    await page.evaluate(() => {
+      Object.defineProperty(document, 'hidden', { configurable: true, get: () => true })
+      document.dispatchEvent(new Event('visibilitychange'))
+    })
+    await expect
+      .poll(() =>
+        page.evaluate(
+          () => document.querySelector<HTMLVideoElement>('.camera-video')?.srcObject === null,
+        ),
+      )
+      .toBe(true)
+
+    // Phone back on: iOS Safari (installed PWAs especially) resumes with
+    // focus/pageshow only — no visibilitychange ever fires.
+    await page.evaluate(() => {
+      Object.defineProperty(document, 'hidden', { configurable: true, get: () => false })
+      window.dispatchEvent(new Event('focus'))
+    })
+    await waitForCameraReady(page)
+    expect(await activeTrackId(page)).not.toBe(null)
+  })
+
+  test('a dead camera track on refocus restarts the preview', async ({ page }) => {
+    await openNewProject(page)
+    const staleTrackId = await page.evaluate(() => {
+      const video = document.querySelector<HTMLVideoElement>('.camera-video')!
+      const track = (video.srcObject as MediaStream).getVideoTracks()[0]!
+      // The OS killed the camera while the app was suspended.
+      track.stop()
+      return track.id
+    })
+
+    await page.evaluate(() => window.dispatchEvent(new Event('focus')))
+    await expect.poll(() => activeTrackId(page), { timeout: 15_000 }).not.toBe(null)
+    expect(await activeTrackId(page)).not.toBe(staleTrackId)
+    await waitForCameraReady(page)
+  })
+
+  test('window focus with a healthy preview does not restart the camera', async ({ page }) => {
+    await openNewProject(page)
+    const before = await activeTrackId(page)
+    expect(before).not.toBe(null)
+
+    await page.evaluate(() => window.dispatchEvent(new Event('focus')))
+    await page.waitForTimeout(600)
+    expect(await activeTrackId(page)).toBe(before)
   })
 })

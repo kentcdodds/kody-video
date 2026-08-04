@@ -580,6 +580,45 @@ export function RecordScreen(handle: Handle<RecordScreenProps>) {
     releaseWakeLock()
   }
 
+  /** True after the hidden handler released the camera — the resume path
+   * must restart it even when the browser resumes without ever reporting a
+   * visible transition (iOS Safari, installed PWAs especially). */
+  let cameraStoppedInBackground = false
+  /** Serialize restarts: resume signals arrive in bursts (visibilitychange +
+   * focus + pageshow). A second stop() epoch-invalidates the open that a
+   * concurrent camera.start() is awaiting, so overlapping runners could all
+   * finish with NO stream — one runner loops until requests stop. */
+  let restartRunning = false
+  let restartRequested = false
+
+  const restartCameraPreview = () => {
+    cameraStoppedInBackground = false
+    restartRequested = true
+    if (restartRunning) return
+    restartRunning = true
+    void (async () => {
+      try {
+        while (restartRequested) {
+          restartRequested = false
+          // If a take was somehow still running on a frozen stream, save it
+          // first.
+          if (recorder.isRecording || recording) {
+            await endRecord()
+          }
+          camera.stop()
+          // The app may have been hidden again while the take was finishing —
+          // never reopen the camera (and relight the privacy dot) in
+          // background.
+          if (document.hidden) return
+          await camera.start()
+          if (document.hidden) camera.stop()
+        }
+      } finally {
+        restartRunning = false
+      }
+    })()
+  }
+
   // Release the camera whenever the app leaves the foreground — Android keeps
   // the privacy indicator (green dot) lit as long as any track is live. An
   // in-progress take is finished and saved first; the preview restarts when
@@ -598,24 +637,37 @@ export function RecordScreen(handle: Handle<RecordScreenProps>) {
         void endRecord()
       }
       camera.stop()
+      cameraStoppedInBackground = true
       return
     }
     // Coming back to the foreground: restart the camera unconditionally.
     // Screen-off freezes the camera track at the OS level, and on some
     // Android paths no `hidden` event ever fires — a surviving stream would
-    // keep previewing (and recording!) a single stale frame forever. If a
-    // take was somehow still running on that frozen stream, save it first.
-    void (async () => {
-      if (recorder.isRecording || recording) {
-        await endRecord()
-      }
-      camera.stop()
-      // The app may have been hidden again while the take was finishing —
-      // never reopen the camera (and relight the privacy dot) in background.
-      if (document.hidden) return
-      await camera.start()
-      if (document.hidden) camera.stop()
-    })()
+    // keep previewing (and recording!) a single stale frame forever.
+    restartCameraPreview()
+  }
+
+  /** A preview that resumed broken: the hidden handler already released the
+   * camera, or the OS suspension killed/muted the track behind the live
+   * stream. A null stream without the background flag is a camera that is
+   * still starting, denied, or mid-restart — not ours to touch. */
+  const previewNeedsRestart = (): boolean => {
+    if (cameraStoppedInBackground) return true
+    const stream = camera.getStream()
+    if (!stream) return false
+    const track = stream.getVideoTracks()[0]
+    return !track || track.readyState !== 'live' || track.muted
+  }
+
+  // Turning the phone back on (or reopening a closed PWA) can resume the app
+  // with no `visibilitychange` at all — a long-standing iOS Safari behavior —
+  // leaving the preview black until a manual reload. `focus` and `pageshow`
+  // are the signals that DO fire there. Both also fire during ordinary
+  // desktop window switching, so only a genuinely broken preview restarts.
+  const onPageResume = () => {
+    if (document.hidden) return
+    if (!previewNeedsRestart()) return
+    restartCameraPreview()
   }
 
   // Desktop keyboard support (the app is designed for phones; this keeps the
@@ -706,12 +758,16 @@ export function RecordScreen(handle: Handle<RecordScreenProps>) {
 
   const bindCameraVideo = (element: HTMLVideoElement, signal: AbortSignal) => {
     document.addEventListener('visibilitychange', onVisibilityChange)
+    window.addEventListener('focus', onPageResume)
+    window.addEventListener('pageshow', onPageResume)
     window.addEventListener('keydown', onWindowKeyDown)
     window.addEventListener('keyup', onWindowKeyUp)
     // Registered before camera.attachVideo's own abort listener so an active
     // take is finished/saved before the camera stream is stopped.
     signal.addEventListener('abort', () => {
       document.removeEventListener('visibilitychange', onVisibilityChange)
+      window.removeEventListener('focus', onPageResume)
+      window.removeEventListener('pageshow', onPageResume)
       window.removeEventListener('keydown', onWindowKeyDown)
       window.removeEventListener('keyup', onWindowKeyUp)
       cleanupOnUnmount()
