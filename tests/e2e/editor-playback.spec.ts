@@ -90,6 +90,59 @@ test.describe('editor', () => {
     await page.getByRole('button', { name: 'Back to camera' }).click()
     await expect(page.locator('.record-stage')).toBeVisible()
   })
+
+  test('Add imports a device video onto the timeline', async ({ page }) => {
+    await openEditorWithClips(page, 1)
+    const tiles = page.locator('.clip-thumb[data-clip-id]')
+    await expect(tiles).toHaveCount(1)
+
+    const clipPath = await page.evaluate(async () => {
+      const { makeTestClipBlob } = await import('/src/lib/testing/make-test-clip.ts')
+      const blob = await makeTestClipBlob(1200)
+      const buffer = await blob.arrayBuffer()
+      const bytes = Array.from(new Uint8Array(buffer))
+      return { bytes, type: blob.type || 'video/webm' }
+    })
+    const file = {
+      name: 'from-device.webm',
+      mimeType: clipPath.type,
+      buffer: Buffer.from(clipPath.bytes),
+    }
+
+    await page.locator('.editor-screen input[type="file"]').setInputFiles(file)
+    await expect(tiles).toHaveCount(2, { timeout: 20_000 })
+    await expect(page.locator('.toast')).toContainText(/clip added/i)
+    // The imported clip is selected (most recently added).
+    await expect(tiles.last()).toHaveClass(/selected/)
+
+    const stored = await page.evaluate(async () => {
+      const storage = await import('/src/lib/storage.ts')
+      const projects = await storage.listProjects()
+      const clips = await storage.getClipMetasForProject(projects[0]!.id)
+      return clips.map((clip: { durationMs: number; mimeType: string; width?: number; height?: number }) => ({
+        durationMs: clip.durationMs,
+        mimeType: clip.mimeType,
+        width: clip.width ?? null,
+        height: clip.height ?? null,
+      }))
+    })
+    expect(stored).toHaveLength(2)
+    const imported = stored[1]!
+    expect(imported.durationMs).toBeGreaterThan(500)
+    expect(imported.mimeType).toMatch(/video\//)
+    expect(imported.width).toBeGreaterThan(0)
+    expect(imported.height).toBeGreaterThan(0)
+  })
+
+  test('empty timeline offers Add clips from your device', async ({ page }) => {
+    await openSeededProject(page, { clips: 0 })
+    // openSeededProject with 0 clips still creates a project; open editor.
+    await page.getByRole('button', { name: 'Open editor' }).click()
+    await expect(page.locator('.editor-screen')).toBeVisible()
+    await expect(
+      page.getByRole('button', { name: 'Add clips from your device' }),
+    ).toBeVisible()
+  })
 })
 
 test.describe('preview playback', () => {

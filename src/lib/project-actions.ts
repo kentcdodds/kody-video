@@ -240,3 +240,9 @@ export async function trimClip(
 ): Promise<void> {
   await updateClipTrim(clipId, trimStartMs, trimEndMs)
 }
+
+export {
+  DEVICE_CLIP_ACCEPT,
+  importDeviceClips,
+  type DeviceClipImportResult,
+} from './import-device-clips'

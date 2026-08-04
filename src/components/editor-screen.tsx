@@ -2,7 +2,9 @@ import type { Handle, RemixNode } from 'remix/ui'
 import { on, ref } from 'remix/ui'
 import '../styles/editor.css'
 import {
+  DEVICE_CLIP_ACCEPT,
   duplicateSelectedClip,
+  importDeviceClips,
   moveSelectedClip,
   removeClip,
   trimClip,
@@ -14,6 +16,7 @@ import {
   type ClipId,
   type ClipRecord,
   type Project,
+  type ProjectId,
 } from '../lib/types'
 import { EditorClipPreview, type EditorClipPreviewHandle } from './editor-clip-preview'
 import {
@@ -22,6 +25,7 @@ import {
   IconChevronRight,
   IconDuplicate,
   IconPlay,
+  IconPlus,
   IconTrash,
   IconTrim,
   IconUndo,
@@ -30,10 +34,14 @@ import { Timeline } from './timeline'
 import { TrimStrip } from './trim-strip'
 import type { ToastAction } from './record-screen'
 import { isInteractiveTarget } from '../lib/keyboard'
+import { reportError } from '../lib/error-reporting'
 import { THUMB_COUNT, refineClipFilmstrip } from '../lib/thumbs'
 
 interface EditorScreenProps {
   project: Project
+  /** Resolves the persisted project id, creating the project when the first
+   * clip is added from a lazy "/project/new" shell. */
+  ensureProjectId: () => Promise<ProjectId>
   clips: ClipRecord[]
   canUndo: boolean
   /** True while a full-screen overlay owns input (playback, export, …). */
@@ -49,7 +57,52 @@ export function EditorScreen(handle: Handle<EditorScreenProps>) {
   const { props } = handle
   let selectedClipId: ClipId | null = props.clips.at(-1)?.id ?? null
   let trimming = false
+  let importing = false
+  const fileInputRef: { current: HTMLInputElement | null } = { current: null }
   const previewApi: { current: EditorClipPreviewHandle | null } = { current: null }
+
+  const openDevicePicker = () => {
+    if (importing || props.interactionLocked) return
+    fileInputRef.current?.click()
+  }
+
+  const importFromDevice = (fileList: FileList | null) => {
+    const files = fileList ? [...fileList] : []
+    if (files.length === 0 || importing) return
+    importing = true
+    void handle.update()
+    void (async () => {
+      try {
+        const projectId = await props.ensureProjectId()
+        const result = await importDeviceClips(projectId, files, (done, total) => {
+          if (total > 1) {
+            props.showToast(`Adding clip ${Math.min(done + 1, total)} of ${total}…`)
+          }
+        })
+        const last = result.added.at(-1)
+        if (last) selectedClipId = last.id
+        trimming = false
+        props.refresh()
+        if (result.added.length === 0 && result.failed.length > 0) {
+          props.showToast(result.failed[0]?.reason || 'Could not add that clip')
+        } else if (result.failed.length > 0) {
+          props.showToast(
+            `Added ${result.added.length} · ${result.failed.length} skipped`,
+          )
+        } else if (result.added.length === 1) {
+          props.showToast('Clip added')
+        } else if (result.added.length > 1) {
+          props.showToast(`Added ${result.added.length} clips`)
+        }
+      } catch (err) {
+        reportError(err, 'import-device-clips')
+        props.showToast(err instanceof Error ? err.message : 'Could not add clips')
+      } finally {
+        importing = false
+        void handle.update()
+      }
+    })()
+  }
 
   // Derive a valid selection from the loaded clips (no state syncing).
   const resolveSelectedId = (): ClipId | null =>
@@ -207,7 +260,7 @@ export function EditorScreen(handle: Handle<EditorScreenProps>) {
 
     return (
       <div
-        className={`editor-screen${trimming ? ' is-trimming' : ''}`}
+        className={`editor-screen${trimming ? ' is-trimming' : ''}${importing ? ' is-importing' : ''}`}
         mix={ref((_node, signal) => {
           window.addEventListener('keydown', onWindowKeyDown)
           signal.addEventListener('abort', () => {
@@ -215,6 +268,28 @@ export function EditorScreen(handle: Handle<EditorScreenProps>) {
           })
         })}
       >
+        <input
+          type="file"
+          accept={DEVICE_CLIP_ACCEPT}
+          multiple
+          className="visually-hidden"
+          tabindex={-1}
+          aria-hidden="true"
+          mix={[
+            ref((node, signal) => {
+              fileInputRef.current = node as HTMLInputElement
+              signal.addEventListener('abort', () => {
+                if (fileInputRef.current === node) fileInputRef.current = null
+              })
+            }),
+            on('change', (event) => {
+              const input = event.currentTarget as HTMLInputElement
+              const files = input.files
+              input.value = ''
+              importFromDevice(files)
+            }),
+          ]}
+        />
         <div className="editor-top">
           <button
             type="button"
@@ -289,6 +364,8 @@ export function EditorScreen(handle: Handle<EditorScreenProps>) {
                 trimming = false
                 void handle.update()
               }}
+              onAddFromDevice={openDevicePicker}
+              addingFromDevice={importing}
               refresh={props.refresh}
             />
           )}
@@ -298,7 +375,7 @@ export function EditorScreen(handle: Handle<EditorScreenProps>) {
               <ActionButton
                 label="Delete"
                 ariaLabel="Delete clip"
-                disabled={!selected}
+                disabled={!selected || importing}
                 tone="danger"
                 onClick={handleDelete}
                 icon={<IconTrash />}
@@ -306,7 +383,7 @@ export function EditorScreen(handle: Handle<EditorScreenProps>) {
               <ActionButton
                 label="Duplicate"
                 ariaLabel="Duplicate clip"
-                disabled={!selected}
+                disabled={!selected || importing}
                 onClick={() => {
                   if (!resolvedSelectedId) return
                   void duplicateSelectedClip(resolvedSelectedId).then((copy) => {
@@ -318,7 +395,7 @@ export function EditorScreen(handle: Handle<EditorScreenProps>) {
               />
               <ActionButton
                 label="Trim"
-                disabled={!selected}
+                disabled={!selected || importing}
                 prominent
                 onClick={() => {
                   previewApi.current?.pause()
@@ -329,7 +406,7 @@ export function EditorScreen(handle: Handle<EditorScreenProps>) {
               <ActionButton
                 label="Left"
                 ariaLabel="Move clip left"
-                disabled={!selected || selectedIndex <= 0}
+                disabled={!selected || selectedIndex <= 0 || importing}
                 onClick={() => {
                   if (!resolvedSelectedId) return
                   void moveSelectedClip(project.id, resolvedSelectedId, 'left').then(() =>
@@ -341,7 +418,7 @@ export function EditorScreen(handle: Handle<EditorScreenProps>) {
               <ActionButton
                 label="Right"
                 ariaLabel="Move clip right"
-                disabled={!selected || selectedIndex >= clips.length - 1}
+                disabled={!selected || selectedIndex >= clips.length - 1 || importing}
                 onClick={() => {
                   if (!resolvedSelectedId) return
                   void moveSelectedClip(project.id, resolvedSelectedId, 'right').then(() =>
@@ -354,26 +431,38 @@ export function EditorScreen(handle: Handle<EditorScreenProps>) {
           ) : null}
 
           <div className="editor-toolbar">
-            <button
-              type="button"
-              className="btn btn-ghost"
-              disabled={!canUndo}
-              mix={on('click', () => {
-                void (async () => {
-                  const restored = await undoLastDelete(project.id)
-                  if (restored) setSelectedClipId(restored.id)
-                  props.refresh()
-                  props.showToast('Clip restored')
-                })()
-              })}
-            >
-              <IconUndo size={18} />
-              Undo delete
-            </button>
+            <div className="editor-toolbar-start">
+              <button
+                type="button"
+                className="btn btn-ghost"
+                disabled={importing}
+                aria-label="Add clips from device"
+                mix={on('click', () => openDevicePicker())}
+              >
+                <IconPlus size={18} />
+                Add
+              </button>
+              <button
+                type="button"
+                className="btn btn-ghost"
+                disabled={!canUndo || importing}
+                mix={on('click', () => {
+                  void (async () => {
+                    const restored = await undoLastDelete(project.id)
+                    if (restored) setSelectedClipId(restored.id)
+                    props.refresh()
+                    props.showToast('Clip restored')
+                  })()
+                })}
+              >
+                <IconUndo size={18} />
+                Undo delete
+              </button>
+            </div>
             <button
               type="button"
               className="go-button compact"
-              disabled={clips.length === 0}
+              disabled={clips.length === 0 || importing}
               mix={on('click', () => onOpenExport())}
             >
               Go
