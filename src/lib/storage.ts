@@ -133,18 +133,28 @@ export async function getProject(id: ProjectId): Promise<Project | undefined> {
   return db.get('projects', id)
 }
 
+/**
+ * Soft project-cap / free-plan gate. Surfaced in-app as guidance (toast,
+ * upsell); expected product behavior, never a crash report.
+ */
+export class ProjectLimitError extends Error {
+  override readonly name = 'ProjectLimitError'
+}
+
 export async function createProject(name?: string): Promise<Project> {
   const db = await getDb()
   const existing = await listProjects()
   const settings = await getSettings()
   if (existing.length >= settings.maxProjects) {
-    throw new Error(`Project limit reached (${settings.maxProjects}). Delete a project to create another.`)
+    throw new ProjectLimitError(
+      `Project limit reached (${settings.maxProjects}). Delete a project to create another.`,
+    )
   }
   // Free tier includes one project; the one-time Kody Video Plus purchase
   // (the watermark unlock) raises the cap to maxProjects. Enforced here so
   // every creation path (record, import) hits the same gate.
   if (settings.watermarkRemoved !== true && existing.length >= FREE_PROJECTS) {
-    throw new Error(
+    throw new ProjectLimitError(
       'The free plan includes 1 project — Kody Video Plus unlocks 6 (and removes the watermark).',
     )
   }

@@ -77,7 +77,8 @@ try {
   // --- Home: branding + six slots ---
   await page.goto(BASE, { waitUntil: 'networkidle' })
   const title = await page.title()
-  const brand = await page.locator('h1.brand').innerText()
+  // Boot hero + React home spacer both render h1.brand on mobile viewports.
+  const brand = await page.locator('#boot-hero h1.brand').innerText()
   if (title.includes('Kody') && brand.toLowerCase().includes('kody')) {
     pass('home branding', `${title} / ${brand.replace(/\n/g, ' ')}`)
   } else {
@@ -95,10 +96,17 @@ try {
   pass('create + open project', page.url())
 
   // --- Onboarding ---
+  // Dialog mounts after the project page load promise resolves — a bare
+  // count() races and leaves the overlay blocking later clicks.
   const onboarding = page.getByRole('dialog', { name: /quick start/i })
-  if (await onboarding.count()) {
+  const onboardingVisible = await onboarding
+    .waitFor({ state: 'visible', timeout: 3000 })
+    .then(() => true)
+    .catch(() => false)
+  if (onboardingVisible) {
     await shot(page, '02-onboarding')
     await page.getByRole('button', { name: /start recording/i }).click()
+    await onboarding.waitFor({ state: 'hidden', timeout: 3000 }).catch(() => null)
     pass('onboarding visible and dismissible')
   } else {
     pass('onboarding already dismissed or not shown')
@@ -222,7 +230,7 @@ try {
   if (await saveBtn.count()) pass('export offers Save')
   else fail('export offers Save')
 
-  const upsell = exportDialog.getByRole('button', { name: /remove it — \$0\.99/i })
+  const upsell = exportDialog.getByRole('button', { name: /get plus — \$0\.99/i })
   if (await upsell.count()) pass('watermark upsell shown while locked')
   else fail('watermark upsell shown while locked')
   await exportDialog.getByRole('button', { name: /done|close/i }).first().click()
@@ -239,7 +247,7 @@ try {
     waitUntil: 'networkidle',
   })
   const celebrated = await page
-    .waitForSelector('text=/watermark removed/i', { timeout: 5000 })
+    .waitForSelector('text=/kody video plus unlocked/i', { timeout: 5000 })
     .then(() => true)
     .catch(() => false)
   if (celebrated) pass('unlock page verifies and celebrates')
@@ -263,7 +271,7 @@ try {
     .catch(() => false)
   const upsellGone =
     unlockedExport &&
-    (await page.getByRole('button', { name: /remove it — \$0\.99/i }).count()) === 0
+    (await page.getByRole('button', { name: /get plus — \$0\.99/i }).count()) === 0
   if (upsellGone) pass('purchase removes the watermark upsell')
   else fail('purchase removes the watermark upsell', `exported=${unlockedExport}`)
   await page
@@ -324,8 +332,18 @@ try {
   await page.goto(BASE, { waitUntil: 'networkidle' })
   await page.locator('.project-slot.filled .slot-open').first().click()
   await page.waitForURL(/\/project\//, { timeout: 5000 })
+  // Editor may still be up from the earlier trim/export path — return to camera.
+  const backToCamera = page.getByRole('button', { name: /back to camera/i })
+  if (await backToCamera.isVisible().catch(() => false)) {
+    await backToCamera.click()
+  }
+  await page.locator('.record-stage').waitFor({ state: 'visible', timeout: 8000 }).catch(() => null)
   const locToggle = page.getByRole('button', { name: /toggle location tagging/i })
-  if ((await locToggle.count()) === 1) pass('location tagging toggle present')
+  const locVisible = await locToggle
+    .waitFor({ state: 'visible', timeout: 5000 })
+    .then(() => true)
+    .catch(() => false)
+  if (locVisible) pass('location tagging toggle present')
   else fail('location tagging toggle present')
 
   // --- Persistence / offline / SPA fallback ---

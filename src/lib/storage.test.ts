@@ -4,6 +4,7 @@ import {
   __resetDbForTests,
   addClip,
   createProject,
+  ProjectLimitError,
   deleteClip,
   deleteProject,
   duplicateClip,
@@ -42,6 +43,7 @@ describe('storage layer', () => {
 
   it('gates the second project behind the Plus purchase', async () => {
     await createProject('Free one')
+    await expect(createProject('Second')).rejects.toBeInstanceOf(ProjectLimitError)
     await expect(createProject('Second')).rejects.toThrow(/plus/i)
   })
 
@@ -62,6 +64,7 @@ describe('storage layer', () => {
     for (let i = 0; i < MAX_PROJECTS; i += 1) {
       await createProject(`P${i + 1}`)
     }
+    await expect(createProject('Overflow')).rejects.toBeInstanceOf(ProjectLimitError)
     await expect(createProject('Overflow')).rejects.toThrow(/limit/i)
   })
 
