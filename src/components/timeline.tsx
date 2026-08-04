@@ -335,7 +335,11 @@ export function Timeline(handle: Handle<TimelineProps>) {
                 className={`clip-thumb${selected ? ' selected' : ''}${isDragging ? ' lifting' : ''}`}
                 role="option"
                 aria-selected={selected}
-                aria-label={`Clip ${index + 1}, ${formatDuration(effectiveDurationMs(clip))}`}
+                aria-label={`Clip ${index + 1}, ${formatDuration(effectiveDurationMs(clip))}${
+                  props.showAudioBadges && clip.audioVolume !== undefined
+                    ? `, music ${Math.round(clip.audioVolume * 100)}%`
+                    : ''
+                }`}
                 data-clip-id={clip.id}
                 style={{ width: `${width}px` }}
                 mix={[

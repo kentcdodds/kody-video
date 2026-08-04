@@ -35,6 +35,7 @@ import {
   NEW_PROJECT_ID,
   formatDuration,
   type ClipRecord,
+  type ProjectAudioRecord,
 } from '../lib/types'
 
 /** Android share targets get flaky well below this; bigger backups download. */
@@ -66,7 +67,11 @@ export function HomePage(handle: Handle) {
   let restoring = false
   // Prefetched when the options sheet opens so the Save-backup tap keeps its
   // user activation (Web Share needs it; an IndexedDB read can outlive it).
-  let prefetchedClips: { projectId: string; clips: Promise<ClipRecord[]> } | null = null
+  let prefetchedClips: {
+    projectId: string
+    clips: Promise<ClipRecord[]>
+    audio: Promise<ProjectAudioRecord | undefined>
+  } | null = null
 
   /** Monotonic request id: an older in-flight load (e.g. the mount load
    * resolving after a delete's refresh) must never overwrite newer state. */
@@ -129,12 +134,14 @@ export function HomePage(handle: Handle) {
       void handle.update()
       try {
         const prefetched = prefetchedClips
-        const clips =
-          prefetched && prefetched.projectId === project.id
-            ? await prefetched.clips
-            : await getClipsForProject(project.id)
+        const usePrefetch = prefetched !== null && prefetched.projectId === project.id
+        const clips = usePrefetch
+          ? await prefetched.clips
+          : await getClipsForProject(project.id)
         if (clips.length === 0) throw new Error('Nothing to back up — this project has no clips.')
-        const audio = await getProjectAudio(project.id)
+        const audio = usePrefetch
+          ? await prefetched.audio
+          : await getProjectAudio(project.id)
         const backup = serializeProject(project, clips, audio)
         const filename = projectBackupFilename(project.name)
         const sizeLabel = formatBytes(backup.size)
@@ -334,6 +341,7 @@ export function HomePage(handle: Handle) {
                     prefetchedClips = {
                       projectId: project.id,
                       clips: getClipsForProject(project.id),
+                      audio: getProjectAudio(project.id),
                     }
                     menuProject = project
                     void handle.update()

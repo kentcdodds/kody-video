@@ -263,8 +263,13 @@ export async function exportWithWebCodecs(
           await backgroundMixer.mixInto(
             Array.from({ length: slice.numberOfChannels }, (_, ch) => slice.getChannelData(ch)),
             // Frames already written = the real position of this slice, even
-            // when clamping shortened an earlier segment.
+            // when clamping shortened an earlier segment…
             Math.round(state.outputOffsetSec * AUDIO_SAMPLE_RATE),
+            // …while gains follow the PLANNED timeline: the envelope was
+            // built from planned offsets, so anchoring each slice's gain at
+            // its planned offset keeps per-clip volumes and fades on their
+            // clips even when clamping shifted the real frame positions.
+            segment.offsetMs,
           )
         }
         await audioSource.add(slice)

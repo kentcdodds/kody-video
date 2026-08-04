@@ -128,19 +128,44 @@ export function PlaybackOverlay(handle: Handle<PlaybackOverlayProps>) {
   const syncMusicPosition = (): boolean => {
     const audio = audioEl
     if (!audio || !props.audio) return false
-    const target = trackAtMs(timelinePositionMs())
+    const positionMs = timelinePositionMs()
+    const target = trackAtMs(positionMs)
     if (!target) {
       audio.pause()
       return false
     }
     if (musicTrackIndex !== target.index) {
-      musicTrackIndex = target.index
-      audio.src = urlForTrack(target.index)
-      audio.currentTime = target.offsetMs / 1000
+      // Metadata durations can run slightly past the decoded length, so a
+      // just-ended track briefly still "covers" the playhead — moving back
+      // to it would restart it. Only genuine backward skips switch back.
+      const boundaryMs = props.audio.tracks
+        .slice(0, target.index + 1)
+        .reduce((sum, track) => sum + track.durationMs, 0)
+      const nearHandOff = target.index < musicTrackIndex && boundaryMs - positionMs < 1500
+      if (!nearHandOff) {
+        musicTrackIndex = target.index
+        audio.src = urlForTrack(target.index)
+        audio.currentTime = target.offsetMs / 1000
+      }
     } else if (Math.abs(audio.currentTime - target.offsetMs / 1000) > 0.35) {
       audio.currentTime = target.offsetMs / 1000
     }
     return true
+  }
+
+  /** A track finished — hand off to the next one (never replay the ended
+   * track: metadata duration may outlast the decoded audio, so a
+   * position-based sync could still map into it). */
+  const advanceMusicTrack = () => {
+    const tracks = props.audio?.tracks ?? []
+    const audio = audioEl
+    if (!audio) return
+    const next = musicTrackIndex + 1
+    if (next >= tracks.length) return // Playlist over — the rest is music-free.
+    musicTrackIndex = next
+    audio.src = urlForTrack(next)
+    audio.currentTime = 0
+    if (videoEl && !videoEl.paused) void audio.play().catch(() => undefined)
   }
 
   const playMusic = () => {
@@ -383,9 +408,7 @@ export function PlaybackOverlay(handle: Handle<PlaybackOverlayProps>) {
             mix={[
               ref((node, signal) => bindAudio(node as HTMLAudioElement, signal)),
               // A track running out mid-preview hands off to the next one.
-              on('ended', () => {
-                if (videoEl && !videoEl.paused) playMusic()
-              }),
+              on('ended', () => advanceMusicTrack()),
             ]}
           />
         ) : null}

@@ -1,3 +1,4 @@
+import { isWatermarkRemoved } from './entitlement'
 import {
   addClip,
   addProjectAudioTrack,
@@ -220,7 +221,9 @@ export async function parseProjectBackup(file: Blob): Promise<ParsedBackup> {
       if (
         !Number.isInteger(track.byteLength) ||
         track.byteLength <= 0 ||
-        offset + track.byteLength > file.size
+        offset + track.byteLength > file.size ||
+        !Number.isFinite(track.durationMs) ||
+        track.durationMs <= 0
       ) {
         throw new BackupFormatError('This backup file is damaged')
       }
@@ -296,28 +299,25 @@ export async function importProjectBackup(
       done += 1
       onProgress?.(done, parsed.clips.length)
     }
-    if (parsed.audio) {
-      // Best-effort: background music is a Plus perk, so restoring a
-      // Plus-made backup on a free device keeps the clips and simply skips
-      // the playlist (addProjectAudioTrack enforces the gate). A damaged
-      // audio section must not kill an otherwise intact import either.
-      try {
-        for (const track of parsed.audio.tracks) {
-          const bytes = await track.blob.arrayBuffer()
-          await addProjectAudioTrack({
-            projectId: project.id,
-            blob: new Blob([bytes], { type: track.mimeType }),
-            mimeType: track.mimeType,
-            durationMs: track.durationMs,
-            name: track.name,
-            // Playlist settings land with the first track; later adds keep them.
-            defaultVolume: parsed.audio.defaultVolume,
-            fadeIn: parsed.audio.fadeIn,
-            fadeOut: parsed.audio.fadeOut,
-          })
-        }
-      } catch {
-        // Plus gate (or a damaged track) — clips still imported fine.
+    // Background music is a Plus perk: restoring a Plus-made backup on a
+    // free device keeps the clips and skips the playlist wholesale (checked
+    // up front — never a silent partial playlist). On entitled devices any
+    // track failure fails the import like a clip failure would, so the
+    // rollback below never leaves half the music behind.
+    if (parsed.audio && (await isWatermarkRemoved())) {
+      for (const track of parsed.audio.tracks) {
+        const bytes = await track.blob.arrayBuffer()
+        await addProjectAudioTrack({
+          projectId: project.id,
+          blob: new Blob([bytes], { type: track.mimeType }),
+          mimeType: track.mimeType,
+          durationMs: track.durationMs,
+          name: track.name,
+          // Playlist settings land with the first track; later adds keep them.
+          defaultVolume: parsed.audio.defaultVolume,
+          fadeIn: parsed.audio.fadeIn,
+          fadeOut: parsed.audio.fadeOut,
+        })
       }
     }
     return project

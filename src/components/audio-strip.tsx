@@ -80,6 +80,23 @@ export function AudioStrip(handle: Handle<AudioStripProps>) {
     })()
   }
 
+  /** Run a persistence write; on failure surface it, drop the held control
+   * values (so the UI snaps back to the stored state), and still refresh. */
+  const persist = (write: Promise<unknown>) => {
+    void write
+      .then(() => props.refresh())
+      .catch((err) => {
+        reportError(err, 'project-audio')
+        pendingDefault = null
+        pendingClip = null
+        pendingFadeIn = null
+        pendingFadeOut = null
+        props.showToast('Could not save that change — try again')
+        props.refresh()
+        void handle.update()
+      })
+  }
+
   const removeTrack = (trackId: string) => {
     const audio = props.audio
     if (!audio || busy) return
@@ -89,6 +106,9 @@ export function AudioStrip(handle: Handle<AudioStripProps>) {
         await removeAudioTrack(audio.projectId, trackId)
         props.showToast(audio.tracks.length === 1 ? 'Music removed' : 'Track removed')
         props.refresh()
+      } catch (err) {
+        reportError(err, 'project-audio')
+        props.showToast('Could not remove that track — try again')
       } finally {
         setBusy(false)
       }
@@ -101,28 +121,24 @@ export function AudioStrip(handle: Handle<AudioStripProps>) {
     if (which === 'fadeIn') pendingFadeIn = enabled
     else pendingFadeOut = enabled
     void handle.update()
-    void setProjectAudioSettings(audio.projectId, { [which]: enabled }).then(() =>
-      props.refresh(),
-    )
+    persist(setProjectAudioSettings(audio.projectId, { [which]: enabled }))
   }
 
   const commitDefaultVolume = (volume: number) => {
     const audio = props.audio
     if (!audio) return
     pendingDefault = volume
-    void setProjectAudioSettings(audio.projectId, { defaultVolume: volume }).then(() =>
-      props.refresh(),
-    )
+    persist(setProjectAudioSettings(audio.projectId, { defaultVolume: volume }))
   }
 
   const commitClipVolume = (clipId: ClipId, volume: number) => {
     pendingClip = { clipId, volume }
-    void setClipAudioVolume(clipId, volume).then(() => props.refresh())
+    persist(setClipAudioVolume(clipId, volume))
   }
 
   const resetClipVolume = (clipId: ClipId) => {
     pendingClip = null
-    void setClipAudioVolume(clipId, null).then(() => props.refresh())
+    persist(setClipAudioVolume(clipId, null))
     void handle.update()
   }
 
@@ -211,10 +227,11 @@ export function AudioStrip(handle: Handle<AudioStripProps>) {
     const clipOverridden = selectedClip
       ? pendingClip?.clipId === selectedClip.id || selectedClip.audioVolume !== undefined
       : false
+    // Follows the pending default too, so both rows agree mid-drag.
     const clipVolume = selectedClip
       ? pendingClip?.clipId === selectedClip.id
         ? pendingClip.volume
-        : clipAudioVolume(selectedClip, audio.defaultVolume)
+        : clipAudioVolume(selectedClip, defaultVolume)
       : defaultVolume
 
     const musicMs = projectAudioTotalDurationMs(audio)

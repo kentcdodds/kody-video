@@ -108,8 +108,16 @@ export interface SequentialBackgroundSource {
 export interface BackgroundMixer {
   /** Add the playlist into a segment slice's channels, in place. Slices
    * must be requested in output order (tracks are decoded lazily, one at a
-   * time, and released once the timeline passes them). */
-  mixInto: (channels: Float32Array[], sliceStartFrame: number) => Promise<void>
+   * time, and released once the timeline passes them). `gainBaseMs` is the
+   * slice's position on the envelope's (planned) timeline — passing the
+   * planned segment offset keeps per-clip ramps and fades aligned with
+   * their clips even when media clamping shifted the real frame positions;
+   * it defaults to the frame-derived position. */
+  mixInto: (
+    channels: Float32Array[],
+    sliceStartFrame: number,
+    gainBaseMs?: number,
+  ) => Promise<void>
 }
 
 /**
@@ -150,7 +158,11 @@ export function createBackgroundMixer(
     }
   }
 
-  const mixInto = async (channels: Float32Array[], sliceStartFrame: number): Promise<void> => {
+  const mixInto = async (
+    channels: Float32Array[],
+    sliceStartFrame: number,
+    gainBaseMs = (sliceStartFrame / sampleRate) * 1000,
+  ): Promise<void> => {
     if (channels.length === 0) return
     const sliceLength = channels[0].length
     let i = 0
@@ -164,7 +176,7 @@ export function createBackgroundMixer(
       const runEnd = Math.min(sliceLength, trackStartFrame + track[0].length - sliceStartFrame)
       for (; i < runEnd; i += 1) {
         const outFrame = sliceStartFrame + i
-        const tMs = (outFrame / sampleRate) * 1000
+        const tMs = gainBaseMs + (i / sampleRate) * 1000
         while (cursor < points.length && points[cursor].tMs < tMs) cursor += 1
         let gain: number
         if (cursor === 0) {

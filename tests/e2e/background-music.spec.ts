@@ -311,9 +311,15 @@ test.describe('background music', () => {
       .poll(() => music.evaluate((el) => (el as HTMLAudioElement).volume), { timeout: 5000 })
       .toBeGreaterThan(0.15)
 
-    // Skip to clip 2: the volume glides up toward the 0.8 override.
+    // Skip to clip 2: the volume glides up toward the 0.8 override. Freeze
+    // the playhead at clip 2's start right away — otherwise the end-of-film
+    // fade-out window could shrink the target under CI load and flake the
+    // volume assertion.
     await overlay.getByRole('button', { name: 'Next clip' }).click()
     await expect(overlay.locator('.playback-caption')).toContainText('Clip 2 / 2')
+    await overlay
+      .locator('.playback-video')
+      .evaluate((el) => (el as HTMLVideoElement).pause())
     await expect
       .poll(() => music.evaluate((el) => (el as HTMLAudioElement).volume), { timeout: 5000 })
       .toBeGreaterThan(0.6)

@@ -208,11 +208,15 @@ export async function exportRealtime(
           }
           // This engine paints in realtime, so the last segment's end lands
           // roughly `segment length` from now — schedule the musical
-          // fade-out to finish there.
+          // fade-out to finish there, shrinking it on short final clips
+          // (like the WebCodecs envelope) instead of dropping it.
           const isLast = segmentIndex === plan.segments.length - 1
           const segmentSec = (clamped.endMs - clamped.startMs) / 1000
-          if (isLast && options.background.fadeOut && segmentSec > 1.6) {
-            backgroundGain.gain.setTargetAtTime(0, now + segmentSec - 1.2, 0.35)
+          if (isLast && options.background.fadeOut) {
+            const fadeSec = Math.min(1.2, segmentSec / 2)
+            if (fadeSec > 0.05) {
+              backgroundGain.gain.setTargetAtTime(0, now + segmentSec - fadeSec, fadeSec / 3)
+            }
           }
         }
         const paintedMs = await paintSegment({

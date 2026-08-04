@@ -399,16 +399,21 @@ export async function updateClipAudioVolume(
   volume: number | null,
 ): Promise<ClipMeta> {
   const db = await getDb()
-  const clip = await db.get('clips', clipId)
-  if (!clip) throw new Error('Clip not found')
-
+  // Read + merge + write in one transaction so a concurrent clip mutation
+  // (trim, thumbs) can never be clobbered by a stale snapshot.
+  const tx = db.transaction('clips', 'readwrite')
+  const clip = await tx.store.get(clipId)
+  if (!clip) {
+    await tx.done.catch(() => undefined)
+    throw new Error('Clip not found')
+  }
   const updated: ClipRecord = { ...clip }
   if (volume === null) {
     delete updated.audioVolume
   } else {
     updated.audioVolume = clampVolume(volume)
   }
-  await db.put('clips', updated)
+  await completeTransaction([tx.store.put(updated)], tx)
   await touchProject(clip.projectId)
   return toMeta(updated)
 }
@@ -446,7 +451,6 @@ export async function addProjectAudioTrack(
     throw new Error('Background music is part of Kody Video Plus — the one-time $0.99 unlock.')
   }
   const durableBlob = await toStoredBlob(input.blob, input.mimeType)
-  const existing = await db.get('audio', input.projectId)
   const track: ProjectAudioTrack = {
     id: newId('track'),
     blob: durableBlob,
@@ -455,6 +459,10 @@ export async function addProjectAudioTrack(
     name: input.name,
     addedAt: Date.now(),
   }
+  // Read + merge + write in one transaction so overlapping playlist
+  // mutations can never clobber each other's tracks or settings.
+  const tx = db.transaction('audio', 'readwrite')
+  const existing = await tx.store.get(input.projectId)
   const record: ProjectAudioRecord = existing
     ? { ...existing, tracks: [...existing.tracks, track] }
     : {
@@ -464,7 +472,7 @@ export async function addProjectAudioTrack(
         fadeIn: input.fadeIn ?? true,
         fadeOut: input.fadeOut ?? true,
       }
-  await db.put('audio', record)
+  await completeTransaction([tx.store.put(record)], tx)
   await touchProject(input.projectId)
   return record
 }
@@ -475,14 +483,21 @@ export async function removeProjectAudioTrack(
   trackId: string,
 ): Promise<void> {
   const db = await getDb()
-  const audio = await db.get('audio', projectId)
-  if (!audio) return
-  const tracks = audio.tracks.filter((track) => track.id !== trackId)
-  if (tracks.length === 0) {
-    await db.delete('audio', projectId)
-  } else {
-    await db.put('audio', { ...audio, tracks })
+  const tx = db.transaction('audio', 'readwrite')
+  const audio = await tx.store.get(projectId)
+  if (!audio) {
+    await tx.done
+    return
   }
+  const tracks = audio.tracks.filter((track) => track.id !== trackId)
+  await completeTransaction(
+    [
+      tracks.length === 0
+        ? tx.store.delete(projectId)
+        : tx.store.put({ ...audio, tracks }),
+    ],
+    tx,
+  )
   await touchProject(projectId)
 }
 
@@ -503,8 +518,12 @@ export async function updateProjectAudioSettings(
   settings: ProjectAudioSettings,
 ): Promise<ProjectAudioRecord> {
   const db = await getDb()
-  const audio = await db.get('audio', projectId)
-  if (!audio) throw new Error('This project has no background music')
+  const tx = db.transaction('audio', 'readwrite')
+  const audio = await tx.store.get(projectId)
+  if (!audio) {
+    await tx.done.catch(() => undefined)
+    throw new Error('This project has no background music')
+  }
   const updated: ProjectAudioRecord = {
     ...audio,
     defaultVolume:
@@ -514,7 +533,7 @@ export async function updateProjectAudioSettings(
     fadeIn: settings.fadeIn ?? audio.fadeIn,
     fadeOut: settings.fadeOut ?? audio.fadeOut,
   }
-  await db.put('audio', updated)
+  await completeTransaction([tx.store.put(updated)], tx)
   await touchProject(projectId)
   return updated
 }

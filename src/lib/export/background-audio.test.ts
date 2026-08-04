@@ -224,6 +224,28 @@ describe('createBackgroundMixer', () => {
     expect(Array.from(slice[0])).toEqual(before)
   })
 
+  it('anchors gain lookups at the provided planned offset', async () => {
+    // Envelope: silent until 1000ms, then full volume.
+    const points = [
+      { tMs: 0, volume: 0 },
+      { tMs: 999, volume: 0 },
+      { tMs: 1000, volume: 1 },
+      { tMs: 2000, volume: 1 },
+    ]
+    const mixer = createBackgroundMixer(
+      sourceOf([[new Float32Array(10).fill(0.5)]]),
+      points,
+      1000, // 1 frame = 1ms for readable positions
+    )
+    // The slice physically sits at frame 0, but its planned position is
+    // 1000ms — the gain must come from the planned timeline (1), not the
+    // frame-derived one (0).
+    const slice = [new Float32Array(2)]
+    await mixer.mixInto(slice, 0, 1000)
+    expect(slice[0][0]).toBeCloseTo(0.5)
+    expect(slice[0][1]).toBeCloseTo(0.5)
+  })
+
   it('decodes each track at most once (lazy, in order)', async () => {
     const decoded: number[] = []
     const mixer = createBackgroundMixer(
