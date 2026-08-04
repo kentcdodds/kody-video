@@ -55,17 +55,21 @@ export function PlaybackOverlay(handle: Handle<PlaybackOverlayProps>) {
     return segment ? segment.endMs - segment.startMs : 0
   }
 
-  /** Bind the current segment's blob to the persistent video element. */
-  const syncVideoSrc = () => {
+  /** Bind the current segment's blob to the persistent video element.
+   * Returns whether a new source was assigned (i.e. `loadedmetadata` will
+   * fire and drive playback). */
+  const syncVideoSrc = (): boolean => {
     const el = videoEl
     const segment = currentSegment()
-    if (!el || !segment) return
+    if (!el || !segment) return false
     if (urlState.blob !== segment.clip.blob) {
       if (urlState.url) URL.revokeObjectURL(urlState.url)
       urlState.url = URL.createObjectURL(segment.clip.blob)
       urlState.blob = segment.clip.blob
       el.src = urlState.url
+      return true
     }
+    return false
   }
 
   const goTo = (nextIndex: number) => {
@@ -201,7 +205,13 @@ export function PlaybackOverlay(handle: Handle<PlaybackOverlayProps>) {
       )
     }
 
-    syncVideoSrc()
+    // Same blob as the previous segment = no new source, so `loadedmetadata`
+    // never re-fires (adjacent duplicated clips) — start this segment
+    // directly. Still-loading media (readyState 0) is left to loadedmetadata.
+    if (!syncVideoSrc() && videoEl && videoEl.readyState >= 1 && loadedIndex !== index) {
+      loadedIndex = index
+      startPlayback(videoEl)
+    }
 
     return (
       <div

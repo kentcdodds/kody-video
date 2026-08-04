@@ -101,15 +101,32 @@ export function ProjectPage(handle: Handle<ProjectPageProps>) {
 
   const load = (projectId: string) => {
     loadedForId = projectId
-    void loadProjectPage(projectId).then((loaded) => {
-      if (handle.signal.aborted || loadedForId !== projectId) return
-      data = loaded
-      if (!onboardingInitialized) {
-        onboardingInitialized = true
-        onboardingOpen = !loaded.onboardingDismissed
-      }
-      void handle.update()
-    })
+    void loadProjectPage(projectId)
+      .then((loaded) => {
+        if (handle.signal.aborted || loadedForId !== projectId) return
+        data = loaded
+        if (!onboardingInitialized) {
+          onboardingInitialized = true
+          onboardingOpen = !loaded.onboardingDismissed
+        }
+        void handle.update()
+      })
+      .catch((err) => {
+        if (handle.signal.aborted || loadedForId !== projectId) return
+        reportError(err, 'load-project')
+        // Reuse the page's error rendering path (banner + back-home link).
+        data = {
+          project: null,
+          clips: [],
+          canUndo: false,
+          onboardingDismissed: true,
+          watermarkRemoved: false,
+          storage: null,
+          locationTaggingEnabled: false,
+          error: err instanceof Error ? err.message : 'Could not load this project.',
+        }
+        void handle.update()
+      })
   }
   load(props.projectId)
 

@@ -27,7 +27,8 @@ export function RenameSheet(handle: Handle<RenameSheetProps>) {
       error = err instanceof Error ? err.message : 'Could not save'
     } finally {
       busy = false
-      void handle.update()
+      // onClose may have unmounted the sheet — nothing left to update.
+      if (!handle.signal.aborted) void handle.update()
     }
   }
 

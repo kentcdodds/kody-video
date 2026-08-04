@@ -30,7 +30,8 @@ export function RestoreSheet(handle: Handle<RestoreSheetProps>) {
     } else {
       error = result.error ?? 'Could not verify the purchase.'
     }
-    void handle.update()
+    // onRestored may have unmounted the sheet — nothing left to update.
+    if (!handle.signal.aborted) void handle.update()
   }
 
   return () => {

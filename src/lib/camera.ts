@@ -321,7 +321,12 @@ export function createCamera(notify: () => void): Camera {
 
     const run = (async () => {
       camera.error = null
+      // A stop() while any await below is in flight must win: a stream
+      // adopted after stop() would keep the camera (and OS privacy
+      // indicator) live behind an unmounted preview.
+      const epoch = cameraEpoch
       const perm = await queryCameraPermission()
+      if (cameraEpoch !== epoch) return
       camera.permission = perm
       notify()
       if (perm.status === 'unsupported') {
@@ -334,6 +339,10 @@ export function createCamera(notify: () => void): Camera {
         const rememberedLens =
           facingIntent === 'environment' ? await resolveRearLens() : undefined
         let next = await openCombinedOrVideoStream(facingIntent, rememberedLens)
+        if (cameraEpoch !== epoch) {
+          stopStream(next)
+          return
+        }
         camera.permission = { status: 'granted' }
         // iOS first run: device labels are empty before the permission grant,
         // so the preferred multi-lens camera can't be resolved until now.
@@ -395,9 +404,15 @@ export function createCamera(notify: () => void): Camera {
     const nextFacing: FacingMode = previousFacing === 'environment' ? 'user' : 'environment'
     facingIntent = nextFacing
     camera.error = null
+    const epoch = cameraEpoch
     try {
       const rememberedLens = nextFacing === 'environment' ? await resolveRearLens() : undefined
       const next = await openCombinedOrVideoStream(nextFacing, rememberedLens)
+      // A stop() while the open was in flight wins (see start()).
+      if (cameraEpoch !== epoch) {
+        stopStream(next)
+        return
+      }
       // The rendered facing (which drives the preview's mirror transform)
       // changes only once the new stream is in hand: setting it up front
       // mirrored the still-showing old feed for the whole camera warm-up.

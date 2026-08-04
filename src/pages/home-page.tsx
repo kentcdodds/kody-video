@@ -45,8 +45,15 @@ function isLegacyOrigin(): boolean {
   return location.hostname === 'kody-video.pages.dev'
 }
 
+/**
+ * Last loaded home data, kept across mounts: navigating back to home renders
+ * the slots immediately (like React Router's blocking loader used to) while
+ * a fresh load revalidates underneath.
+ */
+let lastHomeData: HomeLoaderData | null = null
+
 export function HomePage(handle: Handle) {
-  let data: HomeLoaderData | null = null
+  let data: HomeLoaderData | null = lastHomeData
   let error: string | null = null
   let menuProject: ProjectSummary | null = null
   let renaming: ProjectSummary | null = null
@@ -62,11 +69,19 @@ export function HomePage(handle: Handle) {
   let prefetchedClips: { projectId: string; clips: Promise<ClipRecord[]> } | null = null
 
   const refresh = () => {
-    void loadHomePage().then((loaded) => {
-      if (handle.signal.aborted) return
-      data = loaded
-      void handle.update()
-    })
+    void loadHomePage()
+      .then((loaded) => {
+        lastHomeData = loaded
+        if (handle.signal.aborted) return
+        data = loaded
+        void handle.update()
+      })
+      .catch((err) => {
+        if (handle.signal.aborted) return
+        reportError(err, 'load-home')
+        error = err instanceof Error ? err.message : 'Could not load your projects.'
+        void handle.update()
+      })
   }
   refresh()
 
@@ -169,7 +184,14 @@ export function HomePage(handle: Handle) {
   }
 
   return () => {
-    if (!data) return null
+    if (!data) {
+      // Load failure must not leave a silent blank screen.
+      return error ? (
+        <div className="screen home-screen">
+          <div className="error-banner">{error}</div>
+        </div>
+      ) : null
+    }
     const { projects, storage, exportCacheBytes, plus } = data
     const installable = canPromptInstall()
 

@@ -555,10 +555,14 @@ export function RecordScreen(handle: Handle<RecordScreenProps>) {
         props.showToast("Location unavailable — check the site's location permission")
         return
       }
-      await setLocationTaggingEnabled(true)
-      locationTagging = true
-      void handle.update()
-      props.showToast('Location tagging on — new clips will be geotagged')
+      try {
+        await setLocationTaggingEnabled(true)
+        locationTagging = true
+        void handle.update()
+        props.showToast('Location tagging on — new clips will be geotagged')
+      } catch {
+        props.showToast('Could not save the setting — try again')
+      }
     })()
   }
 
@@ -916,7 +920,13 @@ export function RecordScreen(handle: Handle<RecordScreenProps>) {
             href="/"
             className="btn-icon"
             aria-label="Back to projects"
-            mix={on('click', cleanupOnUnmount)}
+            mix={on('click', (event) => {
+              // Modifier/middle clicks open a new tab and leave this page
+              // mounted — don't tear down the live camera session for them.
+              if (event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return
+              if (event.button !== 0) return
+              cleanupOnUnmount()
+            })}
           >
             <IconBack />
           </a>

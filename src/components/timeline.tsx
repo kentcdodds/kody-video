@@ -198,8 +198,12 @@ export function Timeline(handle: Handle<TimelineProps>) {
     if (state.lifted) {
       const nextGap = gapFromX(event.clientX)
       state.gapIndex = nextGap
-      gapIndex = nextGap
-      void handle.update()
+      // Only an actual gap change re-renders the strip (pointer moves fire
+      // at sample rate; React's setState bail-out used to dedupe this).
+      if (gapIndex !== nextGap) {
+        gapIndex = nextGap
+        void handle.update()
+      }
       edgeAutoScroll(event.clientX)
       return
     }
@@ -307,6 +311,9 @@ export function Timeline(handle: Handle<TimelineProps>) {
                   ref((node, signal) => {
                     tileRefs.set(clip.id, node as HTMLButtonElement)
                     signal.addEventListener('abort', () => {
+                      // A replaced tile's late abort must not clobber the
+                      // entry its replacement just registered.
+                      if (tileRefs.get(clip.id) !== node) return
                       tileRefs.delete(clip.id)
                       // A tile removed mid-drag ends its drag session.
                       if (drag?.clipId === clip.id) clearDrag()

@@ -72,6 +72,9 @@ export function EditorClipPreview(handle: Handle<EditorClipPreviewProps>) {
       },
     }
     signal.addEventListener('abort', () => {
+      // A remount (remountKey change) may bind the replacement element
+      // before this abort runs — never null out the live binding.
+      if (media !== video) return
       media = null
       apiRef.current = null
     })
