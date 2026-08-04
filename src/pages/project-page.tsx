@@ -134,8 +134,17 @@ export function ProjectPage(handle: Handle<ProjectPageProps>) {
   }
   load(props.projectId)
 
+  /** The URL is the authority on which project this page shows. Right after
+   * lazy creation, `navigate(replace)` has already rewritten the path while
+   * `props.projectId` only catches up on the router's next render — a
+   * mutation's immediate refresh must follow the URL, never a stale id. */
+  const currentProjectId = () => {
+    const match = window.location.pathname.match(/^\/project\/([^/]+)/)
+    return match?.[1] ?? props.projectId
+  }
+
   const refresh = () => {
-    if (loadedForId) load(loadedForId)
+    load(currentProjectId())
   }
 
   const showToast = (message: string, action?: ToastAction) => {
@@ -152,12 +161,17 @@ export function ProjectPage(handle: Handle<ProjectPageProps>) {
   // first clip finishes recording. The promise is memoized so overlapping
   // takes (or a camera take racing a screen take) create exactly one.
   let ensureProjectPromise: Promise<ProjectId> | null = null
+  /** Set once the lazy project persists: data loaded for 'new' may keep
+   * rendering under the created id (same logical project — the camera must
+   * not unmount mid-flow while the reload is in flight). */
+  let createdProjectId: ProjectId | null = null
   const ensureProjectId = (): Promise<ProjectId> => {
     const project = data?.project
     if (project && project.id !== NEW_PROJECT_ID) return Promise.resolve(project.id)
     ensureProjectPromise ??= (async () => {
       try {
         const created = await createProject()
+        createdProjectId = created.id
         // Their recordings should survive storage pressure.
         requestPersistentStorage()
         navigate(`/project/${created.id}`, { replace: true })
@@ -375,6 +389,17 @@ export function ProjectPage(handle: Handle<ProjectPageProps>) {
         </div>
       )
     }
+
+    // The rendered data must belong to the current route: browser history
+    // between two projects changes the param in place, and the previous
+    // project's clips must not stay visible (or actionable) while the new
+    // load is in flight. The lazy-create transition ('new' → the freshly
+    // created id) is the same logical project and keeps rendering, so the
+    // camera never unmounts mid-flow.
+    const isLazyCreateAlias =
+      project.id === NEW_PROJECT_ID &&
+      (props.projectId === NEW_PROJECT_ID || props.projectId === createdProjectId)
+    if (project.id !== props.projectId && !isLazyCreateAlias) return null
 
     const exporting = exportState?.status === 'exporting'
     const overlayOpen = playing || exportState !== null || onboardingOpen
