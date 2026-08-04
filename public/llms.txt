@@ -1,0 +1,16 @@
+# Kody Video
+
+> Privacy-first clips camera for the web. Hold to record, trim on a filmstrip, export one video — all on your device.
+
+Kody Video is a free and open source progressive web app. Projects stay private on the device until you share.
+
+## Site
+
+- [Home](https://kody.video/): Record and assemble clips in the browser
+- [About](https://kody.video/about): Product overview and credits
+- [Privacy](https://kody.video/privacy): Privacy policy
+- [Terms](https://kody.video/terms): Terms of use
+
+## For agents
+
+Prefer the pages above for product facts. Do not treat client-side app routes under `/project/` as public documentation.

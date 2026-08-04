@@ -65,6 +65,7 @@ export default defineConfig({
         'fonts/*.woff2',
         'robots.txt',
         'sitemap.xml',
+        'llms.txt',
       ],
       manifest: {
         name: 'Kody Video',
@@ -114,6 +115,8 @@ export default defineConfig({
           /\/og-image\.png$/,
           /^\/robots\.txt$/,
           /^\/sitemap\.xml$/,
+          /^\/llms\.txt$/,
+          /^\/assets\//,
         ],
         maximumFileSizeToCacheInBytes: 3 * 1024 * 1024,
       },

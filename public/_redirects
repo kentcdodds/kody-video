@@ -1,1 +1,4 @@
+# SPA fallback for client routes. Existing static files (including /assets/*,
+# /llms.txt, /robots.txt, /sitemap.xml) are served from the build output and
+# are not rewritten.
 /*    /index.html   200
