@@ -1,233 +1,110 @@
-# Kody Video
+# Kody Video — vanilla edition
 
 Mobile-first web clips camera: **hold anywhere on the preview to record**, arrange clips on a filmstrip timeline, then tap **Go** to export/share — all **on-device**.
 
-Kody Video is inspired by the OK Video interaction model: camera-first capture, quick clip cleanup, and one big OK/share moment. It is an independent project with its own name, mark, and implementation; it is not affiliated with OK Video and does not use OK Video trademarks or assets. The koala mascot is credited to the KCD community / [kentcdodds.com/kody](https://kentcdodds.com/kody). App artwork in `public/art/` was generated from that Kody reference (camera, timeline, share, app icon).
+This branch is an experiment: the whole app re-implemented with **only web-standard technology**.
+
+- **No framework** — the UI is hand-written [web components](public/js/components/) (custom elements, plain DOM).
+- **No build step** — the browser loads the ES modules in `public/js/` directly; an [import map](public/index.html) resolves the one bare specifier.
+- **No dependencies** — except [Mediabunny](https://mediabunny.dev) (vendored at `public/vendor/mediabunny.min.mjs`), which powers the on-device export pipeline. Everything else that used to be an npm package is hand-rolled vanilla code: a [minimal IndexedDB promise wrapper](public/js/lib/idb.js) (replaces `idb`), a [streaming ZIP writer](public/js/lib/zip.js) (replaces `client-zip`), a [hand-written service worker](public/sw.js) (replaces Workbox/`vite-plugin-pwa`), and console-only [error reporting](public/js/lib/error-reporting.js) (replaces Sentry). No analytics.
+- **Vanilla Cloudflare** — a single [Worker](worker.js) serves the static assets and the one API route (Stripe purchase verification). Configured in [`wrangler.jsonc`](wrangler.jsonc).
+
+Kody Video is inspired by the OK Video interaction model: camera-first capture, quick clip cleanup, and one big Go/share moment. It is an independent project with its own name, mark, and implementation; it is not affiliated with OK Video and does not use OK Video trademarks or assets. The koala mascot is credited to the KCD community / [kentcdodds.com/kody](https://kentcdodds.com/kody).
 
 ## Quick start
 
-```bash
-npm install
-npm run dev
-```
-
-Open the printed localhost URL in Chrome (desktop or Android). Camera/microphone require a **secure context** (`http://localhost` or HTTPS).
+There is nothing to install and nothing to build. Serve the `public/` directory over HTTP and open it in Chrome:
 
 ```bash
-npm run build      # production build + service worker
-npm run preview    # serve dist (PWA cache active)
-npm test           # storage/export-planner unit tests
-npm run test:e2e   # Playwright e2e suite (fake camera/mic; recording, editor, playback, export, plans)
-npm run test:smoke # Playwright UX smoke (fake camera, records + exports)
+npx wrangler dev        # full setup: static assets + the /api route
+# or any static file server:
+python3 -m http.server -d public 8000
 ```
 
-**Live app:** [https://kody.video](https://kody.video) (Cloudflare Pages, builds from `main`; the original
-[kody-video.pages.dev](https://kody-video.pages.dev) origin stays live so existing on-device projects remain accessible)
+Camera/microphone require a **secure context** (`http://localhost` or HTTPS).
 
-For a phone on the same network, use your machine’s LAN URL over HTTPS, or tunnel (`npm run dev -- --host` plus a trusted tunnel). `getUserMedia` will fail on plain `http://<lan-ip>` in most browsers.
+**Live experiment:** [https://vanilla.kody.video](https://vanilla.kody.video) (temporary worker). The original app lives at [kody.video](https://kody.video).
+
+## Deploying
+
+```bash
+npx wrangler deploy
+```
+
+That's it — no build. `wrangler.jsonc` points the worker at `worker.js` and the assets at `public/`, with SPA fallback for client-side routes and `run_worker_first` for `/api/*`. Purchase verification needs the `STRIPE_SECRET_KEY` secret (`npx wrangler secret put STRIPE_SECRET_KEY`); without it the endpoint degrades gracefully (the UI shows "verification is not configured").
+
+When shipping changes, bump `CACHE_VERSION` in [`public/sw.js`](public/sw.js) (and `APP_VERSION` in [`public/js/lib/build-info.js`](public/js/lib/build-info.js)) — the version string is the offline-cache buster; there is no build-hash pipeline.
 
 ## What works
 
+Feature-for-feature the same app as the framework edition:
+
 - Full-bleed live camera (rear preferred; flip, torch, and zoom when the device exposes them)
 - Hold-to-record anywhere on the preview; drag up/down while holding to zoom
-- Self-timer for hands-free takes (tap to stop)
-- Recording feedback (REC pill + elapsed) with a page that does **not** re-render per frame — capture stays smooth
-- Editor: filmstrip timeline (thumbnails, width ∝ duration), drag to reorder, duplicate, delete w/ undo, **in-timeline trim with drag handles**
+- Self-timer, desktop screen recording, silent-mic warning, optional location tagging
+- Editor: filmstrip timeline (thumbnails, width ∝ duration), drag to reorder, duplicate, delete w/ undo, in-timeline trim with drag handles
 - Project preview playback: tap edges to skip clips, tap middle to stop
 - Up to **6** stable project slots (create / open / rename / delete, poster art from your clips)
-- Big Go CTA: on-device export to **one video file**, then Share (system sheet) or Save
-- Fallback: save clips as separate files
-- Project **backup/import**: one `.kodyvideo` file per project (clips, trims,
-  location data) — a safety net, and the way to move a project between
-  devices or origins (e.g. kody-video.pages.dev → kody.video)
-- Installable PWA (manifest + Workbox service worker for the app shell)
+- Big Go CTA: on-device export to **one video file** (Mediabunny + WebCodecs, realtime `MediaRecorder` fallback), then Share or Save
+- MP4 chapter markers per clip + optional geotag; cached last export (OPFS) for instant re-share
+- Project backup/import (`.kodyvideo` files), save-clips-as-zip fallback
+- Installable PWA with an offline app shell and prompt-based updates
+- Desktop keyboard support throughout
 - **No accounts, no uploads, no analytics**
-
-Most QA is automated: `npm run test:e2e` runs the Playwright suite in
-`tests/e2e/` (~40s). See [`manual-test-checklist.md`](./manual-test-checklist.md)
-for what it covers and the remaining real-device-only checks.
 
 ## Architecture
 
-Built with [Remix 3](https://github.com/remix-run/remix) (`remix@3.0.0-beta.5`,
-pinned — v3 is prerelease) as a pure client-side app: `remix/ui` components
-rendered with `createRoot`, no server rendering.
-
 ```
-src/
-  lib/storage.ts            IndexedDB (idb) — projects, clip blobs + thumbnails, undo
-  lib/project-actions.ts    Loader/mutation helpers for pages
-  lib/camera.ts             Camera controller (open/flip/zoom/lens/mic lifecycle)
-  lib/recorder.ts           Hold-to-record MediaRecorder wrapper (hardware-codec aware)
-  lib/media.ts              getUserMedia/permissions/share/download helpers
-  lib/thumbs.ts             Filmstrip thumbnail generation (stored per clip)
-  lib/sheet-modal.ts        Bottom-sheet modality (focus trap, Esc, sheet stack)
-  lib/export/               Export engines (see below)
-  components/record-screen  Camera surface (capture, zoom, timer, dock)
-  components/editor-screen  Timeline, trim, clip actions
-  pages/                    Home (project slots) + Project (record/editor shell)
-  router.tsx                Tiny client router (route-pattern matching + history)
+worker.js                  Cloudflare Worker: assets + /api/verify-purchase
+wrangler.jsonc             Worker config (SPA fallback, custom domain)
+public/
+  index.html               App shell + import map (mediabunny)
+  sw.js                    Hand-written service worker (precache, updates)
+  manifest.webmanifest     PWA manifest
+  styles/                  Plain CSS (global, home, record, editor)
+  vendor/mediabunny.min.mjs  The one dependency, vendored
+  js/
+    dom.js                 ~100-line DOM helper + KvElement base class
+    router.js              pushState router (link intercepts, popstate)
+    app.js                 <kv-app>: route outlet + SW update toast
+    main.js                Entry point
+    lib/                   Ported app logic (framework-free already):
+      storage.js             IndexedDB — projects, clip blobs, thumbs, undo
+      idb.js                 Minimal promise wrapper over raw IndexedDB
+      camera.js              Camera controller (open/flip/zoom/lens/mic)
+      recorder.js            Hold-to-record MediaRecorder wrapper
+      media.js               getUserMedia/permissions/share/download
+      thumbs.js              Filmstrip thumbnail generation
+      zip.js                 Streaming store-mode ZIP writer
+      export/                Export engines (Mediabunny+WebCodecs, realtime)
+      …
+    components/            Web components (custom elements, no shadow DOM)
+      record-screen.js       <kv-record-screen> — capture, zoom, timer, dock
+      editor-screen.js       <kv-editor-screen> — timeline, trim, actions
+      timeline.js            <kv-timeline> — tiles, reorder, fling scrolling
+      playback-overlay.js    <kv-playback-overlay> — sequential preview
+      …
+    pages/                 <kv-home-page>, <kv-project-page>, about/legal
 ```
 
-### Chapters & optional location
+### How the UI works without a framework
 
-MP4 exports carry **chapter markers** at every clip boundary (Nero `chpl`,
-injected post-mux by `lib/export/mp4-metadata.ts`), titled with each clip's
-recording time. With the opt-in **location tagging** toggle on the record
-screen, clips store device coordinates (kept in IndexedDB alongside the clip,
-never inside the MediaRecorder blob), chapter titles include them, and the
-file gets a `©xyz` geotag — derived by averaging the majority cluster of clip
-locations (within 5 km), falling back to the first located clip. WebM exports
-skip both (the WebM subset of Matroska excludes chapters). Clips recorded
-before this feature simply lack the data and degrade gracefully.
+- Components are custom elements extending a ~60-line `KvElement` base: `props` assigned by the parent, an `AbortController` per mount, blob-URL bookkeeping, and a `render()`/`update()` pair.
+- Screens that host live media (camera preview, playback video) build their DOM **once** and sync state imperatively — classes, `hidden`, `textContent`. Nothing re-renders per frame while recording; the elapsed timer writes `textContent` from `requestAnimationFrame`.
+- Simple views (home, sheets, static pages) just rebuild their DOM on state change.
+- The timeline keeps tile elements stable during drags so pointer capture survives, and only rebuilds when clip data actually changes.
 
-### Export pipeline
+### Storage, export, quality
 
-`lib/export/` stitches clips into one file with two engines:
-
-1. **Mediabunny + WebCodecs (preferred, all Chromium + recent Firefox/Safari):** each clip's own samples are demuxed and decoded directly by [Mediabunny](https://mediabunny.dev) (no playback pacing — the frame supply runs at hardware speed, keeps working in background tabs, and honors file rotation metadata), composited onto one canvas with the watermark, and encoded/muxed by Mediabunny, which owns the codec-config/packet-ordering/container details. Audio is decoded per clip and appended **sample-accurately**, so audio can never drift across clips; backpressure comes from awaiting the encoder. Container/codec negotiation strongly prefers **MP4 (H.264/HEVC + AAC)** — the most shareable output everywhere — and only falls back to **WebM (VP9/VP8 + Opus)** on non-iOS platforms without MP4 encoders. Clips WebCodecs can't decode take a realtime element-pump fallback per clip.
-2. **Realtime fallback:** the old `canvas.captureStream` + `MediaRecorder` stitcher, hardened with timeouts and degenerate-segment skipping, for browsers without WebCodecs.
-
-`plan.ts` is a pure, unit-tested planner that clamps trims and drops unplayable segments up front. The share flow completes the export **first**, then Share/Save run on fresh taps so the Web Share API always has the user activation it requires.
-
-### Recording quality
-
-- Phones prefer **hardware H.264** (`video/mp4`/`h264` MediaRecorder types) over software VP9 — software encoding is what makes previews and clips drop frames on Android.
-- Clip duration is measured from the encoded media after stop (wall-clock time includes encoder startup latency and corrupts trim/export math).
-- The elapsed timer is a leaf component writing `textContent` from rAF; nothing else re-renders during capture.
-- A screen wake lock is held while recording.
-
-### Remix data flow (explicit updates, no hooks)
-
-- **Components** are Remix 3 setup + render functions: state lives in plain
-  setup-scope variables, re-renders happen only on explicit `handle.update()`.
-- **Pages own their data**: each page loads IndexedDB state in setup and
-  exposes `refresh()`; mutations write storage then call `refresh()`.
-- **Camera** attaches via the **`ref()` mixin** (start on insert, stop when
-  the element's abort signal fires).
-- **Blob URLs** bind/revoke in `ref()` mixins (`BlobVideo`, `BlobImage`,
-  `TimelineThumbImage`), re-synced from render when the blob changes.
-- **Sheets** reset with `key={id}`; modality comes from `lib/sheet-modal.ts`.
-- **Timers / toasts** use `requestAnimationFrame` / `setTimeout` started from event handlers.
-
-### Storage (refresh-safe + personal)
-
-| Store    | Contents                                              |
-|----------|-------------------------------------------------------|
-| projects | JSON metadata + ordered `clipIds`                     |
-| clips    | Clip metadata, `Blob` media, filmstrip thumbnails     |
-| undo     | Last deleted clip per project (for Undo)              |
-| meta     | Settings (`maxProjects`, last opened id, onboarding)  |
-
-Database name: `kody-video`. Blobs never leave the device unless the user explicitly shares/downloads.
-
-### Offline / PWA
-
-`vite-plugin-pwa` generates a service worker that precaches the app shell (`html/js/css/icons`). After the first successful visit:
-
-1. Airplane mode still loads the SPA from Cache Storage.
-2. Project/clip data continues to come from IndexedDB.
-
-Verified approach: `npm run build && npm run preview`, load once online, then DevTools → Network → Offline (or OS airplane mode) and reload.
-
-## Browser limits
-
-- **iOS Safari:** WebCodecs audio support is incomplete; the realtime fallback engine covers it, but Chromium (especially Android) is the primary target.
-- **iOS microphone:** WebKit can deliver muted audio tracks when mic and camera come from separate `getUserMedia` calls, so on iOS the mic is acquired together with the camera and held while the preview is open (everywhere else the mic is grabbed per-take). A live level monitor warns "Mic isn't picking up sound" during silent takes on every platform.
-- **External mics on iOS (DJI transmitters, AirPods, wired headsets):** iOS pins web capture to the built-in mic by
-  default. After the camera opens, the app kicks WebKit's `navigator.audioSession` into
-  `play-and-record` — the documented nudge that re-routes capture to a connected external mic —
-  and restores the session when the camera closes. Best-effort: routing remains OS-controlled.
-- **Permissions:** denied camera/mic must be re-enabled in site settings; the UI surfaces this.
-- **Storage quotas:** large projects can hit IndexedDB quotas; the soft 6-project cap helps.
-- **Background tabs:** recording should stay in the foreground; browsers may throttle capture.
-- **Ultra-wide (0.5×):** Android usually exposes the ultra-wide/telephoto as *separate* rear
-  cameras, not as zoom below 1× — the lens chip next to the zoom chips switches between them.
-  Some devices don't expose the extra lenses to browsers at all; the chip is hidden there.
-  Phones that expose Android's *logical multi-camera* to the browser (zoom range below 1×,
-  common on Samsung) get native-style seamless lens hand-off through the zoom gesture instead —
-  the app detects such a lens the first time it's opened (cycle the chip once) and locks onto
-  it for future sessions. Switching lenses with the chip afterward replaces that memory (your
-  explicit choice always wins); opening the seamless lens again re-locks it. iPhones always
-  work this way via the OS multi-lens camera.
-
-## Desktop keyboard support
-
-Kody Video is designed as a mobile camera app, but desktop gets first-class
-keyboard support (hints appear automatically on fine-pointer devices):
-
-- **Camera:** hold `Space` to record (release to stop), `F` flip, `T`
-  self-timer, `S` screen recording, `E` editor, `P` play preview, `Delete`
-  remove last clip.
-- **Editor:** `←`/`→` select clip, `Alt`+arrows reorder, `T` trim, `D`
-  duplicate, `Delete` delete, `P` play, `Esc` back to camera (or exit trim).
-- **Playback:** `←`/`→` skip clips, `Space` pause/resume, `Esc` close.
-
-## Screen recording (desktop)
-
-The monitor button on the camera view (or `S`) records a screen, window, or
-tab as a regular clip — pick the surface, narrate over your mic (mixed with
-shared tab/system audio when you opt in), then tap the preview or the button
-to stop and the take lands on the filmstrip like any camera clip. Desktop
-browsers only: `getDisplayMedia` does not exist on iOS or Android, so on
-phones use the OS screen recorder instead. The button hides itself where the
-API is missing.
-
-## Kody Video Plus purchase
-
-The free plan includes one project, and exports carry a small Kody Video mark
-in the corner. Kody Video Plus — a one-time $0.99 Stripe Payment Link —
-removes the watermark and unlocks six project slots: the export sheet (or a
-locked home slot) links to checkout, Stripe redirects back to
-`/unlocked?session_id=…`, and a single Cloudflare Pages Function
-(`functions/api/verify-purchase.ts`) verifies the session server-side before
-the entitlement is stored in IndexedDB. 100%-off promotion codes (friends /
-the developer) flow through the exact same verification. Restore on another
-device: "Already paid?" on the export sheet or a locked slot's upsell.
-
-Projects are also created lazily — "New project" opens the camera at
-`/project/new` and nothing is persisted until the first clip is recorded, so
-backing out of an untouched project leaves no empty slot behind.
-
-Deployment requirement: set `STRIPE_SECRET_KEY` (a restricted key with
-Checkout Sessions read access is enough) on the Cloudflare Pages project.
+The device-facing logic (camera lens handling, iOS audio-session quirks, recording codec preferences, the two-engine export pipeline, chapters/geotags, OPFS-backed export cache) is ported line-for-line from the framework edition — see that README (`git show main:README.md`) for the full write-ups. Database name and schema are unchanged (`kody-video`), so projects created by either edition on the same origin are compatible.
 
 ## Support
 
-Email [team@kody.video](mailto:team@kody.video) or open a GitHub issue (the
-in-app About page has a link that pre-fills device details).
+Email [team@kody.video](mailto:team@kody.video) or open a GitHub issue (the in-app About page has a link that pre-fills device details).
 
 ## Privacy
 
-- No accounts, no cookies, no cross-site tracking.
-- Page views are counted with [Fathom Analytics](https://usefathom.com)
-  (cookieless, anonymous, aggregate-only), loaded only on production
-  hostnames.
+- No accounts, no cookies, no tracking, no analytics, no crash reporting.
 - No clip upload endpoints exist in this app.
 - Share/export uses user-gesture download or the Web Share API only.
-- Network calls besides Stripe checkout (opened in the browser): the
-  purchase-verification function above (never sees media), and anonymous
-  Sentry crash reports (error + stack trace only — breadcrumbs and request
-  metadata are stripped in the SDK config; no PII, no media; only from
-  production hostnames — dev and tests never report). Export and import
-  failures the UI surfaces as friendly messages are also captured, tagged
-  with the failing step, so real-device bugs surface.
-
-## Scripts
-
-| Command                              | Purpose                                    |
-|--------------------------------------|--------------------------------------------|
-| `npm run dev`                        | Vite dev server                            |
-| `npm run build`                      | Typecheck + production bundle              |
-| `npm run preview`                    | Preview production build                   |
-| `npm test`                           | Vitest storage/export-planner tests        |
-| `npm run test:e2e`                   | Playwright e2e suite (`tests/e2e/`): recording, editor, playback, export, plans, keyboard |
-| `npm run test:smoke`                 | Playwright smoke: record → edit → export   |
-| `node scripts/probe-export-chrome.mjs` | Export validation in Chrome stable (real codecs) |
-| `node scripts/probe-keyboard.mjs`    | Desktop keyboard flows (record/edit/playback) |
-| `node scripts/probe-rear-lens.mjs`   | Rear lens switching (ultra-wide) with fake cameras |
-| `node scripts/probe-fast-export.mjs` | Decode-driven export beats realtime (MP4 clips) |
-| `node scripts/probe-mic-monitor.mjs`  | Silent-mic warning fires (and clears) correctly |
-| `node scripts/probe-screen-record.mjs` | Desktop screen recording lands as a clip |
-| `node scripts/probe-touch-timeline.mjs` | Touch timeline gestures (scroll, long-press lift) |
-| `node scripts/probe-webkit.mjs`      | WebKit engine sanity + feature matrix (iOS proxy, not a substitute for a real device) |
+- The only network call besides Stripe checkout (opened in the browser) is the purchase-verification endpoint above (never sees media).
