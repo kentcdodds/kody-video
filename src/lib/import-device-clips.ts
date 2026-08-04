@@ -49,11 +49,49 @@ export function isLikelyVideoFile(file: Pick<File, 'name' | 'type'>): boolean {
   return /\.(mp4|m4v|webm|mov|mkv)$/i.test(file.name)
 }
 
+async function demuxClipMeta(
+  blob: Blob,
+  timeoutMs: number,
+): Promise<{ durationMs: number; width: number; height: number }> {
+  const { ALL_FORMATS, BlobSource, Input } = await import('mediabunny')
+  const input = new Input({ source: new BlobSource(blob), formats: ALL_FORMATS })
+  const seconds = await Promise.race([
+    input.computeDuration(),
+    new Promise<number>((_, reject) => {
+      window.setTimeout(() => reject(new Error('Demux duration timed out')), timeoutMs)
+    }),
+  ])
+  if (!Number.isFinite(seconds) || seconds <= 0) {
+    throw new Error('Could not read video duration')
+  }
+  const track = await input.getPrimaryVideoTrack().catch(() => null)
+  const width =
+    track && track.displayWidth > 0
+      ? track.displayWidth
+      : track && track.codedWidth > 0
+        ? track.codedWidth
+        : 0
+  const height =
+    track && track.displayHeight > 0
+      ? track.displayHeight
+      : track && track.codedHeight > 0
+        ? track.codedHeight
+        : 0
+  if (width <= 0 || height <= 0) {
+    throw new Error('No video track')
+  }
+  return { durationMs: Math.round(seconds * 1000), width, height }
+}
+
 /**
  * Materialize bytes and resolve duration/dimensions. File-backed blobs from
  * the picker must be copied before IndexedDB persistence — Chromium stores
  * references to the underlying file (esp. Android content URIs), which go
  * stale after the picker closes.
+ *
+ * Demux is preferred for metadata, but the browser must still be able to
+ * decode the clip (unsupported codecs would otherwise persist and fail in
+ * preview/export).
  */
 export async function probeDeviceClip(
   file: File,
@@ -74,67 +112,42 @@ export async function probeDeviceClip(
       ? file.lastModified
       : Date.now()
 
-  // Prefer container demux (no hardware decoder). Falls back to a media
-  // element when mediabunny cannot parse the file.
+  let demuxMeta: { durationMs: number; width: number; height: number } | null = null
   try {
-    const { ALL_FORMATS, BlobSource, Input } = await import('mediabunny')
-    const input = new Input({ source: new BlobSource(blob), formats: ALL_FORMATS })
-    const seconds = await Promise.race([
-      input.computeDuration(),
-      new Promise<number>((_, reject) => {
-        window.setTimeout(() => reject(new Error('Demux duration timed out')), timeoutMs)
-      }),
-    ])
-    if (!Number.isFinite(seconds) || seconds <= 0) {
+    demuxMeta = await demuxClipMeta(blob, timeoutMs)
+  } catch {
+    demuxMeta = null
+  }
+
+  // Prove the browser can decode before we persist — demux alone accepts
+  // containers whose video codec this device cannot play.
+  const { loadClipVideo } = await import('./export/shared')
+  const loaded = await loadClipVideo(blob, timeoutMs, mimeType)
+  try {
+    const durationMs =
+      demuxMeta?.durationMs && demuxMeta.durationMs > 0
+        ? demuxMeta.durationMs
+        : loaded.mediaDurationMs
+    const width =
+      demuxMeta?.width && demuxMeta.width > 0 ? demuxMeta.width : loaded.video.videoWidth
+    const height =
+      demuxMeta?.height && demuxMeta.height > 0 ? demuxMeta.height : loaded.video.videoHeight
+    if (durationMs <= 0) {
       throw new Error('Could not read video duration')
     }
-    const track = await input.getPrimaryVideoTrack().catch(() => null)
-    const width =
-      track && track.displayWidth > 0
-        ? track.displayWidth
-        : track && track.codedWidth > 0
-          ? track.codedWidth
-          : undefined
-    const height =
-      track && track.displayHeight > 0
-        ? track.displayHeight
-        : track && track.codedHeight > 0
-          ? track.codedHeight
-          : undefined
-    if (!width || !height) {
+    if (width <= 0 || height <= 0) {
       throw new Error('No video track')
     }
     return {
       blob,
       mimeType,
-      durationMs: Math.round(seconds * 1000),
+      durationMs,
       width,
       height,
       createdAt,
     }
-  } catch {
-    const { loadClipVideo } = await import('./export/shared')
-    const loaded = await loadClipVideo(blob, timeoutMs, mimeType)
-    try {
-      if (loaded.mediaDurationMs <= 0) {
-        throw new Error('Could not read video duration')
-      }
-      const width = loaded.video.videoWidth
-      const height = loaded.video.videoHeight
-      if (width <= 0 || height <= 0) {
-        throw new Error('No video track')
-      }
-      return {
-        blob,
-        mimeType,
-        durationMs: loaded.mediaDurationMs,
-        width,
-        height,
-        createdAt,
-      }
-    } finally {
-      loaded.release()
-    }
+  } finally {
+    loaded.release()
   }
 }
 
@@ -155,6 +168,13 @@ export async function importDeviceClip(
   })
 }
 
+export interface ImportDeviceClipsOptions {
+  /** Lazily create/resolve the project only after the first file probes OK —
+   * so a failed pick on `/project/new` does not burn a free project slot. */
+  ensureProjectId: () => Promise<ProjectId>
+  onProgress?: (done: number, total: number) => void
+}
+
 /**
  * Append one or more device videos to a project. Failures on individual
  * files are collected so a bad pick in a multi-select does not block the
@@ -162,29 +182,41 @@ export async function importDeviceClip(
  * fresh recording).
  */
 export async function importDeviceClips(
-  projectId: ProjectId,
   files: Iterable<File>,
-  onProgress?: (done: number, total: number) => void,
+  options: ImportDeviceClipsOptions,
 ): Promise<DeviceClipImportResult> {
   const list = [...files]
   const added: ClipRecord[] = []
   const failed: DeviceClipImportFailure[] = []
-  onProgress?.(0, list.length)
+  let projectId: ProjectId | null = null
+  options.onProgress?.(0, list.length)
 
   for (let i = 0; i < list.length; i += 1) {
     const file = list[i]!
     try {
-      added.push(await importDeviceClip(projectId, file))
+      const probed = await probeDeviceClip(file)
+      projectId ??= await options.ensureProjectId()
+      added.push(
+        await addClip({
+          projectId,
+          blob: probed.blob,
+          mimeType: probed.mimeType,
+          durationMs: probed.durationMs,
+          width: probed.width,
+          height: probed.height,
+          createdAt: probed.createdAt,
+        }),
+      )
     } catch (error) {
       failed.push({
         name: file.name || 'clip',
         reason: error instanceof Error ? error.message : 'Could not import',
       })
     }
-    onProgress?.(i + 1, list.length)
+    options.onProgress?.(i + 1, list.length)
   }
 
-  if (added.length > 0) {
+  if (added.length > 0 && projectId) {
     await clearUndo(projectId)
   }
   return { added, failed }

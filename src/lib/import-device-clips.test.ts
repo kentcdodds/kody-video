@@ -54,14 +54,24 @@ describe('probeDeviceClip / importDeviceClips', () => {
 
   it('collects per-file failures without aborting the batch', async () => {
     const project = await createProject('Import batch')
-    const result = await importDeviceClips(project.id, [
-      new File([], 'empty.mp4', { type: 'video/mp4' }),
-      new File(['x'], 'notes.txt', { type: 'text/plain' }),
-    ])
+    let ensureCalls = 0
+    const result = await importDeviceClips(
+      [
+        new File([], 'empty.mp4', { type: 'video/mp4' }),
+        new File(['x'], 'notes.txt', { type: 'text/plain' }),
+      ],
+      {
+        ensureProjectId: async () => {
+          ensureCalls += 1
+          return project.id
+        },
+      },
+    )
     expect(result.added).toHaveLength(0)
     expect(result.failed).toHaveLength(2)
     expect(result.failed[0]?.name).toBe('empty.mp4')
     expect(result.failed[1]?.name).toBe('notes.txt')
+    expect(ensureCalls).toBe(0)
     expect(await getClipsForProject(project.id)).toHaveLength(0)
   })
 })

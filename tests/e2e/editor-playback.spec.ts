@@ -109,7 +109,12 @@ test.describe('editor', () => {
       buffer: Buffer.from(clipPath.bytes),
     }
 
-    await page.locator('.editor-screen input[type="file"]').setInputFiles(file)
+    // Drive the toolbar Add control through the real file chooser so a
+    // disconnected hidden input cannot fake a green test.
+    const chooserPromise = page.waitForEvent('filechooser')
+    await page.getByRole('button', { name: 'Add clips from device' }).first().click()
+    const chooser = await chooserPromise
+    await chooser.setFiles(file)
     await expect(tiles).toHaveCount(2, { timeout: 20_000 })
     await expect(page.locator('.toast')).toContainText(/clip added/i)
     // The imported clip is selected (most recently added).

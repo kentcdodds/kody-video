@@ -72,16 +72,20 @@ export function EditorScreen(handle: Handle<EditorScreenProps>) {
     void handle.update()
     void (async () => {
       try {
-        const projectId = await props.ensureProjectId()
-        const result = await importDeviceClips(projectId, files, (done, total) => {
-          if (total > 1) {
-            props.showToast(`Adding clip ${Math.min(done + 1, total)} of ${total}…`)
-          }
+        // ensureProjectId runs only after the first file probes successfully
+        // — a bad pick on /project/new must not create an empty project.
+        const result = await importDeviceClips(files, {
+          ensureProjectId: props.ensureProjectId,
+          onProgress: (done, total) => {
+            if (total > 1) {
+              props.showToast(`Adding clip ${Math.min(done + 1, total)} of ${total}…`)
+            }
+          },
         })
         const last = result.added.at(-1)
         if (last) selectedClipId = last.id
         trimming = false
-        props.refresh()
+        if (result.added.length > 0) props.refresh()
         if (result.added.length === 0 && result.failed.length > 0) {
           props.showToast(result.failed[0]?.reason || 'Could not add that clip')
         } else if (result.failed.length > 0) {
@@ -143,7 +147,7 @@ export function EditorScreen(handle: Handle<EditorScreenProps>) {
 
   // Desktop keyboard support. Closures read live state — no re-binding.
   const onWindowKeyDown = (event: KeyboardEvent) => {
-    if (props.interactionLocked) return
+    if (props.interactionLocked || importing) return
     // Escape stays global; everything else yields to focused controls.
     if (event.code !== 'Escape' && isInteractiveTarget(event)) return
     const clips = props.clips
@@ -295,7 +299,11 @@ export function EditorScreen(handle: Handle<EditorScreenProps>) {
             type="button"
             className="btn-icon"
             aria-label="Back to camera"
-            mix={on('click', () => onOpenCamera())}
+            disabled={importing}
+            mix={on('click', () => {
+              if (importing) return
+              onOpenCamera()
+            })}
           >
             <IconBack />
           </button>
@@ -309,7 +317,7 @@ export function EditorScreen(handle: Handle<EditorScreenProps>) {
             type="button"
             className="btn-icon"
             aria-label="Play project preview"
-            disabled={clips.length === 0}
+            disabled={clips.length === 0 || importing}
             mix={on('click', () => onPlay())}
           >
             <IconPlay />
