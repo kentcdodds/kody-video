@@ -34,6 +34,23 @@ function acquireContext(): AudioContext | null {
 }
 
 /**
+ * Create the shared AudioContext ahead of the first take. Constructing a
+ * context spins up the platform audio stack — doing it inside the
+ * pointerdown that starts the first recording is a first-take-only stutter.
+ * Called from an idle moment on the record screen; created suspended so an
+ * idle preview never keeps the audio graph running.
+ */
+export function warmMicMonitorContext(): void {
+  if (sharedContext || typeof AudioContext === 'undefined') return
+  try {
+    sharedContext = new AudioContext()
+    void sharedContext.suspend().catch(() => undefined)
+  } catch {
+    // Leave it to acquireContext to retry per take.
+  }
+}
+
+/**
  * Watches the stream's audio track through an AnalyserNode (a passive extra
  * consumer — MediaRecorder is unaffected). Calls onSilent when the take has
  * gone a full grace period without any signal above the floor — whether from

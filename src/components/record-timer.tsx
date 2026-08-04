@@ -19,10 +19,16 @@ export function RecordTimer(handle: Handle<RecordTimerProps>) {
       className={handle.props.className}
       mix={ref((node, signal) => {
         let raf = 0
+        let lastText = ''
         const tick = () => {
-          node.textContent = formatDuration(
-            Math.max(0, performance.now() - handle.props.startedAt),
-          )
+          const text = formatDuration(Math.max(0, performance.now() - handle.props.startedAt))
+          // The readout has 0.1s resolution, so ~5 of 6 frames would write
+          // the same string — and every textContent write dirties layout.
+          // Skipping no-ops keeps recording free of per-frame layout work.
+          if (text !== lastText) {
+            lastText = text
+            node.textContent = text
+          }
           raf = requestAnimationFrame(tick)
         }
         tick()

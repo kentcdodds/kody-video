@@ -300,8 +300,20 @@ export function pickRecorderMimeType(): string {
  * hardware-accelerated encoder — recording VP9 in software is what makes the
  * camera preview and the saved clip drop frames — so prefer it there.
  * Desktops have plenty of headroom, so prefer WebM for broad compatibility.
+ *
+ * The answer is static per browser session, so it's probed once and cached:
+ * this runs inside the pointerdown that starts every take, and each
+ * isTypeSupported call crosses into the platform media stack.
  */
+let cachedRecordingMimeType: string | null = null
+
 export function pickRecordingMimeType(): string {
+  if (cachedRecordingMimeType !== null) return cachedRecordingMimeType
+  cachedRecordingMimeType = probeRecordingMimeType()
+  return cachedRecordingMimeType
+}
+
+function probeRecordingMimeType(): string {
   if (typeof MediaRecorder === 'undefined') return ''
   const mobile = [
     'video/mp4;codecs=avc1.640028,mp4a.40.2',
@@ -323,6 +335,17 @@ export function pickRecordingMimeType(): string {
     if (MediaRecorder.isTypeSupported(type)) return type
   }
   return ''
+}
+
+/**
+ * Prefetch the demux module measureBlobDuration needs. Without this, the
+ * FIRST take's stop pays the mediabunny chunk fetch + parse on the main
+ * thread while the camera preview is live — visible as post-take jank.
+ * Called from an idle moment on the record screen; failures just mean the
+ * first measurement pays the import lazily as before.
+ */
+export function warmDurationProbe(): void {
+  void import('mediabunny').catch(() => undefined)
 }
 
 /**

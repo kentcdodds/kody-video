@@ -118,8 +118,11 @@ export async function captureLiveThumbs(
   if (!ctx || !posterCtx) return null
 
   try {
-    ctx.drawImage(video, 0, 0, thumbWidth, thumbHeight)
+    // ONE video readback: pulling pixels out of a live camera element is the
+    // expensive part (GPU→CPU copy), so the filmstrip thumb is scaled from
+    // the poster canvas instead of a second video draw.
     posterCtx.drawImage(video, 0, 0, posterWidth, posterHeight)
+    ctx.drawImage(posterCanvas, 0, 0, thumbWidth, thumbHeight)
   } catch {
     return null
   }
