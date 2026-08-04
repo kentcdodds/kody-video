@@ -1,0 +1,271 @@
+import { pickRecorderMimeType } from "../media.js";
+import { clampSegmentToMedia } from "./plan.js";
+import { PREVIEW_EVERY_N_FRAMES, blitPreview, decodeClipAudio, drawCover, drawWatermark, loadClipVideo, pickOutputSize, recordVideoLumaSample, seekTo, tagExportError, wait, waitForPreviewCanvas, } from "./shared.js";
+/**
+ * Fallback stitcher for browsers without WebCodecs: plays each clip into a
+ * canvas captured by MediaRecorder, mixing audio via Web Audio. Realtime and
+ * best-effort — the WebCodecs engine is preferred whenever available.
+ */
+export async function exportRealtime(plan, options = {}) {
+    const probeClip = plan.segments[0].clip;
+    let width;
+    let height;
+    try {
+        const probe = await loadClipVideo(probeClip.blob, 8000, probeClip.mimeType);
+        ({ width, height } = pickOutputSize(probe.video.videoWidth, probe.video.videoHeight));
+        probe.release();
+    }
+    catch (error) {
+        // Probing is not worth dying over: recorded clips carry their capture
+        // dimensions, and pickOutputSize has sane defaults for the rest.
+        if ((probeClip.width ?? 0) > 0 && (probeClip.height ?? 0) > 0) {
+            ;
+            ({ width, height } = pickOutputSize(probeClip.width, probeClip.height));
+        }
+        else {
+            throw tagExportError(error, { engine: 'realtime', where: 'probe-size', clipIndex: 0 });
+        }
+    }
+    // Encode from the overlay's on-DOM canvas whenever possible: iOS Safari's
+    // canvas.captureStream() delivers BLACK frames for canvases that aren't
+    // attached to the document (the preview looked fine — it was a different,
+    // visible canvas — while the detached encode canvas produced a black
+    // export). Rendering into the visible canvas fixes that and makes the
+    // preview show every frame. The overlay mounts a tick after the export
+    // starts, so wait briefly for it before falling back.
+    let canvas = await waitForPreviewCanvas(options.getPreviewCanvas);
+    const encodingIntoPreview = canvas !== null;
+    if (!canvas) {
+        canvas = document.createElement('canvas');
+    }
+    canvas.width = width;
+    canvas.height = height;
+    const ctx = canvas.getContext('2d', { alpha: false });
+    if (!ctx)
+        throw new Error('Canvas not available');
+    ctx.fillStyle = '#000';
+    ctx.fillRect(0, 0, width, height);
+    const canvasStream = canvas.captureStream(30);
+    if (canvasStream.getVideoTracks().length === 0) {
+        throw new Error('This browser cannot capture canvas video for export');
+    }
+    let audioContext = options.audioContext ?? null;
+    let dest = null;
+    try {
+        if (!audioContext)
+            audioContext = new AudioContext();
+        if (audioContext.state === 'suspended') {
+            await audioContext.resume().catch(() => undefined);
+        }
+        dest = audioContext.createMediaStreamDestination();
+    }
+    catch {
+        audioContext = null;
+        dest = null;
+    }
+    const mixedStream = new MediaStream([
+        ...canvasStream.getVideoTracks(),
+        ...(dest?.stream.getAudioTracks() ?? []),
+    ]);
+    const mimeType = pickRecorderMimeType();
+    let recorder;
+    try {
+        recorder = mimeType
+            ? new MediaRecorder(mixedStream, { mimeType, videoBitsPerSecond: 3_000_000 })
+            : new MediaRecorder(mixedStream);
+    }
+    catch {
+        recorder = new MediaRecorder(mixedStream);
+    }
+    const chunks = [];
+    recorder.ondataavailable = (event) => {
+        if (event.data.size > 0)
+            chunks.push(event.data);
+    };
+    const stopped = new Promise((resolve, reject) => {
+        recorder.onstop = () => resolve(new Blob(chunks, { type: recorder.mimeType || 'video/webm' }));
+        recorder.onerror = () => reject(new Error('Export recording failed'));
+    });
+    recorder.start(200);
+    await wait(120);
+    let paintedTotalMs = 0;
+    const frameCounter = { count: 0 };
+    try {
+        for (const [segmentIndex, segment] of plan.segments.entries()) {
+            let loaded;
+            try {
+                loaded = await loadClipVideo(segment.clip.blob, 8000, segment.clip.mimeType);
+            }
+            catch (error) {
+                // The realtime engine plays clips through elements — this clip is
+                // genuinely unopenable here. Tag which one for the error report.
+                throw tagExportError(error, {
+                    engine: 'realtime',
+                    where: 'segment-load',
+                    clipIndex: segmentIndex,
+                });
+            }
+            try {
+                const clamped = clampSegmentToMedia(segment, loaded.mediaDurationMs);
+                if (!clamped)
+                    continue;
+                const paintedMs = await paintSegment({
+                    video: loaded.video,
+                    blob: segment.clip.blob,
+                    startSec: clamped.startMs / 1000,
+                    endSec: clamped.endMs / 1000,
+                    canvas,
+                    ctx,
+                    audioContext,
+                    dest,
+                    frameCounter,
+                    // No mirroring needed when the encode canvas is the preview.
+                    getPreviewCanvas: encodingIntoPreview ? undefined : options.getPreviewCanvas,
+                    watermarkImage: options.watermarkImage ?? null,
+                    onElapsedMs: (elapsed) => {
+                        if (plan.totalMs > 0) {
+                            options.onProgress?.(Math.min(1, (paintedTotalMs + elapsed) / plan.totalMs));
+                        }
+                    },
+                });
+                paintedTotalMs += paintedMs;
+                options.onProgress?.(plan.totalMs > 0 ? Math.min(1, paintedTotalMs / plan.totalMs) : 1);
+            }
+            finally {
+                loaded.release();
+            }
+        }
+        if (paintedTotalMs <= 0) {
+            throw new Error('No video frames could be exported');
+        }
+        // Hold the last frame briefly so the final GOP isn't truncated.
+        await wait(180);
+        options.onProgress?.(1);
+    }
+    finally {
+        if (recorder.state !== 'inactive')
+            recorder.stop();
+        canvasStream.getTracks().forEach((t) => t.stop());
+        if (audioContext) {
+            await audioContext.close().catch(() => undefined);
+        }
+    }
+    const blob = await stopped;
+    if (blob.size < 8_000) {
+        throw new Error('Export produced an unusable file');
+    }
+    const isMp4 = (recorder.mimeType || '').includes('mp4');
+    return {
+        blob,
+        mimeType: blob.type || 'video/webm',
+        fileExtension: isMp4 ? 'mp4' : 'webm',
+    };
+}
+/** @returns painted duration in ms (0 when the segment had nothing to show) */
+async function paintSegment({ video, blob, startSec, endSec, canvas, ctx, audioContext, dest, frameCounter, getPreviewCanvas, watermarkImage, onElapsedMs, }) {
+    const segmentSec = endSec - startSec;
+    if (segmentSec <= 0.04)
+        return 0;
+    await seekTo(video, startSec);
+    let bufferSource = null;
+    const audioBuffer = audioContext && dest ? await decodeClipAudio(blob) : null;
+    try {
+        video.muted = true;
+        await video.play();
+        await waitForPlaybackStart(video, startSec);
+        const paintFrame = () => {
+            drawCover(ctx, video, canvas.width, canvas.height);
+            if (watermarkImage) {
+                drawWatermark(ctx, watermarkImage, canvas.width, canvas.height);
+            }
+        };
+        paintFrame();
+        if (audioContext && dest && audioBuffer) {
+            const videoLeadSec = Math.max(0, video.currentTime - startSec);
+            const offset = Math.min(startSec + videoLeadSec, Math.max(0, audioBuffer.duration - 0.01));
+            const available = Math.max(0, audioBuffer.duration - offset);
+            const playDuration = Math.max(0, Math.min(segmentSec - videoLeadSec, available));
+            if (playDuration > 0.05) {
+                try {
+                    bufferSource = audioContext.createBufferSource();
+                    bufferSource.buffer = audioBuffer;
+                    bufferSource.connect(dest);
+                    bufferSource.start(audioContext.currentTime, offset, playDuration);
+                }
+                catch {
+                    bufferSource = null;
+                }
+            }
+        }
+        await new Promise((resolve, reject) => {
+            let raf = 0;
+            let lastFrameAt = performance.now();
+            let lastVideoTime = video.currentTime;
+            const finish = () => {
+                paintFrame();
+                cancelAnimationFrame(raf);
+                video.pause();
+                resolve();
+            };
+            const draw = () => {
+                const now = performance.now();
+                const elapsed = Math.max(0, video.currentTime - startSec);
+                if (video.ended || video.currentTime >= endSec - 0.04 || elapsed >= segmentSec - 0.03) {
+                    finish();
+                    return;
+                }
+                if (video.currentTime > lastVideoTime + 0.001) {
+                    lastVideoTime = video.currentTime;
+                    lastFrameAt = now;
+                }
+                else if (now - lastFrameAt > 8000) {
+                    cancelAnimationFrame(raf);
+                    video.pause();
+                    reject(new Error('Clip playback stalled during export'));
+                    return;
+                }
+                paintFrame();
+                if (frameCounter.count % PREVIEW_EVERY_N_FRAMES === 0) {
+                    blitPreview(canvas, getPreviewCanvas?.());
+                }
+                if (frameCounter.count % 30 === 0) {
+                    recordVideoLumaSample(canvas);
+                }
+                frameCounter.count += 1;
+                onElapsedMs(Math.min(segmentSec, elapsed) * 1000);
+                raf = requestAnimationFrame(draw);
+            };
+            video.onerror = () => {
+                cancelAnimationFrame(raf);
+                reject(new Error('A clip failed to play during export'));
+            };
+            raf = requestAnimationFrame(draw);
+        });
+        return Math.round(segmentSec * 1000);
+    }
+    finally {
+        video.onerror = null;
+        try {
+            bufferSource?.stop();
+        }
+        catch {
+            // already ended
+        }
+        bufferSource?.disconnect();
+    }
+}
+async function waitForPlaybackStart(video, startSec) {
+    if (video.currentTime > startSec + 0.01)
+        return;
+    const deadline = performance.now() + 1500;
+    await new Promise((resolve) => {
+        const tick = () => {
+            if (video.currentTime > startSec + 0.01 || video.ended || performance.now() > deadline) {
+                resolve();
+                return;
+            }
+            requestAnimationFrame(tick);
+        };
+        tick();
+    });
+}

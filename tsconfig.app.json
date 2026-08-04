@@ -1,25 +1,27 @@
 {
   "compilerOptions": {
-    "tsBuildInfoFile": "./node_modules/.tmp/tsconfig.app.tsbuildinfo",
     "target": "ES2022",
-    "useDefineForClassFields": true,
-    "lib": ["ES2022", "DOM", "DOM.Iterable"],
     "module": "ESNext",
-    "skipLibCheck": true,
     "moduleResolution": "bundler",
-    "allowImportingTsExtensions": true,
-    "verbatimModuleSyntax": true,
-    "moduleDetection": "force",
-    "noEmit": true,
-    "jsx": "react-jsx",
-    "jsxImportSource": "remix/ui",
-    "strict": true,
-    "noUnusedLocals": true,
-    "noUnusedParameters": true,
+    "lib": ["ES2022", "DOM", "DOM.Iterable", "DOM.AsyncIterable"],
+
+    /* The whole point of this edition: TypeScript that erases to the
+       JavaScript the browser runs — no bundler, no transforms. */
     "erasableSyntaxOnly": true,
+    "verbatimModuleSyntax": true,
+    "allowImportingTsExtensions": true,
+    "rewriteRelativeImportExtensions": true,
+
+    "strict": true,
     "noFallthroughCasesInSwitch": true,
-    "noUncheckedSideEffectImports": true,
-    "types": ["vite/client"]
+    "noImplicitOverride": true,
+    "skipLibCheck": true,
+
+    "rootDir": "src/app",
+    "outDir": "public/js",
+
+    /* Comments carry the device-quirk documentation — keep them. */
+    "removeComments": false
   },
-  "include": ["src"]
+  "include": ["src/app"]
 }

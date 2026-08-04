@@ -1,0 +1,47 @@
+/** Cohesive stroke icon set (24×24 viewBox) — parsed from static SVG strings. */
+import { fromHtml } from "../dom.js";
+function svg(size, inner) {
+    return fromHtml(`<svg width="${size}" height="${size}" viewBox="0 0 24 24" fill="none" ` +
+        `stroke="currentColor" stroke-width="2" stroke-linecap="round" ` +
+        `stroke-linejoin="round" aria-hidden="true" focusable="false">${inner}</svg>`);
+}
+export const iconBack = (size = 22) => svg(size, '<path d="M15 18l-6-6 6-6"/>');
+export const iconFlip = (size = 22) => svg(size, '<path d="M16 4l3 3-3 3"/><path d="M4 11V9a4 4 0 014-4h11"/>' +
+    '<path d="M8 20l-3-3 3-3"/><path d="M20 13v2a4 4 0 01-4 4H5"/>');
+export const iconTorch = (size = 22, on = false) => svg(size, `<path d="M13 3L7 13h5l-1 8 6-10h-5l1-8z" fill="${on ? 'currentColor' : 'none'}"/>`);
+export const iconTimer = (size = 22) => svg(size, '<circle cx="12" cy="13" r="7"/><path d="M12 10v3.5l2 1.2"/>' +
+    '<path d="M9 3.5h6"/><path d="M12 3.5V5"/>');
+/** Map-pin outline for location tagging. */
+export const iconLocation = (size = 22) => svg(size, '<path d="M12 20.5s6.5-4.4 6.5-10a6.5 6.5 0 10-13 0c0 5.6 6.5 10 6.5 10z"/>' +
+    '<circle cx="12" cy="10.5" r="2.25"/>');
+export const iconPlay = (size = 22) => svg(size, '<path d="M8 6.5v11L18 12 8 6.5z"/>');
+export const iconPause = (size = 22) => svg(size, '<path d="M9 6.5v11"/><path d="M15 6.5v11"/>');
+export const iconEditor = (size = 22) => svg(size, '<circle cx="6.5" cy="6.5" r="2.25"/><circle cx="6.5" cy="17.5" r="2.25"/>' +
+    '<path d="M19.5 4.5L8.7 15.3"/><path d="M14.2 5L19.5 10.3"/><path d="M8.7 8.7L19.5 19.5"/>');
+/** Backspace-style control for deleting the last recorded clip. */
+export const iconDeleteLast = (size = 22) => svg(size, '<path d="M18.5 6H9.2L4.5 12l4.7 6H18.5a2 2 0 002-2V8a2 2 0 00-2-2z"/>' +
+    '<path d="M11.5 10l5 5"/><path d="M16.5 10l-5 5"/>');
+export const iconTrash = (size = 22) => svg(size, '<path d="M5 7h14"/><path d="M9 7V5.5A1.5 1.5 0 0110.5 4h3A1.5 1.5 0 0115 5.5V7"/>' +
+    '<path d="M8 7l.7 11.2A1.5 1.5 0 0010.2 19.5h3.6a1.5 1.5 0 001.5-1.3L16 7"/>' +
+    '<path d="M10.5 11v5"/><path d="M13.5 11v5"/>');
+export const iconDuplicate = (size = 22) => svg(size, '<rect x="8.5" y="8.5" width="11" height="11" rx="2"/>' +
+    '<path d="M15.5 8.5V6.5A2 2 0 0013.5 4.5h-7a2 2 0 00-2 2v7a2 2 0 002 2h2"/>');
+/** Bracket / I-beam handles that read as "trim". */
+export const iconTrim = (size = 22) => svg(size, '<path d="M5 6v12"/><path d="M3.5 6h3"/><path d="M3.5 18h3"/>' +
+    '<path d="M19 6v12"/><path d="M17.5 6h3"/><path d="M17.5 18h3"/><path d="M9 12h6"/>');
+export const iconChevronLeft = (size = 22) => svg(size, '<path d="M14.5 6l-6 6 6 6"/>');
+export const iconChevronRight = (size = 22) => svg(size, '<path d="M9.5 6l6 6-6 6"/>');
+export const iconPlus = (size = 22) => svg(size, '<path d="M12 6v12"/><path d="M6 12h12"/>');
+export const iconMore = (size = 22) => svg(size, '<circle cx="6" cy="12" r="1.75" fill="currentColor" stroke="none"/>' +
+    '<circle cx="12" cy="12" r="1.75" fill="currentColor" stroke="none"/>' +
+    '<circle cx="18" cy="12" r="1.75" fill="currentColor" stroke="none"/>');
+export const iconUndo = (size = 22) => svg(size, '<path d="M7 5L4 8l3 3"/><path d="M4 8h7a5 5 0 110 10H9"/>');
+/** The iOS share glyph: box with an arrow rising out of it. */
+export const iconShareIos = (size = 22) => svg(size, '<path d="M8 8H6a1 1 0 00-1 1v11a1 1 0 001 1h12a1 1 0 001-1V9a1 1 0 00-1-1h-2"/>' +
+    '<path d="M12 14V3"/><path d="M8.5 6.5L12 3l3.5 3.5"/>');
+export const iconClose = (size = 22) => svg(size, '<path d="M6 6l12 12"/><path d="M18 6L6 18"/>');
+export const iconLens = (size = 22) => svg(size, '<circle cx="12" cy="12" r="8.5"/><circle cx="12" cy="12" r="3.5"/>');
+export const iconLock = (size = 22) => svg(size, '<rect x="5" y="10.5" width="14" height="9.5" rx="2"/><path d="M8 10.5V7.5a4 4 0 018 0v3"/>');
+/** Monitor with a record dot: screen recording. */
+export const iconScreen = (size = 22, on = false) => svg(size, '<rect x="3" y="4.5" width="18" height="12.5" rx="2"/><path d="M9 20.5h6"/>' +
+    `<circle cx="12" cy="10.75" r="2.4" fill="${on ? 'currentColor' : 'none'}"/>`);

@@ -1,0 +1,130 @@
+/**
+ * Recoverable last export. Missing the share sheet used to mean re-encoding
+ * the whole project (half an hour of video = many minutes of work). After a
+ * successful export, the file is persisted to OPFS with a fingerprint of
+ * exactly what produced it; tapping Go on an unchanged project serves it
+ * instantly, and Retry always forces a fresh encode.
+ */
+
+import { getDb, getSettings } from '../storage.ts'
+import type { ClipRecord, ProjectId } from '../types.ts'
+import { withExportCacheReserved } from './export-cache.ts'
+import { readOpfsFile, removeExportEntry, streamToOpfsFile } from './opfs.ts'
+import type { ExportResult } from './shared.ts'
+
+const LAST_EXPORT_PREFIX = 'last-export'
+
+/** Anything that changes the rendered output must change the signature. */
+export function exportSignature(clips: ClipRecord[], watermarked: boolean): string {
+  return JSON.stringify({
+    watermarked,
+    clips: clips.map((clip) => [clip.id, clip.trimStartMs, clip.trimEndMs]),
+  })
+}
+
+/**
+ * Persist a finished export (best effort — OPFS may be unavailable, in
+ * which case the feature simply doesn't exist on this browser).
+ *
+ * File-backed results are adopted in place — the export already lives on
+ * disk, and copying a ~1GB file just to rename it doubled the app's disk
+ * footprint. In-memory results (metadata-injected MP4s, the realtime
+ * engine) stream to a well-known name, and their now-superseded temp file
+ * is removed. Either way, the previously cached export file is dropped
+ * once the new record is committed.
+ */
+export async function persistLastExport(args: {
+  projectId: ProjectId
+  result: ExportResult
+  signature: string
+  watermarked: boolean
+}): Promise<void> {
+  // Reserved against concurrent sweeps: the file being adopted/copied has
+  // no committed metadata reference until the put below lands.
+  await withExportCacheReserved(() => persistLastExportInner(args))
+}
+
+async function persistLastExportInner(args: {
+  projectId: ProjectId
+  result: ExportResult
+  signature: string
+  watermarked: boolean
+}): Promise<void> {
+  const { projectId, result, signature, watermarked } = args
+
+  // Adoption must verify the file is really there: between the export
+  // finishing and this reservation being acquired there is a microscopic
+  // window where another tab's sweep could have deleted the unreferenced
+  // temp — recording a missing name would leave stale restore metadata.
+  const adoptable =
+    result.opfsBacked && result.opfsName
+      ? await readOpfsFile(result.opfsName).then((file) => file !== null && file.size > 0)
+      : false
+
+  let opfsName: string
+  if (adoptable && result.opfsName) {
+    opfsName = result.opfsName
+  } else {
+    // Unique name per write: reusing one canonical name meant an
+    // interrupted write (tab close mid-stream) could leave OLD metadata
+    // describing NEW bytes — restore would silently serve the wrong file.
+    // With unique names a torn write is just an orphan for the sweep.
+    opfsName = `${LAST_EXPORT_PREFIX}-${Date.now()}.${result.fileExtension}`
+    const file = await streamToOpfsFile(opfsName, result.blob.stream())
+    if (!file || file.size !== result.blob.size) return
+    // The streaming temp behind this export (if any) is superseded by the
+    // copy we just wrote — reclaim it now instead of at the next sweep.
+    if (result.opfsName && result.opfsName !== opfsName) {
+      await removeExportEntry(result.opfsName).catch(() => undefined)
+    }
+  }
+
+  const db = await getDb()
+  const settings = await getSettings()
+  const previousName = settings.lastExport?.opfsName
+  await db.put('meta', {
+    ...settings,
+    lastExport: {
+      projectId,
+      opfsName,
+      mimeType: result.mimeType,
+      fileExtension: result.fileExtension,
+      createdAt: Date.now(),
+      signature,
+      watermarked,
+    },
+  })
+  if (previousName && previousName !== opfsName) {
+    await removeExportEntry(previousName).catch(() => undefined)
+  }
+}
+
+export interface RecoveredExport {
+  result: ExportResult
+  watermarked: boolean
+  createdAt: number
+}
+
+/**
+ * The stored export for this exact project + signature, or null when it
+ * doesn't exist, doesn't match, or its file has vanished.
+ */
+export async function loadMatchingExport(
+  projectId: ProjectId,
+  signature: string,
+): Promise<RecoveredExport | null> {
+  const settings = await getSettings()
+  const last = settings.lastExport
+  if (!last || last.projectId !== projectId || last.signature !== signature) return null
+  const file = await readOpfsFile(last.opfsName)
+  if (!file || file.size === 0) return null
+  return {
+    result: {
+      blob: new Blob([file], { type: last.mimeType }),
+      mimeType: last.mimeType,
+      fileExtension: last.fileExtension,
+    },
+    watermarked: last.watermarked,
+    createdAt: last.createdAt,
+  }
+}

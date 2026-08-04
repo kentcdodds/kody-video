@@ -1,34 +1,15 @@
 {
-  "name": "kody-video",
+  "name": "kody-video-typescript",
   "private": true,
   "version": "0.1.0",
   "type": "module",
   "scripts": {
-    "dev": "vite",
-    "build": "tsc -b && vite build",
-    "preview": "vite preview",
-    "test": "vitest run",
-    "test:watch": "vitest",
-    "test:e2e": "playwright test",
-    "test:smoke": "npm run build && node scripts/manual-smoke.mjs",
-    "lint": "tsc -b --pretty false"
-  },
-  "dependencies": {
-    "@sentry/browser": "^10.69.0",
-    "client-zip": "^2.5.0",
-    "idb": "^8.0.3",
-    "mediabunny": "^1.52.1",
-    "remix": "3.0.0-beta.5"
+    "build": "tsc -p tsconfig.app.json && tsc -p tsconfig.sw.json && tsc -p tsconfig.worker.json",
+    "check": "npm run build -- --pretty false",
+    "deploy": "npm run build && wrangler deploy"
   },
   "devDependencies": {
-    "@playwright/test": "^1.62.0",
-    "@sentry/vite-plugin": "^5.4.0",
-    "@types/node": "^26.1.1",
-    "fake-indexeddb": "^6.0.1",
-    "playwright": "^1.62.0",
-    "typescript": "~5.8.3",
-    "vite": "^7.0.4",
-    "vite-plugin-pwa": "^1.0.1",
-    "vitest": "^3.2.4"
+    "mediabunny": "^1.52.1",
+    "typescript": "~5.8.3"
   }
 }
