@@ -1,14 +1,13 @@
-import { Link } from 'react-router-dom'
 import { IconBack } from '../components/icons'
 
 /** Plain-language privacy policy for on-device Kody Video. */
 export function PrivacyPage() {
-  return (
+  return () => (
     <div className="screen about-screen">
       <div className="about-top">
-        <Link to="/" className="btn-icon" aria-label="Back to projects">
+        <a href="/" className="btn-icon" aria-label="Back to projects">
           <IconBack />
-        </Link>
+        </a>
         <strong>Privacy</strong>
         <span className="about-top-spacer" aria-hidden="true" />
       </div>
@@ -113,8 +112,7 @@ export function PrivacyPage() {
 
         <section className="about-section legal-nav">
           <p>
-            See also the <Link to="/terms">Terms</Link> and{' '}
-            <Link to="/about">About</Link> pages.
+            See also the <a href="/terms">Terms</a> and <a href="/about">About</a> pages.
           </p>
         </section>
       </div>

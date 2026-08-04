@@ -1,4 +1,6 @@
-import { useSheetModal } from '../hooks/use-sheet-modal'
+import type { Handle } from 'remix/ui'
+import { on, ref } from 'remix/ui'
+import { attachSheetModal } from '../lib/sheet-modal'
 import { BrandMark } from './brand-mark'
 
 export type ExportStatus = 'exporting' | 'ready' | 'error'
@@ -35,118 +37,169 @@ interface ExportSheetProps {
  * ("Exporting your video…"), then offers Share / Save from fresh taps so the
  * system share sheet always has the user activation it requires.
  */
-export function ExportSheet({
-  status,
-  error,
-  canShare,
-  fileExtension,
-  fileSizeBytes,
-  notice,
-  watermarked,
-  purchased,
-  busy,
-  onShare,
-  onSave,
-  onSaveClips,
-  onRemoveWatermark,
-  onRestorePurchase,
-  onRetry,
-  onReExport,
-  onClose,
-}: ExportSheetProps) {
-  const bindSheet = useSheetModal({ onDismiss: onClose, busy })
-  return (
-    <>
-      <div
-        className="sheet-backdrop"
-        onClick={() => {
-          if (!busy) onClose()
-        }}
-      />
-      <div
-        className="sheet export-sheet"
-        role="dialog"
-        aria-modal="true"
-        aria-label="Share project"
-        ref={bindSheet}
-      >
-        {status === 'ready' ? (
-          <>
-            <BrandMark size={84} className="export-celebrate-art" variant="share" />
-            <h3>Done! Your video is ready</h3>
-            <p className="muted sheet-lede">
-              {formatFileInfo(fileExtension, fileSizeBytes)} — it stays on this device until you
-              share it.
-            </p>
-            {notice ? <p className="sheet-message">{notice}</p> : null}
-            <div className="sheet-actions">
-              {canShare ? (
-                <button type="button" className="btn btn-primary" onClick={onShare} disabled={busy}>
-                  Share
+export function ExportSheet(handle: Handle<ExportSheetProps>) {
+  const { props } = handle
+  return () => {
+    const {
+      status,
+      error,
+      canShare,
+      fileExtension,
+      fileSizeBytes,
+      notice,
+      watermarked,
+      purchased,
+      busy,
+      onShare,
+      onSave,
+      onSaveClips,
+      onRemoveWatermark,
+      onRestorePurchase,
+      onRetry,
+      onReExport,
+      onClose,
+    } = props
+    return (
+      <>
+        <div
+          className="sheet-backdrop"
+          mix={on('click', () => {
+            if (!props.busy) props.onClose()
+          })}
+        />
+        <div
+          className="sheet export-sheet"
+          role="dialog"
+          aria-modal="true"
+          aria-label="Share project"
+          mix={ref((node, signal) =>
+            attachSheetModal(node as HTMLElement, signal, {
+              onDismiss: () => props.onClose(),
+              busy: () => props.busy,
+            }),
+          )}
+        >
+          {status === 'ready' ? (
+            <>
+              <BrandMark size={84} className="export-celebrate-art" variant="share" />
+              <h3>Done! Your video is ready</h3>
+              <p className="muted sheet-lede">
+                {formatFileInfo(fileExtension, fileSizeBytes)} — it stays on this device until you
+                share it.
+              </p>
+              {notice ? <p className="sheet-message">{notice}</p> : null}
+              <div className="sheet-actions">
+                {canShare ? (
+                  <button
+                    type="button"
+                    className="btn btn-primary"
+                    disabled={busy}
+                    mix={on('click', () => onShare())}
+                  >
+                    Share
+                  </button>
+                ) : null}
+                <button
+                  type="button"
+                  className={`btn ${canShare ? 'btn-secondary' : 'btn-primary'}`}
+                  disabled={busy}
+                  mix={on('click', () => onSave())}
+                >
+                  Save
                 </button>
-              ) : null}
-              <button
-                type="button"
-                className={`btn ${canShare ? 'btn-secondary' : 'btn-primary'}`}
-                onClick={onSave}
-                disabled={busy}
-              >
-                Save
-              </button>
-              <button type="button" className="btn btn-ghost" onClick={onClose} disabled={busy}>
-                Done
-              </button>
-            </div>
-            <p className="sheet-utility-links">
-              <button type="button" className="link-button" onClick={onSaveClips} disabled={busy}>
-                Save original clips (.zip)
-              </button>{' '}
-              ·{' '}
-              <button type="button" className="link-button" onClick={onReExport} disabled={busy}>
-                Re-export from scratch
-              </button>
-            </p>
-            {watermarked && !purchased ? (
-              <p className="watermark-note">
-                Includes a small Kody mark in the corner.{' '}
-                <button type="button" className="link-button" onClick={onRemoveWatermark}>
-                  Get Plus — $0.99 removes it & unlocks 6 projects
+                <button
+                  type="button"
+                  className="btn btn-ghost"
+                  disabled={busy}
+                  mix={on('click', () => onClose())}
+                >
+                  Done
+                </button>
+              </div>
+              <p className="sheet-utility-links">
+                <button
+                  type="button"
+                  className="link-button"
+                  disabled={busy}
+                  mix={on('click', () => onSaveClips())}
+                >
+                  Save original clips (.zip)
                 </button>{' '}
                 ·{' '}
-                <button type="button" className="link-button" onClick={onRestorePurchase}>
-                  Already paid?
+                <button
+                  type="button"
+                  className="link-button"
+                  disabled={busy}
+                  mix={on('click', () => onReExport())}
+                >
+                  Re-export from scratch
                 </button>
               </p>
-            ) : null}
-            {watermarked && purchased ? (
-              <p className="watermark-note">
-                This video still includes the Kody mark — tap Go again for a clean export.
-              </p>
-            ) : null}
-          </>
-        ) : null}
+              {watermarked && !purchased ? (
+                <p className="watermark-note">
+                  Includes a small Kody mark in the corner.{' '}
+                  <button
+                    type="button"
+                    className="link-button"
+                    mix={on('click', () => onRemoveWatermark())}
+                  >
+                    Get Plus — $0.99 removes it & unlocks 6 projects
+                  </button>{' '}
+                  ·{' '}
+                  <button
+                    type="button"
+                    className="link-button"
+                    mix={on('click', () => onRestorePurchase())}
+                  >
+                    Already paid?
+                  </button>
+                </p>
+              ) : null}
+              {watermarked && purchased ? (
+                <p className="watermark-note">
+                  This video still includes the Kody mark — tap Go again for a clean export.
+                </p>
+              ) : null}
+            </>
+          ) : null}
 
-        {status === 'error' ? (
-          <>
-            <h3>Export hit a snag</h3>
-            <p className="sheet-message is-error">{error ?? 'Something went wrong.'}</p>
-            {notice ? <p className="sheet-message">{notice}</p> : null}
-            <div className="sheet-actions">
-              <button type="button" className="btn btn-primary" onClick={onRetry} disabled={busy}>
-                Try again
-              </button>
-              <button type="button" className="btn btn-secondary" onClick={onSaveClips} disabled={busy}>
-                Save clips (.zip) instead
-              </button>
-              <button type="button" className="btn btn-ghost" onClick={onClose} disabled={busy}>
-                Close
-              </button>
-            </div>
-          </>
-        ) : null}
-      </div>
-    </>
-  )
+          {status === 'error' ? (
+            <>
+              <h3>Export hit a snag</h3>
+              <p className="sheet-message is-error">{error ?? 'Something went wrong.'}</p>
+              {notice ? <p className="sheet-message">{notice}</p> : null}
+              <div className="sheet-actions">
+                <button
+                  type="button"
+                  className="btn btn-primary"
+                  disabled={busy}
+                  mix={on('click', () => onRetry())}
+                >
+                  Try again
+                </button>
+                <button
+                  type="button"
+                  className="btn btn-secondary"
+                  disabled={busy}
+                  mix={on('click', () => onSaveClips())}
+                >
+                  Save clips (.zip) instead
+                </button>
+                <button
+                  type="button"
+                  className="btn btn-ghost"
+                  disabled={busy}
+                  mix={on('click', () => onClose())}
+                >
+                  Close
+                </button>
+              </div>
+            </>
+          ) : null}
+        </div>
+      </>
+    )
+  }
 }
 
 function formatFileInfo(ext: string | null, bytes: number | null): string {

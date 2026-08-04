@@ -1,5 +1,6 @@
-import { useState } from 'react'
-import { useSheetModal } from '../hooks/use-sheet-modal'
+import type { Handle } from 'remix/ui'
+import { on, ref } from 'remix/ui'
+import { attachSheetModal } from '../lib/sheet-modal'
 
 interface ConfirmSheetProps {
   title: string
@@ -11,65 +12,67 @@ interface ConfirmSheetProps {
 }
 
 /** Destructive confirmation bottom sheet (replaces window.confirm). */
-export function ConfirmSheet({
-  title,
-  message,
-  confirmLabel = 'Delete',
-  cancelLabel = 'Cancel',
-  onConfirm,
-  onClose,
-}: ConfirmSheetProps) {
-  const [busy, setBusy] = useState(false)
-  const bindSheet = useSheetModal({ onDismiss: onClose, busy })
+export function ConfirmSheet(handle: Handle<ConfirmSheetProps>) {
+  let busy = false
 
-  return (
-    <>
-      <div
-        className="sheet-backdrop"
-        onClick={() => {
-          if (!busy) onClose()
-        }}
-      />
-      <div
-        className="sheet confirm-sheet"
-        role="dialog"
-        aria-modal="true"
-        aria-label={title}
-        ref={bindSheet}
-      >
-        <h3>{title}</h3>
-        <p className="sheet-lede muted">{message}</p>
-        <div className="sheet-actions">
-          {/* Destructive dialog: initial focus lands on the safe action. */}
-          <button
-            type="button"
-            className="btn btn-ghost"
-            onClick={onClose}
-            disabled={busy}
-            data-sheet-focus
-          >
-            {cancelLabel}
-          </button>
-          <button
-            type="button"
-            className="btn btn-primary confirm-sheet-danger"
-            disabled={busy}
-            onClick={() => {
-              void (async () => {
-                setBusy(true)
+  return () => {
+    const { title, message, confirmLabel = 'Delete', cancelLabel = 'Cancel', onConfirm, onClose } =
+      handle.props
+
+    return (
+      <>
+        <div
+          className="sheet-backdrop"
+          mix={on('click', () => {
+            if (!busy) onClose()
+          })}
+        />
+        <div
+          className="sheet confirm-sheet"
+          role="dialog"
+          aria-modal="true"
+          aria-label={title}
+          mix={ref((node, signal) =>
+            attachSheetModal(node as HTMLElement, signal, {
+              onDismiss: () => handle.props.onClose(),
+              busy: () => busy,
+            }),
+          )}
+        >
+          <h3>{title}</h3>
+          <p className="sheet-lede muted">{message}</p>
+          <div className="sheet-actions">
+            {/* Destructive dialog: initial focus lands on the safe action. */}
+            <button
+              type="button"
+              className="btn btn-ghost"
+              disabled={busy}
+              data-sheet-focus
+              mix={on('click', () => onClose())}
+            >
+              {cancelLabel}
+            </button>
+            <button
+              type="button"
+              className="btn btn-primary confirm-sheet-danger"
+              disabled={busy}
+              mix={on('click', async () => {
+                busy = true
+                void handle.update()
                 try {
                   await onConfirm()
-                  onClose()
+                  handle.props.onClose()
                 } finally {
-                  setBusy(false)
+                  busy = false
+                  void handle.update()
                 }
-              })()
-            }}
-          >
-            {busy ? 'Working…' : confirmLabel}
-          </button>
+              })}
+            >
+              {busy ? 'Working…' : confirmLabel}
+            </button>
+          </div>
         </div>
-      </div>
-    </>
-  )
+      </>
+    )
+  }
 }

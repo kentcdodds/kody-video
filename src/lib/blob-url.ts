@@ -1,27 +1,40 @@
-/** Create an object URL and revoke it when the owning element unmounts or the blob changes. */
-export function bindBlobUrl(
-  element: HTMLMediaElement | null,
-  blob: Blob,
-  state: { current: string | null; blob: Blob | null },
-): void {
-  if (!element) {
-    if (state.current) {
-      URL.revokeObjectURL(state.current)
+/**
+ * Keep a media/img element's `src` bound to a Blob via object URL.
+ *
+ * Returns a small binder whose `attach` is designed for the `ref()` mixin
+ * (bind on insert, revoke on removal via the abort signal) and whose `sync`
+ * re-binds when the blob identity changes between renders.
+ */
+export function createBlobUrlBinder<E extends HTMLElement & { src: string }>(
+  getBlob: () => Blob,
+) {
+  let element: E | null = null
+  let url: string | null = null
+  let boundBlob: Blob | null = null
+
+  function sync(): void {
+    if (!element) return
+    const blob = getBlob()
+    if (boundBlob !== blob || !url) {
+      if (url) URL.revokeObjectURL(url)
+      url = URL.createObjectURL(blob)
+      boundBlob = blob
     }
-    state.current = null
-    state.blob = null
-    return
+    if (element.src !== url) {
+      element.src = url
+    }
   }
 
-  if (state.blob !== blob || !state.current) {
-    if (state.current) {
-      URL.revokeObjectURL(state.current)
-    }
-    state.current = URL.createObjectURL(blob)
-    state.blob = blob
+  function attach(node: E, signal: AbortSignal): void {
+    element = node
+    sync()
+    signal.addEventListener('abort', () => {
+      if (url) URL.revokeObjectURL(url)
+      element = null
+      url = null
+      boundBlob = null
+    })
   }
 
-  if (element.src !== state.current) {
-    element.src = state.current
-  }
+  return { attach, sync }
 }

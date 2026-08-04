@@ -1,5 +1,5 @@
-import { useState } from 'react'
-import { Link, useLoaderData, useRevalidator } from 'react-router-dom'
+import type { Handle } from 'remix/ui'
+import { on } from 'remix/ui'
 import { IconBack } from '../components/icons'
 import { BrandMark } from '../components/brand-mark'
 import { checkForUpdates } from '../lib/app-update'
@@ -27,12 +27,12 @@ function reportProblemUrl(): string {
   return `https://github.com/kentcdodds/kody-video/issues/new?${params}`
 }
 
-export interface AboutLoaderData {
+interface AboutData {
   storage: StorageSpace | null
   exportCacheBytes: number
 }
 
-export async function aboutLoader(): Promise<AboutLoaderData> {
+async function loadAboutData(): Promise<AboutData> {
   const [storage, exportCacheBytes] = await Promise.all([
     estimateStorageSpace(),
     estimateExportCacheBytes(),
@@ -51,100 +51,108 @@ const UPDATE_STATUS_LABEL: Record<Exclude<UpdateStatus, 'idle'>, string> = {
 }
 
 /** Credits, inspiration, and the open-source pointer. */
-export function AboutPage() {
-  const { storage, exportCacheBytes } = useLoaderData() as AboutLoaderData
-  const revalidator = useRevalidator()
-  const [updateStatus, setUpdateStatus] = useState<UpdateStatus>('idle')
-  const [cacheStatus, setCacheStatus] = useState<string | null>(null)
-  const [clearingCache, setClearingCache] = useState(false)
+export function AboutPage(handle: Handle) {
+  let data: AboutData = { storage: null, exportCacheBytes: 0 }
+  let updateStatus: UpdateStatus = 'idle'
+  let cacheStatus: string | null = null
+  let clearingCache = false
+  let cameraReport: string | null = null
+  let inspectingCameras = false
 
-  const [cameraReport, setCameraReport] = useState<string | null>(null)
-  const [inspectingCameras, setInspectingCameras] = useState(false)
+  const refresh = async () => {
+    data = await loadAboutData()
+    if (handle.signal.aborted) return
+    void handle.update()
+  }
+  void refresh()
 
   /**
    * On-device camera diagnostic: what the browser exposes varies wildly by
    * phone and Chrome build (labels, facingMode capability, zoom ranges),
    * and remote bug reports about lenses are unresolvable without it.
    */
-  const onInspectCameras = () => {
+  const onInspectCameras = async () => {
     if (inspectingCameras) return
-    setInspectingCameras(true)
-    void (async () => {
-      let probe: MediaStream | null = null
-      try {
-        probe = await navigator.mediaDevices.getUserMedia({ video: true })
-        const track = probe.getVideoTracks()[0]
-        const caps = track?.getCapabilities?.() as
-          | (MediaTrackCapabilities & { zoom?: { min?: number; max?: number } })
-          | undefined
-        const lines: string[] = [`Active camera: ${track?.label || '(no label)'}`]
-        if (caps?.zoom && typeof caps.zoom.min === 'number') {
-          lines.push(`Active zoom range: ${caps.zoom.min}–${caps.zoom.max}×`)
-        } else {
-          lines.push('Active zoom range: not exposed')
-        }
-        const rear = await listRearCameras()
-        lines.push(`Detected rear lenses: ${rear.length}`)
-        const devices = await navigator.mediaDevices.enumerateDevices()
-        for (const device of devices) {
-          if (device.kind !== 'videoinput') continue
-          const facing = (
-            device as MediaDeviceInfo & { getCapabilities?: () => MediaTrackCapabilities }
-          ).getCapabilities?.()?.facingMode
-          const facingLabel =
-            Array.isArray(facing) && facing.length > 0 ? ` [${facing.join(', ')}]` : ''
-          const rearMark = rear.includes(device.deviceId) ? ' — rear' : ''
-          lines.push(`• ${device.label || '(no label)'}${facingLabel}${rearMark}`)
-        }
-        setCameraReport(lines.join('\n'))
-      } catch (err) {
-        setCameraReport(
-          err instanceof Error ? `Could not inspect: ${err.message}` : 'Could not inspect cameras.',
-        )
-      } finally {
-        probe?.getTracks().forEach((track) => {
-          track.stop()
-        })
-        setInspectingCameras(false)
+    inspectingCameras = true
+    void handle.update()
+    let probe: MediaStream | null = null
+    try {
+      probe = await navigator.mediaDevices.getUserMedia({ video: true })
+      const track = probe.getVideoTracks()[0]
+      const caps = track?.getCapabilities?.() as
+        | (MediaTrackCapabilities & { zoom?: { min?: number; max?: number } })
+        | undefined
+      const lines: string[] = [`Active camera: ${track?.label || '(no label)'}`]
+      if (caps?.zoom && typeof caps.zoom.min === 'number') {
+        lines.push(`Active zoom range: ${caps.zoom.min}–${caps.zoom.max}×`)
+      } else {
+        lines.push('Active zoom range: not exposed')
       }
-    })()
+      const rear = await listRearCameras()
+      lines.push(`Detected rear lenses: ${rear.length}`)
+      const devices = await navigator.mediaDevices.enumerateDevices()
+      for (const device of devices) {
+        if (device.kind !== 'videoinput') continue
+        const facing = (
+          device as MediaDeviceInfo & { getCapabilities?: () => MediaTrackCapabilities }
+        ).getCapabilities?.()?.facingMode
+        const facingLabel =
+          Array.isArray(facing) && facing.length > 0 ? ` [${facing.join(', ')}]` : ''
+        const rearMark = rear.includes(device.deviceId) ? ' — rear' : ''
+        lines.push(`• ${device.label || '(no label)'}${facingLabel}${rearMark}`)
+      }
+      cameraReport = lines.join('\n')
+    } catch (err) {
+      cameraReport =
+        err instanceof Error ? `Could not inspect: ${err.message}` : 'Could not inspect cameras.'
+    } finally {
+      probe?.getTracks().forEach((track) => {
+        track.stop()
+      })
+      inspectingCameras = false
+      void handle.update()
+    }
   }
 
   const onClearExportCache = () => {
     if (clearingCache) return
-    setClearingCache(true)
+    clearingCache = true
+    void handle.update()
     void clearExportCache()
       .then((freedBytes) => {
-        setCacheStatus(`Freed ${formatBytes(freedBytes)}.`)
-        void revalidator.revalidate()
+        cacheStatus = `Freed ${formatBytes(freedBytes)}.`
+        void refresh()
       })
       .catch((err) => {
         reportError(err, 'clear-export-cache')
-        setCacheStatus(
-          err instanceof Error ? err.message : 'Could not clear cached exports — try again.',
-        )
+        cacheStatus =
+          err instanceof Error ? err.message : 'Could not clear cached exports — try again.'
       })
-      .finally(() => setClearingCache(false))
+      .finally(() => {
+        clearingCache = false
+        void handle.update()
+      })
   }
 
   const onCheckForUpdates = () => {
     if (updateStatus === 'checking' || updateStatus === 'updating') return
-    setUpdateStatus('checking')
+    updateStatus = 'checking'
+    void handle.update()
     void checkForUpdates()
       .then((result) => {
         switch (result) {
           case 'updated':
             // checkForUpdates already applied it; the page is about to reload.
-            setUpdateStatus('updating')
+            updateStatus = 'updating'
             return
           case 'current':
-            setUpdateStatus('current')
+            updateStatus = 'current'
             return
           case 'downloading':
-            setUpdateStatus('downloading')
+            updateStatus = 'downloading'
             return
           case 'unavailable':
-            setUpdateStatus('unavailable')
+            updateStatus = 'unavailable'
             return
           default: {
             const exhaustive: never = result
@@ -152,187 +160,193 @@ export function AboutPage() {
           }
         }
       })
-      .catch(() => setUpdateStatus('unavailable'))
+      .catch(() => {
+        updateStatus = 'unavailable'
+      })
+      .finally(() => void handle.update())
   }
 
-  return (
-    <div className="screen about-screen">
-      <div className="about-top">
-        <Link to="/" className="btn-icon" aria-label="Back to projects">
-          <IconBack />
-        </Link>
-        <strong>About</strong>
-        <span className="about-top-spacer" aria-hidden="true" />
-      </div>
-
-      <div className="about-body">
-        <div className="about-hero" aria-hidden="true">
-          <BrandMark size={96} className="brand-hero-art" variant="icon" />
+  return () => {
+    const { storage, exportCacheBytes } = data
+    return (
+      <div className="screen about-screen">
+        <div className="about-top">
+          <a href="/" className="btn-icon" aria-label="Back to projects">
+            <IconBack />
+          </a>
+          <strong>About</strong>
+          <span className="about-top-spacer" aria-hidden="true" />
         </div>
-        <h1>
-          Kody <span>Video</span>
-        </h1>
 
-        <section className="about-section">
-          <h2>Free &amp; open source</h2>
-          <p>
-            Kody Video is open source — the whole app, including the export engine, lives at{' '}
-            <a
-              href="https://github.com/kentcdodds/kody-video"
-              target="_blank"
-              rel="noreferrer noopener"
-            >
-              github.com/kentcdodds/kody-video
-            </a>
-            . Issues, ideas, and pull requests are welcome.
-          </p>
-        </section>
+        <div className="about-body">
+          <div className="about-hero" aria-hidden="true">
+            <BrandMark size={96} className="brand-hero-art" variant="icon" />
+          </div>
+          <h1>
+            Kody <span>Video</span>
+          </h1>
 
-        <section className="about-section">
-          <h2>Inspired by OK Video</h2>
-          <p>
-            This app exists because of{' '}
-            <a href="https://okvideo.app" target="_blank" rel="noreferrer noopener">
-              OK Video
-            </a>{' '}
-            by Pim Coumans — a wonderful hold-to-record clips camera for iPhone and a heavy source
-            of inspiration for Kody Video&rsquo;s whole interaction model. If you&rsquo;re on iOS,
-            go get the real thing. Kody Video is an independent project and is not affiliated with
-            OK Video.
-          </p>
-        </section>
+          <section className="about-section">
+            <h2>Free &amp; open source</h2>
+            <p>
+              Kody Video is open source — the whole app, including the export engine, lives at{' '}
+              <a
+                href="https://github.com/kentcdodds/kody-video"
+                target="_blank"
+                rel="noreferrer noopener"
+              >
+                github.com/kentcdodds/kody-video
+              </a>
+              . Issues, ideas, and pull requests are welcome.
+            </p>
+          </section>
 
-        <section className="about-section">
-          <h2>Kody the koala</h2>
-          <p>
-            The mascot comes from the KCD community —{' '}
-            <a href="https://kentcdodds.com/kody" target="_blank" rel="noreferrer noopener">
-              kentcdodds.com/kody
-            </a>
-            .
-          </p>
-        </section>
+          <section className="about-section">
+            <h2>Inspired by OK Video</h2>
+            <p>
+              This app exists because of{' '}
+              <a href="https://okvideo.app" target="_blank" rel="noreferrer noopener">
+                OK Video
+              </a>{' '}
+              by Pim Coumans — a wonderful hold-to-record clips camera for iPhone and a heavy source
+              of inspiration for Kody Video&rsquo;s whole interaction model. If you&rsquo;re on iOS,
+              go get the real thing. Kody Video is an independent project and is not affiliated with
+              OK Video.
+            </p>
+          </section>
 
-        <section className="about-section">
-          <h2>Private by design</h2>
-          <p>
-            No accounts, no uploads, no cross-site tracking. Clips live in this browser&rsquo;s
-            storage until you export and share them yourself. The app&rsquo;s only own network
-            traffic: Stripe checkout and its purchase verification if you buy the watermark
-            removal, anonymous crash reports (error and stack trace only — never your media) when
-            something breaks, and cookieless page-view counts via Fathom Analytics.
-          </p>
-        </section>
+          <section className="about-section">
+            <h2>Kody the koala</h2>
+            <p>
+              The mascot comes from the KCD community —{' '}
+              <a href="https://kentcdodds.com/kody" target="_blank" rel="noreferrer noopener">
+                kentcdodds.com/kody
+              </a>
+              .
+            </p>
+          </section>
 
-        <section className="about-section">
-          <h2>Made for phones</h2>
-          <p>
-            Kody Video is designed as a mobile camera app — install it on your phone for the real
-            experience. It works on desktop too, with keyboard support: hold <kbd>Space</kbd> to
-            record, <kbd>F</kbd> flips the camera, <kbd>T</kbd> starts the self-timer,{' '}
-            <kbd>E</kbd> opens the editor, <kbd>P</kbd> plays your cut, and <kbd>Delete</kbd>{' '}
-            removes the last clip. In the editor the arrow keys select clips,{' '}
-            <kbd>Alt</kbd>+arrows reorder, <kbd>T</kbd> trims, <kbd>D</kbd> duplicates,{' '}
-            <kbd>Delete</kbd> deletes, and <kbd>Esc</kbd> goes back. During playback the arrows
-            skip clips, <kbd>Space</kbd> pauses, and <kbd>Esc</kbd> closes.
-          </p>
-        </section>
+          <section className="about-section">
+            <h2>Private by design</h2>
+            <p>
+              No accounts, no uploads, no cross-site tracking. Clips live in this browser&rsquo;s
+              storage until you export and share them yourself. The app&rsquo;s only own network
+              traffic: Stripe checkout and its purchase verification if you buy the watermark
+              removal, anonymous crash reports (error and stack trace only — never your media) when
+              something breaks, and cookieless page-view counts via Fathom Analytics.
+            </p>
+          </section>
 
-        <section className="about-section">
-          <h2>Storage</h2>
-          <p>
-            {storage
-              ? `This app uses ${formatBytes(storage.usedBytes)} of the ${formatBytes(storage.quotaBytes)} the browser allows. `
-              : ''}
-            Your recordings are the big consumer — delete old projects from the home screen
-            (⋯ → Delete) to free the most space. The app also keeps your latest export cached so
-            tapping Go on an unchanged project is instant.
-          </p>
-          <p>
-            Cached export files: <strong>{formatBytes(exportCacheBytes)}</strong>
-            {exportCacheBytes > 0 ? (
-              <>
-                {' · '}
-                <button
-                  type="button"
-                  className="link-button"
-                  onClick={onClearExportCache}
-                  disabled={clearingCache}
-                >
-                  Clear
-                </button>
-              </>
+          <section className="about-section">
+            <h2>Made for phones</h2>
+            <p>
+              Kody Video is designed as a mobile camera app — install it on your phone for the real
+              experience. It works on desktop too, with keyboard support: hold <kbd>Space</kbd> to
+              record, <kbd>F</kbd> flips the camera, <kbd>T</kbd> starts the self-timer,{' '}
+              <kbd>E</kbd> opens the editor, <kbd>P</kbd> plays your cut, and <kbd>Delete</kbd>{' '}
+              removes the last clip. In the editor the arrow keys select clips,{' '}
+              <kbd>Alt</kbd>+arrows reorder, <kbd>T</kbd> trims, <kbd>D</kbd> duplicates,{' '}
+              <kbd>Delete</kbd> deletes, and <kbd>Esc</kbd> goes back. During playback the arrows
+              skip clips, <kbd>Space</kbd> pauses, and <kbd>Esc</kbd> closes.
+            </p>
+          </section>
+
+          <section className="about-section">
+            <h2>Storage</h2>
+            <p>
+              {storage
+                ? `This app uses ${formatBytes(storage.usedBytes)} of the ${formatBytes(storage.quotaBytes)} the browser allows. `
+                : ''}
+              Your recordings are the big consumer — delete old projects from the home screen
+              (⋯ → Delete) to free the most space. The app also keeps your latest export cached so
+              tapping Go on an unchanged project is instant.
+            </p>
+            <p>
+              Cached export files: <strong>{formatBytes(exportCacheBytes)}</strong>
+              {exportCacheBytes > 0 ? (
+                <>
+                  {' · '}
+                  <button
+                    type="button"
+                    className="link-button"
+                    disabled={clearingCache}
+                    mix={on('click', onClearExportCache)}
+                  >
+                    Clear
+                  </button>
+                </>
+              ) : null}
+            </p>
+            {cacheStatus ? (
+              <p role="status" aria-live="polite">
+                {cacheStatus}
+              </p>
             ) : null}
-          </p>
-          {cacheStatus ? (
-            <p role="status" aria-live="polite">
-              {cacheStatus}
+          </section>
+
+          <section className="about-section">
+            <h2>Cameras</h2>
+            <p>
+              Wondering why a lens or zoom level isn&rsquo;t available? Browsers expose cameras
+              very differently across phones —{' '}
+              <button
+                type="button"
+                className="link-button"
+                disabled={inspectingCameras}
+                mix={on('click', () => void onInspectCameras())}
+              >
+                {inspectingCameras ? 'Inspecting…' : 'Inspect cameras'}
+              </button>{' '}
+              shows exactly what this browser reports (nothing is sent anywhere — attach it to a
+              bug report if something looks wrong).
             </p>
-          ) : null}
-        </section>
+            {cameraReport ? <pre className="camera-report">{cameraReport}</pre> : null}
+          </section>
 
-        <section className="about-section">
-          <h2>Cameras</h2>
-          <p>
-            Wondering why a lens or zoom level isn&rsquo;t available? Browsers expose cameras
-            very differently across phones —{' '}
-            <button
-              type="button"
-              className="link-button"
-              onClick={onInspectCameras}
-              disabled={inspectingCameras}
-            >
-              {inspectingCameras ? 'Inspecting…' : 'Inspect cameras'}
-            </button>{' '}
-            shows exactly what this browser reports (nothing is sent anywhere — attach it to a
-            bug report if something looks wrong).
-          </p>
-          {cameraReport ? <pre className="camera-report">{cameraReport}</pre> : null}
-        </section>
-
-        <section className="about-section">
-          <h2>Support</h2>
-          <p>
-            Hit a bug? Please{' '}
-            <a href={reportProblemUrl()} target="_blank" rel="noreferrer noopener">
-              open an issue on GitHub
-            </a>{' '}
-            — the link pre-fills your device details so you only have to describe what went wrong.
-            Prefer email (or need help with a purchase)? Write to{' '}
-            <a href="mailto:team@kody.video">team@kody.video</a>.
-          </p>
-        </section>
-
-        <section className="about-section">
-          <h2>Version</h2>
-          <p>
-            <code>{shortVersion()}</code> · built {buildDateLabel()}
-            {' · '}
-            <button
-              type="button"
-              className="link-button"
-              onClick={onCheckForUpdates}
-              disabled={updateStatus === 'checking' || updateStatus === 'updating'}
-            >
-              Check for updates
-            </button>
-          </p>
-          {updateStatus !== 'idle' ? (
-            <p role="status" aria-live="polite">
-              {UPDATE_STATUS_LABEL[updateStatus]}
+          <section className="about-section">
+            <h2>Support</h2>
+            <p>
+              Hit a bug? Please{' '}
+              <a href={reportProblemUrl()} target="_blank" rel="noreferrer noopener">
+                open an issue on GitHub
+              </a>{' '}
+              — the link pre-fills your device details so you only have to describe what went wrong.
+              Prefer email (or need help with a purchase)? Write to{' '}
+              <a href="mailto:team@kody.video">team@kody.video</a>.
             </p>
-          ) : null}
-        </section>
+          </section>
 
-        <section className="about-section">
-          <h2>Legal</h2>
-          <p>
-            <Link to="/privacy">Privacy</Link>
-            {' · '}
-            <Link to="/terms">Terms</Link>
-          </p>
-        </section>
+          <section className="about-section">
+            <h2>Version</h2>
+            <p>
+              <code>{shortVersion()}</code> · built {buildDateLabel()}
+              {' · '}
+              <button
+                type="button"
+                className="link-button"
+                disabled={updateStatus === 'checking' || updateStatus === 'updating'}
+                mix={on('click', onCheckForUpdates)}
+              >
+                Check for updates
+              </button>
+            </p>
+            {updateStatus !== 'idle' ? (
+              <p role="status" aria-live="polite">
+                {UPDATE_STATUS_LABEL[updateStatus]}
+              </p>
+            ) : null}
+          </section>
+
+          <section className="about-section">
+            <h2>Legal</h2>
+            <p>
+              <a href="/privacy">Privacy</a>
+              {' · '}
+              <a href="/terms">Terms</a>
+            </p>
+          </section>
+        </div>
       </div>
-    </div>
-  )
+    )
+  }
 }

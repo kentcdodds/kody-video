@@ -1,5 +1,7 @@
 /** Cohesive stroke icon set (24×24 viewBox, ~2–3px padding, optical balance). */
 
+import type { Handle } from 'remix/ui'
+
 interface IconProps {
   size?: number
 }
@@ -15,21 +17,21 @@ function baseProps(size: number) {
     strokeLinecap: 'round' as const,
     strokeLinejoin: 'round' as const,
     'aria-hidden': true as const,
-    focusable: false as const,
+    focusable: false,
   }
 }
 
-export function IconBack({ size = 22 }: IconProps) {
-  return (
-    <svg {...baseProps(size)}>
+export function IconBack(handle: Handle<IconProps>) {
+  return () => (
+    <svg {...baseProps(handle.props.size ?? 22)}>
       <path d="M15 18l-6-6 6-6" />
     </svg>
   )
 }
 
-export function IconFlip({ size = 22 }: IconProps) {
-  return (
-    <svg {...baseProps(size)}>
+export function IconFlip(handle: Handle<IconProps>) {
+  return () => (
+    <svg {...baseProps(handle.props.size ?? 22)}>
       <path d="M16 4l3 3-3 3" />
       <path d="M4 11V9a4 4 0 014-4h11" />
       <path d="M8 20l-3-3 3-3" />
@@ -38,20 +40,20 @@ export function IconFlip({ size = 22 }: IconProps) {
   )
 }
 
-export function IconTorch({ size = 22, on = false }: IconProps & { on?: boolean }) {
-  return (
-    <svg {...baseProps(size)}>
+export function IconTorch(handle: Handle<IconProps & { on?: boolean }>) {
+  return () => (
+    <svg {...baseProps(handle.props.size ?? 22)}>
       <path
         d="M13 3L7 13h5l-1 8 6-10h-5l1-8z"
-        fill={on ? 'currentColor' : 'none'}
+        fill={handle.props.on ? 'currentColor' : 'none'}
       />
     </svg>
   )
 }
 
-export function IconTimer({ size = 22 }: IconProps) {
-  return (
-    <svg {...baseProps(size)}>
+export function IconTimer(handle: Handle<IconProps>) {
+  return () => (
+    <svg {...baseProps(handle.props.size ?? 22)}>
       <circle cx="12" cy="13" r="7" />
       <path d="M12 10v3.5l2 1.2" />
       <path d="M9 3.5h6" />
@@ -61,35 +63,35 @@ export function IconTimer({ size = 22 }: IconProps) {
 }
 
 /** Map-pin outline for location tagging. */
-export function IconLocation({ size = 22 }: IconProps) {
-  return (
-    <svg {...baseProps(size)}>
+export function IconLocation(handle: Handle<IconProps>) {
+  return () => (
+    <svg {...baseProps(handle.props.size ?? 22)}>
       <path d="M12 20.5s6.5-4.4 6.5-10a6.5 6.5 0 10-13 0c0 5.6 6.5 10 6.5 10z" />
       <circle cx="12" cy="10.5" r="2.25" />
     </svg>
   )
 }
 
-export function IconPlay({ size = 22 }: IconProps) {
-  return (
-    <svg {...baseProps(size)}>
+export function IconPlay(handle: Handle<IconProps>) {
+  return () => (
+    <svg {...baseProps(handle.props.size ?? 22)}>
       <path d="M8 6.5v11L18 12 8 6.5z" />
     </svg>
   )
 }
 
-export function IconPause({ size = 22 }: IconProps) {
-  return (
-    <svg {...baseProps(size)}>
+export function IconPause(handle: Handle<IconProps>) {
+  return () => (
+    <svg {...baseProps(handle.props.size ?? 22)}>
       <path d="M9 6.5v11" />
       <path d="M15 6.5v11" />
     </svg>
   )
 }
 
-export function IconEditor({ size = 22 }: IconProps) {
-  return (
-    <svg {...baseProps(size)}>
+export function IconEditor(handle: Handle<IconProps>) {
+  return () => (
+    <svg {...baseProps(handle.props.size ?? 22)}>
       <circle cx="6.5" cy="6.5" r="2.25" />
       <circle cx="6.5" cy="17.5" r="2.25" />
       <path d="M19.5 4.5L8.7 15.3" />
@@ -100,9 +102,9 @@ export function IconEditor({ size = 22 }: IconProps) {
 }
 
 /** Backspace-style control for deleting the last recorded clip. */
-export function IconDeleteLast({ size = 22 }: IconProps) {
-  return (
-    <svg {...baseProps(size)}>
+export function IconDeleteLast(handle: Handle<IconProps>) {
+  return () => (
+    <svg {...baseProps(handle.props.size ?? 22)}>
       <path d="M18.5 6H9.2L4.5 12l4.7 6H18.5a2 2 0 002-2V8a2 2 0 00-2-2z" />
       <path d="M11.5 10l5 5" />
       <path d="M16.5 10l-5 5" />
@@ -110,9 +112,9 @@ export function IconDeleteLast({ size = 22 }: IconProps) {
   )
 }
 
-export function IconTrash({ size = 22 }: IconProps) {
-  return (
-    <svg {...baseProps(size)}>
+export function IconTrash(handle: Handle<IconProps>) {
+  return () => (
+    <svg {...baseProps(handle.props.size ?? 22)}>
       <path d="M5 7h14" />
       <path d="M9 7V5.5A1.5 1.5 0 0110.5 4h3A1.5 1.5 0 0115 5.5V7" />
       <path d="M8 7l.7 11.2A1.5 1.5 0 0010.2 19.5h3.6a1.5 1.5 0 001.5-1.3L16 7" />
@@ -122,9 +124,9 @@ export function IconTrash({ size = 22 }: IconProps) {
   )
 }
 
-export function IconDuplicate({ size = 22 }: IconProps) {
-  return (
-    <svg {...baseProps(size)}>
+export function IconDuplicate(handle: Handle<IconProps>) {
+  return () => (
+    <svg {...baseProps(handle.props.size ?? 22)}>
       <rect x="8.5" y="8.5" width="11" height="11" rx="2" />
       <path d="M15.5 8.5V6.5A2 2 0 0013.5 4.5h-7a2 2 0 00-2 2v7a2 2 0 002 2h2" />
     </svg>
@@ -132,9 +134,9 @@ export function IconDuplicate({ size = 22 }: IconProps) {
 }
 
 /** Bracket / I-beam handles that read as “trim”. */
-export function IconTrim({ size = 22 }: IconProps) {
-  return (
-    <svg {...baseProps(size)}>
+export function IconTrim(handle: Handle<IconProps>) {
+  return () => (
+    <svg {...baseProps(handle.props.size ?? 22)}>
       <path d="M5 6v12" />
       <path d="M3.5 6h3" />
       <path d="M3.5 18h3" />
@@ -146,34 +148,34 @@ export function IconTrim({ size = 22 }: IconProps) {
   )
 }
 
-export function IconChevronLeft({ size = 22 }: IconProps) {
-  return (
-    <svg {...baseProps(size)}>
+export function IconChevronLeft(handle: Handle<IconProps>) {
+  return () => (
+    <svg {...baseProps(handle.props.size ?? 22)}>
       <path d="M14.5 6l-6 6 6 6" />
     </svg>
   )
 }
 
-export function IconChevronRight({ size = 22 }: IconProps) {
-  return (
-    <svg {...baseProps(size)}>
+export function IconChevronRight(handle: Handle<IconProps>) {
+  return () => (
+    <svg {...baseProps(handle.props.size ?? 22)}>
       <path d="M9.5 6l6 6-6 6" />
     </svg>
   )
 }
 
-export function IconPlus({ size = 22 }: IconProps) {
-  return (
-    <svg {...baseProps(size)}>
+export function IconPlus(handle: Handle<IconProps>) {
+  return () => (
+    <svg {...baseProps(handle.props.size ?? 22)}>
       <path d="M12 6v12" />
       <path d="M6 12h12" />
     </svg>
   )
 }
 
-export function IconMore({ size = 22 }: IconProps) {
-  return (
-    <svg {...baseProps(size)}>
+export function IconMore(handle: Handle<IconProps>) {
+  return () => (
+    <svg {...baseProps(handle.props.size ?? 22)}>
       <circle cx="6" cy="12" r="1.75" fill="currentColor" stroke="none" />
       <circle cx="12" cy="12" r="1.75" fill="currentColor" stroke="none" />
       <circle cx="18" cy="12" r="1.75" fill="currentColor" stroke="none" />
@@ -181,9 +183,9 @@ export function IconMore({ size = 22 }: IconProps) {
   )
 }
 
-export function IconUndo({ size = 22 }: IconProps) {
-  return (
-    <svg {...baseProps(size)}>
+export function IconUndo(handle: Handle<IconProps>) {
+  return () => (
+    <svg {...baseProps(handle.props.size ?? 22)}>
       <path d="M7 5L4 8l3 3" />
       <path d="M4 8h7a5 5 0 110 10H9" />
     </svg>
@@ -191,9 +193,9 @@ export function IconUndo({ size = 22 }: IconProps) {
 }
 
 /** The iOS share glyph: box with an arrow rising out of it. */
-export function IconShareIos({ size = 22 }: IconProps) {
-  return (
-    <svg {...baseProps(size)}>
+export function IconShareIos(handle: Handle<IconProps>) {
+  return () => (
+    <svg {...baseProps(handle.props.size ?? 22)}>
       <path d="M8 8H6a1 1 0 00-1 1v11a1 1 0 001 1h12a1 1 0 001-1V9a1 1 0 00-1-1h-2" />
       <path d="M12 14V3" />
       <path d="M8.5 6.5L12 3l3.5 3.5" />
@@ -201,27 +203,27 @@ export function IconShareIos({ size = 22 }: IconProps) {
   )
 }
 
-export function IconClose({ size = 22 }: IconProps) {
-  return (
-    <svg {...baseProps(size)}>
+export function IconClose(handle: Handle<IconProps>) {
+  return () => (
+    <svg {...baseProps(handle.props.size ?? 22)}>
       <path d="M6 6l12 12" />
       <path d="M18 6L6 18" />
     </svg>
   )
 }
 
-export function IconLens({ size = 22 }: IconProps) {
-  return (
-    <svg {...baseProps(size)}>
+export function IconLens(handle: Handle<IconProps>) {
+  return () => (
+    <svg {...baseProps(handle.props.size ?? 22)}>
       <circle cx="12" cy="12" r="8.5" />
       <circle cx="12" cy="12" r="3.5" />
     </svg>
   )
 }
 
-export function IconLock({ size = 22 }: IconProps) {
-  return (
-    <svg {...baseProps(size)}>
+export function IconLock(handle: Handle<IconProps>) {
+  return () => (
+    <svg {...baseProps(handle.props.size ?? 22)}>
       <rect x="5" y="10.5" width="14" height="9.5" rx="2" />
       <path d="M8 10.5V7.5a4 4 0 018 0v3" />
     </svg>
@@ -229,12 +231,12 @@ export function IconLock({ size = 22 }: IconProps) {
 }
 
 /** Monitor with a record dot: screen recording. */
-export function IconScreen({ size = 22, on = false }: IconProps & { on?: boolean }) {
-  return (
-    <svg {...baseProps(size)}>
+export function IconScreen(handle: Handle<IconProps & { on?: boolean }>) {
+  return () => (
+    <svg {...baseProps(handle.props.size ?? 22)}>
       <rect x="3" y="4.5" width="18" height="12.5" rx="2" />
       <path d="M9 20.5h6" />
-      <circle cx="12" cy="10.75" r="2.4" fill={on ? 'currentColor' : 'none'} />
+      <circle cx="12" cy="10.75" r="2.4" fill={handle.props.on ? 'currentColor' : 'none'} />
     </svg>
   )
 }

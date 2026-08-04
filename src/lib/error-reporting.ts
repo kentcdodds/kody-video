@@ -1,5 +1,4 @@
-import * as Sentry from '@sentry/react'
-import type { ErrorInfo } from 'react'
+import * as Sentry from '@sentry/browser'
 import { COMMIT_SHA } from './build-info'
 
 /** Publishable client key for the kody-video Sentry project (not a secret). */
@@ -193,25 +192,13 @@ export function reportError(
 }
 
 /**
- * React 19 routes uncaught render errors through createRoot options instead
- * of window.onerror — without these, UI crashes would never reach Sentry.
- *
- * Classification subtlety: `reactErrorHandler(callback)` marks the event
- * handled, `reactErrorHandler()` marks it unhandled. Uncaught root errors
- * must stay *unhandled*, so their console logging wraps the capture instead
- * of being passed as the callback.
+ * Remix component errors surface on the virtual root's `error` event instead
+ * of window.onerror — without this, UI crashes would never reach Sentry.
+ * The mechanism: main.tsx wires `root.addEventListener('error', …)` to this.
  */
-const captureUncaughtReactError = Sentry.reactErrorHandler()
-
-export const reactRootErrorHandlers = {
-  onUncaughtError: (error: unknown, errorInfo: ErrorInfo) => {
-    console.error('Uncaught React error', error, errorInfo.componentStack)
-    captureUncaughtReactError(error, errorInfo)
-  },
-  onCaughtError: Sentry.reactErrorHandler((error, errorInfo) => {
-    console.error('Caught React error', error, errorInfo.componentStack)
-  }),
-  onRecoverableError: Sentry.reactErrorHandler((error, errorInfo) => {
-    console.warn('Recoverable React error', error, errorInfo.componentStack)
-  }),
+export function reportComponentError(error: unknown): void {
+  console.error('Uncaught component error', error)
+  Sentry.captureException(error, {
+    mechanism: { type: 'remix.componentError', handled: false },
+  })
 }

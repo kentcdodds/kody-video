@@ -1,7 +1,6 @@
-import { StrictMode } from 'react'
-import { createRoot } from 'react-dom/client'
+import { createRoot } from 'remix/ui'
 import { App } from './app'
-import { initErrorReporting, reactRootErrorHandlers } from './lib/error-reporting'
+import { initErrorReporting, reportComponentError } from './lib/error-reporting'
 import { sweepExportCache } from './lib/export/export-cache'
 import './lib/install-prompt'
 import './styles/global.css'
@@ -14,8 +13,8 @@ initErrorReporting()
 // longer referenced. No export can be running at boot, so this is safe.
 void sweepExportCache().catch(() => undefined)
 
-createRoot(document.getElementById('root')!, reactRootErrorHandlers).render(
-  <StrictMode>
-    <App />
-  </StrictMode>,
-)
+const root = createRoot(document.getElementById('root')!)
+root.addEventListener('error', (event) => {
+  reportComponentError(event.error)
+})
+root.render(<App />)

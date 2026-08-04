@@ -1,38 +1,28 @@
-import { useCallback, useRef, type ImgHTMLAttributes, type RefCallback } from 'react'
+import type { Handle, MixValue } from 'remix/ui'
+import { ref } from 'remix/ui'
+import { createBlobUrlBinder } from '../lib/blob-url'
 
-type TimelineThumbImageProps = Omit<ImgHTMLAttributes<HTMLImageElement>, 'src'> & {
+interface TimelineThumbImageProps {
   blob: Blob
+  className?: string
+  alt?: string
+  mix?: MixValue
 }
 
 /** Bind a Blob to an <img> via object URL (create/revoke on mount/blob change). */
-export function TimelineThumbImage({ blob, alt = '', ...props }: TimelineThumbImageProps) {
-  const stateRef = useRef<{ current: string | null; blob: Blob | null }>({
-    current: null,
-    blob: null,
-  })
+export function TimelineThumbImage(handle: Handle<TimelineThumbImageProps>) {
+  const binder = createBlobUrlBinder<HTMLImageElement>(() => handle.props.blob)
 
-  const setImgRef = useCallback<RefCallback<HTMLImageElement>>(
-    (element) => {
-      const state = stateRef.current
-      if (!element) {
-        if (state.current) URL.revokeObjectURL(state.current)
-        state.current = null
-        state.blob = null
-        return
-      }
-
-      if (state.blob !== blob || !state.current) {
-        if (state.current) URL.revokeObjectURL(state.current)
-        state.current = URL.createObjectURL(blob)
-        state.blob = blob
-      }
-
-      if (element.src !== state.current) {
-        element.src = state.current
-      }
-    },
-    [blob],
-  )
-
-  return <img {...props} alt={alt} ref={setImgRef} draggable={false} />
+  return () => {
+    const { blob: _blob, alt = '', mix, ...props } = handle.props
+    binder.sync()
+    return (
+      <img
+        {...props}
+        alt={alt}
+        draggable={false}
+        mix={[mix, ref((node, signal) => binder.attach(node as HTMLImageElement, signal))]}
+      />
+    )
+  }
 }

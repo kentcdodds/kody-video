@@ -1,28 +1,39 @@
-import { Link, useLoaderData, type LoaderFunctionArgs } from 'react-router-dom'
+import type { Handle } from 'remix/ui'
 import { BrandMark } from '../components/brand-mark'
 import { verifyPurchaseSession, type VerifyResult } from '../lib/entitlement'
 
 /**
  * Stripe's Payment Link redirects here after checkout with
- * ?session_id={CHECKOUT_SESSION_ID}; the loader verifies it server-side and
- * persists the entitlement before the page renders.
+ * ?session_id={CHECKOUT_SESSION_ID}; setup verifies it server-side and
+ * persists the entitlement before rendering the result.
  */
-export async function unlockedLoader({ request }: LoaderFunctionArgs): Promise<VerifyResult> {
-  const sessionId = new URL(request.url).searchParams.get('session_id')
+async function verifyFromLocation(): Promise<VerifyResult> {
+  const sessionId = new URL(window.location.href).searchParams.get('session_id')
   if (!sessionId) {
     return { unlocked: false, error: 'Missing checkout session. Use the link from your receipt.' }
   }
   return verifyPurchaseSession(sessionId)
 }
 
-export function UnlockedPage() {
-  const result = useLoaderData() as VerifyResult
+export function UnlockedPage(handle: Handle) {
+  let result: VerifyResult | null = null
 
-  return (
+  void verifyFromLocation().then((verified) => {
+    if (handle.signal.aborted) return
+    result = verified
+    void handle.update()
+  })
+
+  return () => (
     <div className="screen unlocked-screen">
       <div className="unlocked-card">
         <BrandMark size={110} className="export-celebrate-art" variant="share" />
-        {result.unlocked ? (
+        {result === null ? (
+          <>
+            <p className="eyebrow">Checking your purchase…</p>
+            <h1>One moment</h1>
+          </>
+        ) : result.unlocked ? (
           <>
             <p className="eyebrow">Purchase verified</p>
             <h1>Kody Video Plus unlocked! 🎉</h1>
@@ -42,9 +53,11 @@ export function UnlockedPage() {
             </p>
           </>
         )}
-        <Link className="btn btn-primary" to="/">
-          {result.unlocked ? 'Start creating' : 'Back to Kody Video'}
-        </Link>
+        {result === null ? null : (
+          <a className="btn btn-primary" href="/">
+            {result.unlocked ? 'Start creating' : 'Back to Kody Video'}
+          </a>
+        )}
       </div>
     </div>
   )
