@@ -66,8 +66,7 @@ export function EditorScreen(handle: Handle<EditorScreenProps>) {
     fileInputRef.current?.click()
   }
 
-  const importFromDevice = (fileList: FileList | null) => {
-    const files = fileList ? [...fileList] : []
+  const importFromDevice = (files: File[]) => {
     if (files.length === 0 || importing) return
     importing = true
     void handle.update()
@@ -284,7 +283,8 @@ export function EditorScreen(handle: Handle<EditorScreenProps>) {
             }),
             on('change', (event) => {
               const input = event.currentTarget as HTMLInputElement
-              const files = input.files
+              // Copy before clearing: FileList is live and empties with value=''.
+              const files = input.files ? [...input.files] : []
               input.value = ''
               importFromDevice(files)
             }),
