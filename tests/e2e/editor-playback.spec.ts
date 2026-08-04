@@ -85,6 +85,56 @@ test.describe('editor', () => {
     expect(durAfter).not.toBe(durBefore)
   })
 
+  test('trim preview scrubs to the frame at the dragged handle', async ({ page }) => {
+    const clipMs = 4000
+    await openEditorWithClips(page, 1, clipMs)
+    const preview = page.locator('.editor-clip-preview')
+    const previewTime = () => preview.evaluate((el) => (el as HTMLVideoElement).currentTime)
+
+    await page.getByRole('button', { name: 'Trim' }).click()
+    const strip = page.locator('.trim-strip')
+    await expect(strip).toBeVisible()
+
+    const track = await strip.locator('.trim-strip-track').boundingBox()
+    if (!track) throw new Error('trim geometry unavailable')
+    // Handles are centered on their time position (translateX(-50%)), so an
+    // x fraction of the track maps straight to a fraction of the duration.
+    const xAt = (fraction: number) => track.x + track.width * fraction
+    const secondsNear = async (fraction: number) => {
+      const target = (clipMs / 1000) * fraction
+      await expect.poll(previewTime).toBeGreaterThan(target - 0.25)
+      expect(await previewTime()).toBeLessThan(target + 0.25)
+    }
+
+    // Drag the end handle to the middle; the preview must scrub with it.
+    const endBox = await strip.locator('.trim-handle-right').boundingBox()
+    if (!endBox) throw new Error('trim geometry unavailable')
+    const y = endBox.y + endBox.height / 2
+    await page.mouse.move(endBox.x + endBox.width / 2, y)
+    await page.mouse.down()
+    await page.mouse.move(xAt(0.5), y, { steps: 8 })
+    await secondsNear(0.5)
+    await page.mouse.up()
+
+    // Same for the start handle.
+    const startBox = await strip.locator('.trim-handle-left').boundingBox()
+    if (!startBox) throw new Error('trim geometry unavailable')
+    await page.mouse.move(startBox.x + startBox.width / 2, y)
+    await page.mouse.down()
+    await page.mouse.move(xAt(0.25), y, { steps: 8 })
+    await secondsNear(0.25)
+    await page.mouse.up()
+
+    await strip.getByRole('button', { name: 'Done' }).click()
+    await expect(strip).toBeHidden()
+
+    // Re-opening trim starts the preview on the saved trim-start frame, not
+    // frame zero.
+    await page.getByRole('button', { name: 'Trim' }).click()
+    await expect(strip).toBeVisible()
+    await secondsNear(0.25)
+  })
+
   test('back returns to the camera', async ({ page }) => {
     await openEditorWithClips(page, 1)
     await page.getByRole('button', { name: 'Back to camera' }).click()

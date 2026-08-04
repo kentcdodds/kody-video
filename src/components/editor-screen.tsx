@@ -122,6 +122,16 @@ export function EditorScreen(handle: Handle<EditorScreenProps>) {
     void handle.update()
   }
 
+  const openTrim = (clip: ClipRecord) => {
+    previewApi.current?.pause()
+    trimming = true
+    // Seek after the commit: entering trim can remount the preview (the trim
+    // override changes its remount key), and the seek must land on the new
+    // element so the stage opens on the trim-start frame.
+    handle.queueTask(() => previewApi.current?.seekToMs(clip.trimStartMs))
+    void handle.update()
+  }
+
   const handleDelete = () => {
     const id = resolveSelectedId()
     if (!id) return
@@ -197,8 +207,7 @@ export function EditorScreen(handle: Handle<EditorScreenProps>) {
       }
       case 'KeyT': {
         if (!selected) return
-        previewApi.current?.pause()
-        setTrimming(true)
+        openTrim(selected)
         return
       }
       case 'KeyD': {
@@ -406,8 +415,7 @@ export function EditorScreen(handle: Handle<EditorScreenProps>) {
                 disabled={!selected || importing}
                 prominent
                 onClick={() => {
-                  previewApi.current?.pause()
-                  setTrimming(true)
+                  if (selected) openTrim(selected)
                 }}
                 icon={<IconTrim />}
               />
