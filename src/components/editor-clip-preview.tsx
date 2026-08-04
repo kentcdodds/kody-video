@@ -35,11 +35,29 @@ export function EditorClipPreview(handle: Handle<EditorClipPreviewProps>) {
   /** An explicit seek before loadeddata must not be snapped back to the trim
    * start when the metadata arrives. */
   let explicitSeek = false
+  /** Latest scrub target (seconds) deferred while a seek is in flight.
+   * Assigning currentTime mid-seek cancels the pending seek, so a fast trim
+   * drag would paint no frames until the pointer rests; instead the newest
+   * target waits for `seeked` and is applied then. */
+  let pendingSeekSec: number | null = null
 
   const setPlaying = (next: boolean) => {
     if (playing === next) return
     playing = next
     void handle.update()
+  }
+
+  const applySeek = (video: HTMLVideoElement, sec: number) => {
+    if (video.seeking) {
+      pendingSeekSec = sec
+      return
+    }
+    pendingSeekSec = null
+    if (Math.abs(video.currentTime - sec) > 0.02) {
+      video.currentTime = sec
+    } else {
+      nudgeFrame(video)
+    }
   }
 
   // Bound to the element's mount/unmount (not the first media event) so the
@@ -48,6 +66,7 @@ export function EditorClipPreview(handle: Handle<EditorClipPreviewProps>) {
   const bindVideo = (video: HTMLVideoElement, signal: AbortSignal) => {
     media = video
     explicitSeek = false
+    pendingSeekSec = null
     const apiRef = props.apiRef
     if (!apiRef) return
     apiRef.current = {
@@ -57,12 +76,7 @@ export function EditorClipPreview(handle: Handle<EditorClipPreviewProps>) {
         explicitSeek = true
         el.pause()
         setPlaying(false)
-        const sec = Math.max(0, Math.min(timeMs, props.clip.durationMs)) / 1000
-        if (Math.abs(el.currentTime - sec) > 0.02) {
-          el.currentTime = sec
-        } else {
-          nudgeFrame(el)
-        }
+        applySeek(el, Math.max(0, Math.min(timeMs, props.clip.durationMs)) / 1000)
       },
       pause: () => {
         const el = media
@@ -97,6 +111,8 @@ export function EditorClipPreview(handle: Handle<EditorClipPreviewProps>) {
     if (atEnd || beforeStart) {
       video.currentTime = startSec
     }
+    // A stale scrub target must not yank playback once it starts.
+    pendingSeekSec = null
 
     void video
       .play()
@@ -132,6 +148,14 @@ export function EditorClipPreview(handle: Handle<EditorClipPreviewProps>) {
             }),
             on('seeked', (event) => {
               const video = event.currentTarget as HTMLVideoElement
+              if (pendingSeekSec !== null) {
+                const sec = pendingSeekSec
+                pendingSeekSec = null
+                if (Math.abs(video.currentTime - sec) > 0.02) {
+                  video.currentTime = sec
+                  return
+                }
+              }
               if (video.paused) nudgeFrame(video)
             }),
             on('timeupdate', (event) => {
