@@ -1,4 +1,10 @@
-import { addClip, createProject, deleteProject, setProjectAudio, updateClipTrim } from './storage'
+import {
+  addClip,
+  addProjectAudioTrack,
+  createProject,
+  deleteProject,
+  updateClipTrim,
+} from './storage'
 import type { ClipRecord, Project, ProjectAudioRecord } from './types'
 
 /**
@@ -33,13 +39,20 @@ interface ManifestClip {
   byteLength: number
 }
 
-interface ManifestAudio {
+interface ManifestAudioTrack {
   mimeType: string
   durationMs: number
   name: string
-  defaultVolume: number
-  /** Byte length of the track, appended after every clip's media bytes. */
+  /** Byte length of this track, appended after every clip's media bytes
+   * (tracks follow in playlist order). */
   byteLength: number
+}
+
+interface ManifestAudio {
+  defaultVolume: number
+  fadeIn: boolean
+  fadeOut: boolean
+  tracks: ManifestAudioTrack[]
 }
 
 interface Manifest {
@@ -48,7 +61,7 @@ interface Manifest {
   exportedAt: number
   projectName: string
   clips: ManifestClip[]
-  /** Background-music track (absent on projects without one). */
+  /** Background-music playlist (absent on projects without one). */
   audio?: ManifestAudio
 }
 
@@ -88,13 +101,17 @@ export function serializeProject(
       byteLength: clip.blob.size,
     })),
   }
-  if (audio) {
+  if (audio && audio.tracks.length > 0) {
     manifest.audio = {
-      mimeType: audio.mimeType,
-      durationMs: audio.durationMs,
-      name: audio.name,
       defaultVolume: audio.defaultVolume,
-      byteLength: audio.blob.size,
+      fadeIn: audio.fadeIn,
+      fadeOut: audio.fadeOut,
+      tracks: audio.tracks.map((track) => ({
+        mimeType: track.mimeType,
+        durationMs: track.durationMs,
+        name: track.name,
+        byteLength: track.blob.size,
+      })),
     }
   }
 
@@ -109,17 +126,24 @@ export function serializeProject(
       header,
       manifestBytes,
       ...clips.map((clip) => clip.blob),
-      ...(audio ? [audio.blob] : []),
+      ...(audio?.tracks.map((track) => track.blob) ?? []),
     ],
     { type: 'application/octet-stream' },
   )
 }
 
+export interface ParsedBackupAudio {
+  defaultVolume: number
+  fadeIn: boolean
+  fadeOut: boolean
+  tracks: Array<Omit<ManifestAudioTrack, 'byteLength'> & { blob: Blob }>
+}
+
 export interface ParsedBackup {
   projectName: string
   clips: Array<Omit<ManifestClip, 'byteLength'> & { blob: Blob }>
-  /** Background-music track, when the backup carries one. */
-  audio: (Omit<ManifestAudio, 'byteLength'> & { blob: Blob }) | null
+  /** Background-music playlist, when the backup carries one. */
+  audio: ParsedBackupAudio | null
 }
 
 /**
@@ -190,22 +214,30 @@ export async function parseProjectBackup(file: Blob): Promise<ParsedBackup> {
 
   let audio: ParsedBackup['audio'] = null
   const manifestAudio = manifest.audio
-  if (manifestAudio) {
-    if (
-      !Number.isInteger(manifestAudio.byteLength) ||
-      manifestAudio.byteLength <= 0 ||
-      offset + manifestAudio.byteLength > file.size
-    ) {
-      throw new BackupFormatError('This backup file is damaged')
+  if (manifestAudio && Array.isArray(manifestAudio.tracks) && manifestAudio.tracks.length > 0) {
+    const tracks: ParsedBackupAudio['tracks'] = []
+    for (const track of manifestAudio.tracks) {
+      if (
+        !Number.isInteger(track.byteLength) ||
+        track.byteLength <= 0 ||
+        offset + track.byteLength > file.size
+      ) {
+        throw new BackupFormatError('This backup file is damaged')
+      }
+      const mimeType = typeof track.mimeType === 'string' ? track.mimeType : 'audio/mpeg'
+      tracks.push({
+        mimeType,
+        durationMs: track.durationMs,
+        name: String(track.name || 'Audio track'),
+        blob: file.slice(offset, offset + track.byteLength, mimeType),
+      })
+      offset += track.byteLength
     }
-    const mimeType =
-      typeof manifestAudio.mimeType === 'string' ? manifestAudio.mimeType : 'audio/mpeg'
     audio = {
-      mimeType,
-      durationMs: manifestAudio.durationMs,
-      name: String(manifestAudio.name || 'Audio track'),
       defaultVolume: manifestAudio.defaultVolume,
-      blob: file.slice(offset, offset + manifestAudio.byteLength, mimeType),
+      fadeIn: manifestAudio.fadeIn !== false,
+      fadeOut: manifestAudio.fadeOut !== false,
+      tracks,
     }
   }
 
@@ -267,17 +299,26 @@ export async function importProjectBackup(
     if (parsed.audio) {
       // Best-effort: background music is a Plus perk, so restoring a
       // Plus-made backup on a free device keeps the clips and simply skips
-      // the track (setProjectAudio enforces the gate). A damaged audio
-      // section must not kill an otherwise intact import either.
-      const bytes = await parsed.audio.blob.arrayBuffer()
-      await setProjectAudio({
-        projectId: project.id,
-        blob: new Blob([bytes], { type: parsed.audio.mimeType }),
-        mimeType: parsed.audio.mimeType,
-        durationMs: parsed.audio.durationMs,
-        name: parsed.audio.name,
-        defaultVolume: parsed.audio.defaultVolume,
-      }).catch(() => undefined)
+      // the playlist (addProjectAudioTrack enforces the gate). A damaged
+      // audio section must not kill an otherwise intact import either.
+      try {
+        for (const track of parsed.audio.tracks) {
+          const bytes = await track.blob.arrayBuffer()
+          await addProjectAudioTrack({
+            projectId: project.id,
+            blob: new Blob([bytes], { type: track.mimeType }),
+            mimeType: track.mimeType,
+            durationMs: track.durationMs,
+            name: track.name,
+            // Playlist settings land with the first track; later adds keep them.
+            defaultVolume: parsed.audio.defaultVolume,
+            fadeIn: parsed.audio.fadeIn,
+            fadeOut: parsed.audio.fadeOut,
+          })
+        }
+      } catch {
+        // Plus gate (or a damaged track) — clips still imported fine.
+      }
     }
     return project
   } catch (error) {

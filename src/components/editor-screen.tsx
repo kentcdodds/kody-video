@@ -393,6 +393,7 @@ export function EditorScreen(handle: Handle<EditorScreenProps>) {
               audio={props.audio}
               selectedClip={selected}
               selectedIndex={selectedIndex}
+              projectDurationMs={totalDurationMs}
               disabled={importing}
               plus={props.plus}
               onUpsell={props.onUpsell}

@@ -3,6 +3,7 @@ import {
   DB_NAME,
   __resetDbForTests,
   addClip,
+  addProjectAudioTrack,
   createProject,
   deleteClip,
   deleteProject,
@@ -14,15 +15,14 @@ import {
   getUndoSnapshot,
   listProjects,
   moveClip,
-  removeProjectAudio,
+  removeProjectAudioTrack,
   renameProject,
   setOnboardingDismissed,
-  setProjectAudio,
   toStoredBlob,
   undoDeleteLastClip,
   updateClipAudioVolume,
   updateClipTrim,
-  updateProjectAudioDefaultVolume,
+  updateProjectAudioSettings,
 } from './storage'
 import { markWatermarkRemoved } from './entitlement'
 import { DEFAULT_AUDIO_VOLUME, MAX_PROJECTS, effectiveDurationMs } from './types'
@@ -178,7 +178,7 @@ describe('storage layer', () => {
   it('gates background music behind the Plus purchase', async () => {
     const project = await createProject('Free plan')
     await expect(
-      setProjectAudio({
+      addProjectAudioTrack({
         projectId: project.id,
         blob: new Blob(['song'], { type: 'audio/mpeg' }),
         mimeType: 'audio/mpeg',
@@ -189,40 +189,52 @@ describe('storage layer', () => {
     expect(await getProjectAudio(project.id)).toBeUndefined()
   })
 
-  it('stores, updates, and removes a project audio track', async () => {
+  it('builds a playlist of sequential tracks with shared settings', async () => {
     await markWatermarkRemoved('cs_test_storage')
     const project = await createProject('With music')
-    const audio = await setProjectAudio({
+    const first = await addProjectAudioTrack({
       projectId: project.id,
       blob: new Blob(['song'], { type: 'audio/mpeg' }),
       mimeType: 'audio/mpeg',
       durationMs: 30_000,
       name: 'song.mp3',
     })
-    expect(audio.defaultVolume).toBe(DEFAULT_AUDIO_VOLUME)
-    expect(await (await getProjectAudio(project.id))!.blob.text()).toBe('song')
+    expect(first.defaultVolume).toBe(DEFAULT_AUDIO_VOLUME)
+    expect(first.fadeIn).toBe(true)
+    expect(first.fadeOut).toBe(true)
+    expect(first.tracks).toHaveLength(1)
+    expect(await first.tracks[0].blob.text()).toBe('song')
 
-    await updateProjectAudioDefaultVolume(project.id, 0.6)
-    expect((await getProjectAudio(project.id))?.defaultVolume).toBe(0.6)
+    await updateProjectAudioSettings(project.id, { defaultVolume: 0.6, fadeOut: false })
+    let audio = await getProjectAudio(project.id)
+    expect(audio?.defaultVolume).toBe(0.6)
+    expect(audio?.fadeIn).toBe(true)
+    expect(audio?.fadeOut).toBe(false)
 
-    // Replacing the track keeps the chosen default volume.
-    const replaced = await setProjectAudio({
+    // A second track appends and keeps the chosen settings.
+    const second = await addProjectAudioTrack({
       projectId: project.id,
       blob: new Blob(['other'], { type: 'audio/wav' }),
       mimeType: 'audio/wav',
       durationMs: 12_000,
       name: 'other.wav',
     })
-    expect(replaced.defaultVolume).toBe(0.6)
+    expect(second.tracks.map((track) => track.name)).toEqual(['song.mp3', 'other.wav'])
+    expect(second.defaultVolume).toBe(0.6)
+    expect(second.fadeOut).toBe(false)
 
-    await removeProjectAudio(project.id)
+    // Removing one track keeps the playlist; removing the last drops it.
+    await removeProjectAudioTrack(project.id, second.tracks[0].id)
+    audio = await getProjectAudio(project.id)
+    expect(audio?.tracks.map((track) => track.name)).toEqual(['other.wav'])
+    await removeProjectAudioTrack(project.id, audio!.tracks[0].id)
     expect(await getProjectAudio(project.id)).toBeUndefined()
   })
 
-  it('drops the audio track when the project is deleted', async () => {
+  it('drops the audio playlist when the project is deleted', async () => {
     await markWatermarkRemoved('cs_test_storage')
     const project = await createProject('Doomed')
-    await setProjectAudio({
+    await addProjectAudioTrack({
       projectId: project.id,
       blob: new Blob(['song'], { type: 'audio/mpeg' }),
       mimeType: 'audio/mpeg',

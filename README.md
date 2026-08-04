@@ -33,11 +33,14 @@ For a phone on the same network, use your machine’s LAN URL over HTTPS, or tun
 - Self-timer for hands-free takes (tap to stop)
 - Recording feedback (REC pill + elapsed) with a page that does **not** re-render per frame — capture stays smooth
 - Editor: filmstrip timeline (thumbnails, width ∝ duration), drag to reorder, duplicate, delete w/ undo, **in-timeline trim with drag handles**, **add clips from your device/gallery**
-- **Background music** (Plus): add one audio track that plays under the whole
-  film at a background-friendly default volume; tap any clip to set the music
-  volume just for that clip (duck it under speech, swell it for b-roll) and
-  volume changes glide across clip boundaries — in the preview and in the
-  exported file (track loops when shorter than the film)
+- **Background music** (Plus): build a playlist of audio tracks that play one
+  after the other under the film at a background-friendly default volume
+  (nothing loops — a hint suggests adding another track when the music ends
+  before the film does); tap any clip to set the music volume just for that
+  clip (duck it under speech, swell it for b-roll), volume changes glide
+  across clip boundaries, and the music fades in/out at the start and end of
+  the film (both toggleable, on by default) — in the preview and in the
+  exported file
 - Project preview playback: tap edges to skip clips, tap middle to stop
 - Up to **6** stable project slots (create / open / rename / delete, poster art from your clips)
 - Big Go CTA: on-device export to **one video file**, then Share (system sheet) or Save
@@ -124,7 +127,7 @@ before this feature simply lack the data and degrade gracefully.
 | clips    | Clip metadata, `Blob` media, filmstrip thumbnails     |
 | undo     | Last deleted clip per project (for Undo)              |
 | meta     | Settings (`maxProjects`, last opened id, onboarding)  |
-| audio    | Background-music track per project (blob + volumes)   |
+| audio    | Background-music playlist per project (blobs, volumes, fades) |
 
 Database name: `kody-video`. Blobs never leave the device unless the user explicitly shares/downloads.
 

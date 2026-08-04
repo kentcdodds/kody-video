@@ -45,24 +45,40 @@ export interface DeletedClipSnapshot {
   deletedAt: number
 }
 
-/** One optional background-audio track per project, played under the clips. */
-export interface ProjectAudioMeta {
-  projectId: ProjectId
+/** One entry in a project's background-music playlist. */
+export interface ProjectAudioTrack {
+  id: string
+  blob: Blob
   mimeType: string
   durationMs: number
   /** Display name (the picked file's name). */
   name: string
-  /** Baseline volume (0–1) for clips without a per-clip override. */
-  defaultVolume: number
   addedAt: number
 }
 
-export interface ProjectAudioRecord extends ProjectAudioMeta {
-  blob: Blob
+/**
+ * A project's background music: tracks play one after the other under the
+ * clips until the film ends (the last one is cut off there — nothing loops),
+ * at a default volume clips can override individually.
+ */
+export interface ProjectAudioRecord {
+  projectId: ProjectId
+  tracks: ProjectAudioTrack[]
+  /** Baseline volume (0–1) for clips without a per-clip override. */
+  defaultVolume: number
+  /** Ease the music in at the start of the film (default on). */
+  fadeIn: boolean
+  /** Ease the music out at the end of the film (default on). */
+  fadeOut: boolean
 }
 
 /** Sits under speech without drowning it — the out-of-the-box music level. */
 export const DEFAULT_AUDIO_VOLUME = 0.25
+
+/** Total playlist length — what the music can cover before going silent. */
+export function projectAudioTotalDurationMs(audio: Pick<ProjectAudioRecord, 'tracks'>): number {
+  return audio.tracks.reduce((sum, track) => sum + track.durationMs, 0)
+}
 
 export function clampVolume(volume: number): number {
   if (!Number.isFinite(volume)) return DEFAULT_AUDIO_VOLUME

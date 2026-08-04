@@ -46,12 +46,16 @@ export function PlaybackOverlay(handle: Handle<PlaybackOverlayProps>) {
    * events from the previous clip that fire before the new source is ready. */
   let loadedIndex = -1
 
-  // Background music: one looping audio element under the whole preview.
-  // Its volume glides toward the current clip's music volume every frame,
-  // so transitions between clips ramp instead of jumping — same behavior
+  // Background music: one audio element under the whole preview, playing
+  // the playlist's tracks one after the other (nothing loops — when the
+  // playlist runs out the rest of the preview is music-free). Its volume
+  // glides toward the current clip's music volume every frame, so
+  // transitions between clips ramp instead of jumping — the same behavior
   // the export renders, heard live.
   let audioEl: HTMLAudioElement | null = null
-  let audioUrl: string | null = null
+  /** Lazily created object URL per playlist track (revoked on unmount). */
+  const trackUrls = new Map<number, string>()
+  let musicTrackIndex = -1
 
   const currentSegment = () => resolveSegments()[index] ?? null
   const startSec = () => {
@@ -82,23 +86,53 @@ export function PlaybackOverlay(handle: Handle<PlaybackOverlayProps>) {
     return segment.offsetMs + elapsedSec * 1000
   }
 
-  /** Keep the looping track under the playhead. Small drift is left alone —
-   * a re-seek every segment would audibly hiccup continuous playback. */
-  const syncMusicPosition = () => {
-    const audio = audioEl
-    const track = props.audio
-    if (!audio || !track || track.durationMs <= 0) return
-    const expectedSec = (timelinePositionMs() % track.durationMs) / 1000
-    if (Math.abs(audio.currentTime - expectedSec) > 0.35) {
-      audio.currentTime = expectedSec
+  /** Playlist track and in-track offset covering an output position, or
+   * null when the playlist has already run out there. */
+  const trackAtMs = (positionMs: number): { index: number; offsetMs: number } | null => {
+    const tracks = props.audio?.tracks ?? []
+    let cursor = 0
+    for (let i = 0; i < tracks.length; i += 1) {
+      if (positionMs < cursor + tracks[i].durationMs) {
+        return { index: i, offsetMs: positionMs - cursor }
+      }
+      cursor += tracks[i].durationMs
     }
+    return null
+  }
+
+  const urlForTrack = (trackIndex: number): string => {
+    let url = trackUrls.get(trackIndex)
+    if (!url) {
+      url = URL.createObjectURL(props.audio!.tracks[trackIndex].blob)
+      trackUrls.set(trackIndex, url)
+    }
+    return url
+  }
+
+  /** Put the right playlist track under the playhead. Small drift within a
+   * track is left alone — a re-seek every segment would audibly hiccup
+   * continuous playback. Returns false when there is no music to play. */
+  const syncMusicPosition = (): boolean => {
+    const audio = audioEl
+    if (!audio || !props.audio) return false
+    const target = trackAtMs(timelinePositionMs())
+    if (!target) {
+      audio.pause()
+      return false
+    }
+    if (musicTrackIndex !== target.index) {
+      musicTrackIndex = target.index
+      audio.src = urlForTrack(target.index)
+      audio.currentTime = target.offsetMs / 1000
+    } else if (Math.abs(audio.currentTime - target.offsetMs / 1000) > 0.35) {
+      audio.currentTime = target.offsetMs / 1000
+    }
+    return true
   }
 
   const playMusic = () => {
-    const audio = audioEl
-    if (!audio) return
-    syncMusicPosition()
-    void audio.play().catch(() => undefined)
+    if (!syncMusicPosition()) return
+    void audioEl?.play().catch(() => undefined)
   }
 
   const pauseMusic = () => {
@@ -109,10 +143,9 @@ export function PlaybackOverlay(handle: Handle<PlaybackOverlayProps>) {
     const track = props.audio
     if (!track) return
     audioEl = el
-    el.loop = true
-    el.volume = 0
-    audioUrl = URL.createObjectURL(track.blob)
-    el.src = audioUrl
+    // No fade-in means the music opens at full clip volume; otherwise the
+    // per-frame glide below fades it in from silence.
+    el.volume = track.fadeIn ? 0 : segmentMusicVolume()
 
     // Per-frame volume glide toward the current clip's target.
     let last = performance.now()
@@ -132,8 +165,9 @@ export function PlaybackOverlay(handle: Handle<PlaybackOverlayProps>) {
       cancelAnimationFrame(raf)
       el.pause()
       if (audioEl === el) audioEl = null
-      if (audioUrl) URL.revokeObjectURL(audioUrl)
-      audioUrl = null
+      for (const url of trackUrls.values()) URL.revokeObjectURL(url)
+      trackUrls.clear()
+      musicTrackIndex = -1
     })
   }
 
@@ -333,7 +367,13 @@ export function PlaybackOverlay(handle: Handle<PlaybackOverlayProps>) {
           <audio
             preload="auto"
             aria-hidden="true"
-            mix={ref((node, signal) => bindAudio(node as HTMLAudioElement, signal))}
+            mix={[
+              ref((node, signal) => bindAudio(node as HTMLAudioElement, signal)),
+              // A track running out mid-preview hands off to the next one.
+              on('ended', () => {
+                if (videoEl && !videoEl.paused) playMusic()
+              }),
+            ]}
           />
         ) : null}
 

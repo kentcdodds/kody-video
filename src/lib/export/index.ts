@@ -1,6 +1,6 @@
 import { reportError } from '../error-reporting'
 import type { ClipRecord } from '../types'
-import type { BackgroundAudioTrack } from './background-audio'
+import type { BackgroundAudio } from './background-audio'
 import { exportRealtime } from './encode-realtime'
 import { exportWithWebCodecs, supportsWebCodecsExport } from './encode-webcodecs'
 import { sweepExportCache, withExportCacheReserved } from './export-cache'
@@ -35,9 +35,9 @@ export interface ExportOptions {
   getPreviewCanvas?: () => HTMLCanvasElement | null
   /** Stamp the Kody Video mark on frames (default true; off after purchase). */
   watermark?: boolean
-  /** Background-music track mixed under the clips at their per-clip volumes
-   * (looped when shorter than the film). */
-  background?: BackgroundAudioTrack | null
+  /** Background-music playlist mixed under the clips at their per-clip
+   * volumes; tracks play one after the other until the film ends. */
+  background?: BackgroundAudio | null
 }
 
 /**

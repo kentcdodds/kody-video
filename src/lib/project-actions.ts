@@ -1,5 +1,6 @@
 import {
   addClip,
+  addProjectAudioTrack,
   clearUndo,
   deleteClip,
   duplicateClip,
@@ -10,14 +11,14 @@ import {
   getUndoSnapshot,
   listProjects,
   moveClip,
-  removeProjectAudio,
+  removeProjectAudioTrack,
   setLastOpenedProjectId,
-  setProjectAudio,
   undoDeleteLastClip,
   updateClipAudioVolume,
   updateClipThumbs,
   updateClipTrim,
-  updateProjectAudioDefaultVolume,
+  updateProjectAudioSettings,
+  type ProjectAudioSettings,
 } from './storage'
 import { probeAudioFile } from './audio-import'
 import { estimateExportCacheBytes } from './export/export-cache'
@@ -255,7 +256,7 @@ export async function trimClip(
   await updateClipTrim(clipId, trimStartMs, trimEndMs)
 }
 
-/** Attach a picked audio file as the project's background-music track. */
+/** Append a picked audio file to the project's background-music playlist. */
 export async function addProjectAudioFromFile(
   file: File,
   ensureProjectId: () => Promise<ProjectId>,
@@ -263,7 +264,7 @@ export async function addProjectAudioFromFile(
   // Probe first: a bad pick on /project/new must not create an empty project.
   const probed = await probeAudioFile(file)
   const projectId = await ensureProjectId()
-  return setProjectAudio({
+  return addProjectAudioTrack({
     projectId,
     blob: probed.blob,
     mimeType: probed.mimeType,
@@ -272,15 +273,15 @@ export async function addProjectAudioFromFile(
   })
 }
 
-export async function removeProjectAudioTrack(projectId: ProjectId): Promise<void> {
-  await removeProjectAudio(projectId)
+export async function removeAudioTrack(projectId: ProjectId, trackId: string): Promise<void> {
+  await removeProjectAudioTrack(projectId, trackId)
 }
 
-export async function setProjectAudioDefaultVolume(
+export async function setProjectAudioSettings(
   projectId: ProjectId,
-  volume: number,
+  settings: ProjectAudioSettings,
 ): Promise<void> {
-  await updateProjectAudioDefaultVolume(projectId, volume)
+  await updateProjectAudioSettings(projectId, settings)
 }
 
 /** Set (or clear, with null) a clip's background-music volume override. */

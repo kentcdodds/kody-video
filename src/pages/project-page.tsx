@@ -288,9 +288,15 @@ export function ProjectPage(handle: Handle<ProjectPageProps>) {
         const result = await exportProject(clips, {
           audioContext,
           watermark: watermarked,
-          background: audio
-            ? { blob: audio.blob, defaultVolume: audio.defaultVolume }
-            : undefined,
+          background:
+            audio && audio.tracks.length > 0
+              ? {
+                  tracks: audio.tracks.map((track) => ({ blob: track.blob })),
+                  defaultVolume: audio.defaultVolume,
+                  fadeIn: audio.fadeIn,
+                  fadeOut: audio.fadeOut,
+                }
+              : undefined,
           getPreviewCanvas: () => previewCanvas,
           onProgress: (ratio) => {
             if (exportRun !== runId) return

@@ -7,7 +7,7 @@ import {
 } from './helpers'
 
 /** Tiny mono 16-bit PCM WAV — decodable everywhere, generated in-test. */
-function makeWavFile(durationSec = 4, freq = 440) {
+function makeWavFile(name: string, durationSec = 4, amplitude = 12000, freq = 440) {
   const rate = 8000
   const samples = Math.round(durationSec * rate)
   const dataSize = samples * 2
@@ -26,9 +26,12 @@ function makeWavFile(durationSec = 4, freq = 440) {
   buffer.write('data', 36)
   buffer.writeUInt32LE(dataSize, 40)
   for (let i = 0; i < samples; i += 1) {
-    buffer.writeInt16LE(Math.round(Math.sin((2 * Math.PI * freq * i) / rate) * 12000), 44 + i * 2)
+    buffer.writeInt16LE(
+      Math.round(Math.sin((2 * Math.PI * freq * i) / rate) * amplitude),
+      44 + i * 2,
+    )
   }
-  return { name: 'test-song.wav', mimeType: 'audio/wav', buffer }
+  return { name, mimeType: 'audio/wav', buffer }
 }
 
 async function openEditor(page: Page): Promise<void> {
@@ -45,12 +48,16 @@ async function openPlusEditorWithClips(page: Page, clips: number): Promise<strin
   return projectId
 }
 
-async function addMusic(page: Page): Promise<void> {
+async function addMusic(
+  page: Page,
+  buttonName: string | RegExp = 'Add background music',
+  file = makeWavFile('test-song.wav'),
+): Promise<void> {
   const chooserPromise = page.waitForEvent('filechooser')
-  await page.getByRole('button', { name: 'Add background music' }).click()
+  await page.getByRole('button', { name: buttonName }).click()
   const chooser = await chooserPromise
-  await chooser.setFiles(makeWavFile())
-  await expect(page.locator('.audio-track-name')).toHaveText('test-song.wav', {
+  await chooser.setFiles(file)
+  await expect(page.locator('.audio-track-name').filter({ hasText: file.name })).toBeVisible({
     timeout: 15_000,
   })
 }
@@ -72,10 +79,16 @@ async function storedAudio(page: Page) {
     const audio = await storage.getProjectAudio(projects[0]!.id)
     return audio
       ? {
-          name: audio.name,
-          durationMs: audio.durationMs,
           defaultVolume: audio.defaultVolume,
-          size: audio.blob.size,
+          fadeIn: audio.fadeIn,
+          fadeOut: audio.fadeOut,
+          tracks: audio.tracks.map(
+            (track: { name: string; durationMs: number; blob: Blob }) => ({
+              name: track.name,
+              durationMs: track.durationMs,
+              size: track.blob.size,
+            }),
+          ),
         }
       : null
   })
@@ -108,18 +121,36 @@ test.describe('background music', () => {
     expect(await storedAudio(page)).toBeNull()
   })
 
-  test('adds a track, sets default and per-clip volumes, resets, and removes', async ({
-    page,
-  }) => {
+  test('builds a playlist: tracks, fades, default and per-clip volumes', async ({ page }) => {
     await openPlusEditorWithClips(page, 2)
     await addMusic(page)
     await expect(page.locator('.toast')).toContainText(/music added/i)
 
-    const audio = await storedAudio(page)
-    expect(audio?.name).toBe('test-song.wav')
-    expect(audio?.durationMs).toBeGreaterThan(3000)
+    let audio = await storedAudio(page)
+    expect(audio?.tracks.map((track: { name: string }) => track.name)).toEqual([
+      'test-song.wav',
+    ])
+    expect(audio?.tracks[0].durationMs).toBeGreaterThan(3000)
     expect(audio?.defaultVolume).toBeCloseTo(0.25)
-    expect(audio?.size).toBeGreaterThan(1000)
+    expect(audio?.fadeIn).toBe(true)
+    expect(audio?.fadeOut).toBe(true)
+
+    // 4s of music under a 6s film: the coverage hint appears…
+    await expect(page.locator('.audio-coverage-hint')).toContainText(/music ends at/i)
+    // …until a second track covers the rest.
+    await addMusic(page, 'Add another music track', makeWavFile('second-song.wav', 6))
+    await expect(page.locator('.audio-track-row')).toHaveCount(2)
+    await expect(page.locator('.audio-coverage-hint')).toHaveCount(0)
+    audio = await storedAudio(page)
+    expect(audio?.tracks.map((track: { name: string }) => track.name)).toEqual([
+      'test-song.wav',
+      'second-song.wav',
+    ])
+
+    // Fade toggles persist (default on).
+    await page.getByRole('checkbox', { name: /Fade the music in/ }).uncheck()
+    await expect.poll(async () => (await storedAudio(page))?.fadeIn).toBe(false)
+    await expect.poll(async () => (await storedAudio(page))?.fadeOut).toBe(true)
 
     // Default volume slider persists.
     await setSlider(page, 'Default music volume', 40)
@@ -130,7 +161,6 @@ test.describe('background music', () => {
     await expect(tiles.last()).toHaveClass(/selected/)
     await setSlider(page, /Music volume during clip 2/, 60)
     await expect.poll(async () => await storedClipVolumes(page)).toEqual([null, 0.6])
-    // The override badge appears on the tile and the row drops "default".
     await expect(tiles.last().locator('.clip-audio-badge')).toHaveText(/60%/)
 
     // Selecting the other clip shows the default-following row.
@@ -143,15 +173,15 @@ test.describe('background music', () => {
     await expect.poll(async () => await storedClipVolumes(page)).toEqual([null, null])
     await expect(tiles.last().locator('.clip-audio-badge')).toHaveCount(0)
 
-    // Remove the track entirely.
-    await page.getByRole('button', { name: 'Remove background music' }).click()
+    // Removing tracks one by one lands back on the empty Add music state.
+    await page.getByRole('button', { name: /Remove music track 2/ }).click()
+    await expect(page.locator('.audio-track-row')).toHaveCount(1)
+    await page.getByRole('button', { name: /Remove music track 1/ }).click()
     await expect(page.getByRole('button', { name: 'Add background music' })).toBeVisible()
     expect(await storedAudio(page)).toBeNull()
   })
 
-  test('export mixes the music at per-clip volumes with ramped transitions', async ({
-    page,
-  }) => {
+  test('export sequences the playlist at per-clip volumes with fades', async ({ page }) => {
     test.slow()
     // Two 3s fixture clips (video-only — the fixture encoder adds no audio
     // track), so every decodable sample in the export's audio IS the music.
@@ -165,36 +195,48 @@ test.describe('background music', () => {
       const project = (await storage.listProjects())[0]!
       const clips = await storage.getClipsForProject(project.id)
 
-      // Synthesize a constant-amplitude sine WAV in-page as the track.
-      const rate = 8000
-      const seconds = 4
-      const samples = rate * seconds
-      const bytes = new DataView(new ArrayBuffer(44 + samples * 2))
-      const writeAscii = (offset: number, text: string) => {
-        for (let i = 0; i < text.length; i += 1) bytes.setUint8(offset + i, text.charCodeAt(i))
+      // Two in-page sine WAVs: track A (4s, full amplitude) then track B
+      // (20s, HALF amplitude) — the amplitude step at the 4s hand-off
+      // proves sequential playback (looping track A would keep it loud;
+      // a broken hand-off would go silent).
+      const makeWav = (seconds: number, amplitude: number): Blob => {
+        const rate = 8000
+        const samples = rate * seconds
+        const bytes = new DataView(new ArrayBuffer(44 + samples * 2))
+        const writeAscii = (offset: number, text: string) => {
+          for (let i = 0; i < text.length; i += 1) bytes.setUint8(offset + i, text.charCodeAt(i))
+        }
+        writeAscii(0, 'RIFF')
+        bytes.setUint32(4, 36 + samples * 2, true)
+        writeAscii(8, 'WAVE')
+        writeAscii(12, 'fmt ')
+        bytes.setUint32(16, 16, true)
+        bytes.setUint16(20, 1, true)
+        bytes.setUint16(22, 1, true)
+        bytes.setUint32(24, rate, true)
+        bytes.setUint32(28, rate * 2, true)
+        bytes.setUint16(32, 2, true)
+        bytes.setUint16(34, 16, true)
+        writeAscii(36, 'data')
+        bytes.setUint32(40, samples * 2, true)
+        for (let i = 0; i < samples; i += 1) {
+          bytes.setInt16(44 + i * 2, Math.round(Math.sin((2 * Math.PI * 440 * i) / rate) * amplitude), true)
+        }
+        return new Blob([bytes.buffer], { type: 'audio/wav' })
       }
-      writeAscii(0, 'RIFF')
-      bytes.setUint32(4, 36 + samples * 2, true)
-      writeAscii(8, 'WAVE')
-      writeAscii(12, 'fmt ')
-      bytes.setUint32(16, 16, true)
-      bytes.setUint16(20, 1, true)
-      bytes.setUint16(22, 1, true)
-      bytes.setUint32(24, rate, true)
-      bytes.setUint32(28, rate * 2, true)
-      bytes.setUint16(32, 2, true)
-      bytes.setUint16(34, 16, true)
-      writeAscii(36, 'data')
-      bytes.setUint32(40, samples * 2, true)
-      for (let i = 0; i < samples; i += 1) {
-        bytes.setInt16(44 + i * 2, Math.round(Math.sin((2 * Math.PI * 440 * i) / rate) * 16000), true)
-      }
-      const audio = await storage.setProjectAudio({
+      await storage.addProjectAudioTrack({
         projectId: project.id,
-        blob: new Blob([bytes.buffer], { type: 'audio/wav' }),
+        blob: makeWav(4, 16000),
         mimeType: 'audio/wav',
-        durationMs: seconds * 1000,
-        name: 'sine.wav',
+        durationMs: 4000,
+        name: 'track-a.wav',
+      })
+      const audio = await storage.addProjectAudioTrack({
+        projectId: project.id,
+        blob: makeWav(20, 8000),
+        mimeType: 'audio/wav',
+        durationMs: 20000,
+        name: 'track-b.wav',
       })
       // Clip 1 follows the 0.25 default; clip 2 is overridden to full volume.
       await storage.updateClipAudioVolume(clips[1]!.id, 1)
@@ -202,7 +244,12 @@ test.describe('background music', () => {
 
       const result = await exportProject(updatedClips, {
         watermark: false,
-        background: { blob: audio.blob, defaultVolume: audio.defaultVolume },
+        background: {
+          tracks: audio.tracks.map((track: { blob: Blob }) => ({ blob: track.blob })),
+          defaultVolume: audio.defaultVolume,
+          fadeIn: audio.fadeIn,
+          fadeOut: audio.fadeOut,
+        },
       })
 
       const decoded = await decodeBackgroundAudio(result.blob, 48000)
@@ -217,21 +264,26 @@ test.describe('background music', () => {
       }
       return {
         durationSec: decoded.duration,
-        // Steady windows away from the fade-in and the 3s boundary ramp.
-        clip1: rms(1.0, 2.5),
-        clip2: rms(4.0, 5.5),
+        // Track A under clip 1 (gain 0.25), past the 800ms fade-in.
+        clip1: rms(1.2, 2.6),
+        // Track B under clip 2 (gain 1.0), past the 4s hand-off, before
+        // the fade-out begins at 4.8s.
+        clip2: rms(4.2, 4.7),
         fadeIn: rms(0, 0.08),
+        fadeOut: rms(5.7, 5.95),
       }
     })
 
     expect(measured).not.toBeNull()
-    // Both clips carry audible music…
+    // Clip 1 carries audible music from track A.
     expect(measured!.clip1).toBeGreaterThan(0.02)
-    // …and the overridden clip is decisively louder (4× volume ⇒ ~4× RMS).
-    expect(measured!.clip2 / measured!.clip1).toBeGreaterThan(2)
-    expect(measured!.clip2 / measured!.clip1).toBeLessThan(8)
-    // The film opens with the fade-in, not a full-volume slam.
-    expect(measured!.fadeIn).toBeLessThan(measured!.clip1)
+    // Track B at gain 1.0 vs track A at gain 0.25, half the amplitude:
+    // expected RMS ratio ≈ 2 (looping track A would read ≈ 4; silence ≈ 0).
+    expect(measured!.clip2 / measured!.clip1).toBeGreaterThan(1.4)
+    expect(measured!.clip2 / measured!.clip1).toBeLessThan(2.8)
+    // The film opens inside the fade-in and closes inside the fade-out.
+    expect(measured!.fadeIn).toBeLessThan(measured!.clip1 * 0.5)
+    expect(measured!.fadeOut).toBeLessThan(measured!.clip2 * 0.5)
     expect(measured!.durationSec).toBeGreaterThan(5.5)
   })
 

@@ -1,6 +1,6 @@
 import { pickRecorderMimeType } from '../media'
 import { clipAudioVolume } from '../types'
-import type { BackgroundAudioTrack } from './background-audio'
+import type { BackgroundAudio } from './background-audio'
 import { clampSegmentToMedia, type ExportPlan } from './plan'
 import {
   PREVIEW_EVERY_N_FRAMES,
@@ -30,8 +30,8 @@ export interface RealtimeExportOptions {
   getPreviewCanvas?: () => HTMLCanvasElement | null
   /** Mark stamped onto each frame; null when the user purchased removal. */
   watermarkImage?: HTMLImageElement | null
-  /** Background-music track mixed under the clips (per-clip volumes). */
-  background?: BackgroundAudioTrack | null
+  /** Background-music playlist mixed under the clips (per-clip volumes). */
+  background?: BackgroundAudio | null
 }
 
 /**
@@ -97,27 +97,49 @@ export async function exportRealtime(
     dest = null
   }
 
-  // Background music rides a looping buffer source behind a gain node; the
-  // gain glides toward each clip's volume as the export reaches it (this
-  // engine paints in realtime, so Web Audio's own ramping does the work).
+  // Background music rides sequentially chained buffer sources behind a
+  // gain node: each track starts when the previous one ends (nothing
+  // loops), and the gain glides toward each clip's volume as the export
+  // reaches it — this engine paints in realtime, so Web Audio's own
+  // ramping does the work.
   let backgroundGain: GainNode | null = null
-  let backgroundSource: AudioBufferSourceNode | null = null
-  if (options.background && audioContext && dest) {
-    const backgroundBuffer = await decodeBackgroundAudio(options.background.blob)
-    if (backgroundBuffer) {
-      try {
-        backgroundSource = audioContext.createBufferSource()
-        backgroundSource.buffer = backgroundBuffer
-        backgroundSource.loop = true
-        backgroundGain = audioContext.createGain()
-        backgroundGain.gain.value = 0
-        backgroundSource.connect(backgroundGain)
-        backgroundGain.connect(dest)
-        backgroundSource.start()
-      } catch {
-        backgroundGain = null
-        backgroundSource = null
+  let stopBackground: (() => void) | null = null
+  const backgroundTracks = options.background?.tracks ?? []
+  if (backgroundTracks.length > 0 && audioContext && dest) {
+    try {
+      const gain = audioContext.createGain()
+      gain.gain.value = 0
+      gain.connect(dest)
+      let stopped = false
+      let activeSource: AudioBufferSourceNode | null = null
+      const playFrom = async (index: number): Promise<void> => {
+        if (stopped || index >= backgroundTracks.length || !audioContext) return
+        // Undecodable tracks are skipped; the next one starts in their place.
+        const buffer = await decodeBackgroundAudio(backgroundTracks[index].blob)
+        if (stopped) return
+        if (!buffer) return playFrom(index + 1)
+        const source = audioContext.createBufferSource()
+        source.buffer = buffer
+        source.connect(gain)
+        source.onended = () => {
+          void playFrom(index + 1)
+        }
+        activeSource = source
+        source.start()
       }
+      void playFrom(0)
+      stopBackground = () => {
+        stopped = true
+        try {
+          activeSource?.stop()
+        } catch {
+          // already stopped
+        }
+      }
+      backgroundGain = gain
+    } catch {
+      backgroundGain = null
+      stopBackground = null
     }
   }
 
@@ -168,11 +190,22 @@ export async function exportRealtime(
         const clamped = clampSegmentToMedia(segment, loaded.mediaDurationMs)
         if (!clamped) continue
         if (backgroundGain && audioContext && options.background) {
-          backgroundGain.gain.setTargetAtTime(
-            clipAudioVolume(segment.clip, options.background.defaultVolume),
-            audioContext.currentTime,
-            0.2,
-          )
+          const volume = clipAudioVolume(segment.clip, options.background.defaultVolume)
+          const now = audioContext.currentTime
+          if (segmentIndex === 0 && !options.background.fadeIn) {
+            // No fade-in: music opens at full clip volume.
+            backgroundGain.gain.setValueAtTime(volume, now)
+          } else {
+            backgroundGain.gain.setTargetAtTime(volume, now, 0.2)
+          }
+          // This engine paints in realtime, so the last segment's end lands
+          // roughly `segment length` from now — schedule the musical
+          // fade-out to finish there.
+          const isLast = segmentIndex === plan.segments.length - 1
+          const segmentSec = (clamped.endMs - clamped.startMs) / 1000
+          if (isLast && options.background.fadeOut && segmentSec > 1.6) {
+            backgroundGain.gain.setTargetAtTime(0, now + segmentSec - 1.2, 0.35)
+          }
         }
         const paintedMs = await paintSegment({
           video: loaded.video,
@@ -212,11 +245,7 @@ export async function exportRealtime(
     await wait(180)
     options.onProgress?.(1)
   } finally {
-    try {
-      backgroundSource?.stop()
-    } catch {
-      // already stopped
-    }
+    stopBackground?.()
     if (recorder.state !== 'inactive') recorder.stop()
     canvasStream.getTracks().forEach((t) => t.stop())
     if (audioContext) {

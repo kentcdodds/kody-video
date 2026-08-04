@@ -484,6 +484,67 @@
   white-space: nowrap;
 }
 
+.audio-playlist-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 26px;
+  flex-wrap: wrap;
+}
+
+.audio-add-track {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  min-height: 26px;
+  padding: 2px 10px;
+  border-radius: 999px;
+  font-size: 0.74rem;
+  font-weight: 600;
+  color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 14%, transparent);
+  flex: 0 0 auto;
+}
+
+.audio-add-track:disabled {
+  opacity: 0.4;
+  cursor: wait;
+}
+
+.audio-coverage-hint {
+  font-size: 0.72rem;
+  font-variant-numeric: tabular-nums;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.audio-fades {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  margin-left: auto;
+  flex: 0 0 auto;
+}
+
+.audio-fade-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 0.74rem;
+  font-weight: 600;
+  color: var(--ink-muted);
+  cursor: pointer;
+}
+
+.audio-fade-toggle input[type='checkbox'] {
+  width: 15px;
+  height: 15px;
+  accent-color: var(--accent);
+  margin: 0;
+}
+
 .audio-track-duration {
   font-size: 0.75rem;
   font-variant-numeric: tabular-nums;

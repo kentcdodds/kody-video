@@ -7,7 +7,7 @@
  */
 
 import { getDb, getSettings } from '../storage'
-import type { ClipRecord, ProjectAudioMeta, ProjectId } from '../types'
+import type { ClipRecord, ProjectAudioRecord, ProjectId } from '../types'
 import { withExportCacheReserved } from './export-cache'
 import { readOpfsFile, removeExportEntry, streamToOpfsFile } from './opfs'
 import type { ExportResult } from './shared'
@@ -18,7 +18,7 @@ const LAST_EXPORT_PREFIX = 'last-export'
 export function exportSignature(
   clips: ClipRecord[],
   watermarked: boolean,
-  audio?: Pick<ProjectAudioMeta, 'addedAt' | 'durationMs' | 'defaultVolume'> | null,
+  audio?: Pick<ProjectAudioRecord, 'tracks' | 'defaultVolume' | 'fadeIn' | 'fadeOut'> | null,
 ): string {
   return JSON.stringify({
     watermarked,
@@ -28,7 +28,14 @@ export function exportSignature(
       clip.trimEndMs,
       clip.audioVolume ?? null,
     ]),
-    audio: audio ? [audio.addedAt, audio.durationMs, audio.defaultVolume] : null,
+    audio: audio
+      ? {
+          tracks: audio.tracks.map((track) => [track.id, track.durationMs]),
+          defaultVolume: audio.defaultVolume,
+          fadeIn: audio.fadeIn,
+          fadeOut: audio.fadeOut,
+        }
+      : null,
   })
 }
 

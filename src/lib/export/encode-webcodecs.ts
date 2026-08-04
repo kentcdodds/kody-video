@@ -20,10 +20,9 @@ import { deriveProjectLocation } from '../geo'
 import { isIosBrowser } from '../platform'
 import type { ClipRecord } from '../types'
 import {
-  mixBackgroundIntoChannels,
+  createBackgroundMixer,
   planBackgroundGain,
-  type BackgroundAudioTrack,
-  type GainPoint,
+  type BackgroundAudio,
 } from './background-audio'
 import { injectMp4Metadata, type Mp4Chapter } from './mp4-metadata'
 import { createOpfsExportFile } from './opfs'
@@ -118,7 +117,7 @@ export async function exportWithWebCodecs(
   onProgress?: (ratio: number) => void,
   getPreviewCanvas?: () => HTMLCanvasElement | null,
   watermarkImage?: HTMLImageElement | null,
-  background?: BackgroundAudioTrack | null,
+  background?: BackgroundAudio | null,
 ): Promise<ExportResult> {
   if (!supportsWebCodecsExport()) {
     throw new Error('WebCodecs is not available')
@@ -186,20 +185,30 @@ export async function exportWithWebCodecs(
   const multiDay = clipsSpanMultipleDays(clipsInPlan)
   const chapters: Mp4Chapter[] = []
 
-  // Background music: decoded once, mixed into each segment's audio slice
-  // at the envelope gain (per-clip volumes with ramped transitions).
-  const backgroundBuffer = background
-    ? await decodeBackgroundAudio(background.blob, AUDIO_SAMPLE_RATE)
-    : null
-  const backgroundChannels = backgroundBuffer
-    ? Array.from({ length: backgroundBuffer.numberOfChannels }, (_, ch) =>
-        backgroundBuffer.getChannelData(ch),
-      )
-    : null
-  const gainPoints: GainPoint[] =
-    backgroundChannels && background
-      ? planBackgroundGain(plan.segments, background.defaultVolume, plan.totalMs)
-      : []
+  // Background music: playlist tracks are decoded lazily (one at a time,
+  // released as the timeline passes them) and mixed into each segment's
+  // audio slice at the envelope gain — per-clip volumes with ramped
+  // transitions, plus the optional fade-in/fade-out.
+  const backgroundMixer =
+    background && background.tracks.length > 0
+      ? createBackgroundMixer(
+          {
+            trackCount: background.tracks.length,
+            getTrack: async (index) => {
+              const buffer = await decodeBackgroundAudio(
+                background.tracks[index].blob,
+                AUDIO_SAMPLE_RATE,
+              )
+              if (!buffer) return null
+              return Array.from({ length: buffer.numberOfChannels }, (_, ch) =>
+                buffer.getChannelData(ch),
+              )
+            },
+          },
+          planBackgroundGain(plan.segments, background.defaultVolume, plan.totalMs, background),
+          AUDIO_SAMPLE_RATE,
+        )
+      : null
 
   try {
     for (const [segmentIndex, segment] of plan.segments.entries()) {
@@ -250,18 +259,13 @@ export async function exportWithWebCodecs(
         // by position, so segments can never drift.
         const buffer = await decodeClipAudio(segment.clip.blob, AUDIO_SAMPLE_RATE)
         const slice = sliceSegmentAudio(buffer, clamped.startMs, segmentMs)
-        if (backgroundChannels && gainPoints.length > 0) {
-          mixBackgroundIntoChannels({
-            channels: Array.from({ length: slice.numberOfChannels }, (_, ch) =>
-              slice.getChannelData(ch),
-            ),
-            background: backgroundChannels,
-            sampleRate: AUDIO_SAMPLE_RATE,
+        if (backgroundMixer) {
+          await backgroundMixer.mixInto(
+            Array.from({ length: slice.numberOfChannels }, (_, ch) => slice.getChannelData(ch)),
             // Frames already written = the real position of this slice, even
             // when clamping shortened an earlier segment.
-            sliceStartFrame: Math.round(state.outputOffsetSec * AUDIO_SAMPLE_RATE),
-            points: gainPoints,
-          })
+            Math.round(state.outputOffsetSec * AUDIO_SAMPLE_RATE),
+          )
         }
         await audioSource.add(slice)
 

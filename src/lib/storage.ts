@@ -13,6 +13,7 @@ import {
   type DeletedClipSnapshot,
   type Project,
   type ProjectAudioRecord,
+  type ProjectAudioTrack,
   type ProjectId,
 } from './types'
 
@@ -419,18 +420,23 @@ export async function getProjectAudio(
   return db.get('audio', projectId)
 }
 
-export interface SetProjectAudioInput {
+export interface AddProjectAudioTrackInput {
   projectId: ProjectId
   blob: Blob
   mimeType: string
   durationMs: number
   name: string
+  /** Initial playlist settings — only honored when this is the first track. */
   defaultVolume?: number
+  fadeIn?: boolean
+  fadeOut?: boolean
 }
 
-/** Attach (or replace) a project's background-audio track. Replacing keeps
- * the previously chosen default volume unless a new one is given. */
-export async function setProjectAudio(input: SetProjectAudioInput): Promise<ProjectAudioRecord> {
+/** Append a track to the project's background-music playlist (creating the
+ * playlist with default settings when this is the first track). */
+export async function addProjectAudioTrack(
+  input: AddProjectAudioTrackInput,
+): Promise<ProjectAudioRecord> {
   const db = await getDb()
   // Background music is a Kody Video Plus perk — enforced here so every
   // path that could attach a track (editor picker, backup import) hits the
@@ -441,18 +447,43 @@ export async function setProjectAudio(input: SetProjectAudioInput): Promise<Proj
   }
   const durableBlob = await toStoredBlob(input.blob, input.mimeType)
   const existing = await db.get('audio', input.projectId)
-  const record: ProjectAudioRecord = {
-    projectId: input.projectId,
+  const track: ProjectAudioTrack = {
+    id: newId('track'),
     blob: durableBlob,
     mimeType: input.mimeType,
     durationMs: input.durationMs,
     name: input.name,
-    defaultVolume: clampVolume(input.defaultVolume ?? existing?.defaultVolume ?? DEFAULT_AUDIO_VOLUME),
     addedAt: Date.now(),
   }
+  const record: ProjectAudioRecord = existing
+    ? { ...existing, tracks: [...existing.tracks, track] }
+    : {
+        projectId: input.projectId,
+        tracks: [track],
+        defaultVolume: clampVolume(input.defaultVolume ?? DEFAULT_AUDIO_VOLUME),
+        fadeIn: input.fadeIn ?? true,
+        fadeOut: input.fadeOut ?? true,
+      }
   await db.put('audio', record)
   await touchProject(input.projectId)
   return record
+}
+
+/** Remove one playlist track; removing the last one drops the playlist. */
+export async function removeProjectAudioTrack(
+  projectId: ProjectId,
+  trackId: string,
+): Promise<void> {
+  const db = await getDb()
+  const audio = await db.get('audio', projectId)
+  if (!audio) return
+  const tracks = audio.tracks.filter((track) => track.id !== trackId)
+  if (tracks.length === 0) {
+    await db.delete('audio', projectId)
+  } else {
+    await db.put('audio', { ...audio, tracks })
+  }
+  await touchProject(projectId)
 }
 
 export async function removeProjectAudio(projectId: ProjectId): Promise<void> {
@@ -461,14 +492,28 @@ export async function removeProjectAudio(projectId: ProjectId): Promise<void> {
   await touchProject(projectId)
 }
 
-export async function updateProjectAudioDefaultVolume(
+export interface ProjectAudioSettings {
+  defaultVolume?: number
+  fadeIn?: boolean
+  fadeOut?: boolean
+}
+
+export async function updateProjectAudioSettings(
   projectId: ProjectId,
-  defaultVolume: number,
+  settings: ProjectAudioSettings,
 ): Promise<ProjectAudioRecord> {
   const db = await getDb()
   const audio = await db.get('audio', projectId)
-  if (!audio) throw new Error('This project has no audio track')
-  const updated: ProjectAudioRecord = { ...audio, defaultVolume: clampVolume(defaultVolume) }
+  if (!audio) throw new Error('This project has no background music')
+  const updated: ProjectAudioRecord = {
+    ...audio,
+    defaultVolume:
+      settings.defaultVolume !== undefined
+        ? clampVolume(settings.defaultVolume)
+        : audio.defaultVolume,
+    fadeIn: settings.fadeIn ?? audio.fadeIn,
+    fadeOut: settings.fadeOut ?? audio.fadeOut,
+  }
   await db.put('audio', updated)
   await touchProject(projectId)
   return updated
