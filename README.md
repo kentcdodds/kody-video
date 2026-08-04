@@ -231,3 +231,17 @@ in-app About page has a link that pre-fills device details).
 | `node scripts/probe-screen-record.mjs` | Desktop screen recording lands as a clip |
 | `node scripts/probe-touch-timeline.mjs` | Touch timeline gestures (scroll, long-press lift) |
 | `node scripts/probe-webkit.mjs`      | WebKit engine sanity + feature matrix (iOS proxy, not a substitute for a real device) |
+
+## License
+
+Kody Video is licensed under the
+[Functional Source License, Version 1.1, ALv2 Future License](./LICENSE)
+([FSL-1.1-ALv2](https://fsl.software/)). You can use, copy, modify, create
+derivative works from, publicly perform, publicly display, and redistribute the
+software for any purpose other than Competing Use. Competing Use means making
+the software available to others in a commercial product or service that
+substitutes for Kody Video, substitutes for another product or service the
+licensor offers using Kody Video that existed when the version was made
+available, or offers the same or substantially similar functionality. Each
+version becomes available under the Apache License 2.0 on the second anniversary
+of the date that version was made available.
