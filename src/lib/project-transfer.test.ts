@@ -6,11 +6,24 @@ import {
   projectBackupFilename,
   serializeProject,
 } from './project-transfer'
-import { __resetDbForTests, getClipsForProject, listProjects } from './storage'
-import type { ClipRecord, Project } from './types'
+import { __resetDbForTests, getClipsForProject, getProjectAudio, listProjects } from './storage'
+import { markWatermarkRemoved } from './entitlement'
+import type { ClipRecord, Project, ProjectAudioRecord } from './types'
 
 function fakeProject(name = 'Road Trip'): Project {
   return { id: 'proj_x', name, createdAt: 1, updatedAt: 2, clipIds: ['clip_a', 'clip_b'] }
+}
+
+function fakeAudio(content = 'SONGBYTES'): ProjectAudioRecord {
+  return {
+    projectId: 'proj_x',
+    blob: new Blob([content], { type: 'audio/mpeg' }),
+    mimeType: 'audio/mpeg',
+    durationMs: 30_000,
+    name: 'song.mp3',
+    defaultVolume: 0.4,
+    addedAt: 1700000000000,
+  }
 }
 
 function fakeClip(id: string, content: string, extra: Partial<ClipRecord> = {}): ClipRecord {
@@ -65,6 +78,53 @@ describe('project backup round trip', () => {
     expect(clips[0].lat).toBe(40.2338)
     expect(clips[0].createdAt).toBe(1700000000000)
     expect(await clips[0].blob.text()).toBe('MEDIA')
+  })
+
+  it('parses backups without music with audio: null (older backups)', async () => {
+    const backup = serializeProject(fakeProject(), [fakeClip('clip_a', 'AAAA')])
+    const parsed = await parseProjectBackup(backup)
+    expect(parsed.audio).toBeNull()
+  })
+
+  it('round-trips the music track and per-clip volumes', async () => {
+    await markWatermarkRemoved('cs_test_transfer')
+    const clips = [
+      fakeClip('clip_a', 'AAAA', { audioVolume: 0.8 }),
+      fakeClip('clip_b', 'BBBB'),
+    ]
+    const backup = serializeProject(fakeProject('Scored'), clips, fakeAudio())
+
+    const parsed = await parseProjectBackup(backup)
+    expect(parsed.audio?.name).toBe('song.mp3')
+    expect(parsed.audio?.defaultVolume).toBe(0.4)
+    expect(await parsed.audio!.blob.text()).toBe('SONGBYTES')
+    expect(parsed.clips[0].audioVolume).toBe(0.8)
+    expect(parsed.clips[1].audioVolume).toBeUndefined()
+    // Clip bytes stay aligned with the trailing audio section present.
+    expect(await parsed.clips[1].blob.text()).toBe('BBBB')
+
+    const project = await importProjectBackup(parsed)
+    const audio = await getProjectAudio(project.id)
+    expect(audio?.name).toBe('song.mp3')
+    expect(audio?.defaultVolume).toBe(0.4)
+    expect(await audio!.blob.text()).toBe('SONGBYTES')
+    const imported = await getClipsForProject(project.id)
+    expect(imported[0].audioVolume).toBe(0.8)
+    expect(imported[1].audioVolume).toBeUndefined()
+  })
+
+  it('imports a music-carrying backup on a free device, skipping the track', async () => {
+    const backup = serializeProject(fakeProject('Scored'), [fakeClip('clip_a', 'AAAA')], fakeAudio())
+    const parsed = await parseProjectBackup(backup)
+    const project = await importProjectBackup(parsed)
+
+    expect((await getClipsForProject(project.id))).toHaveLength(1)
+    expect(await getProjectAudio(project.id)).toBeUndefined()
+  })
+
+  it('rejects a backup whose audio section is truncated', async () => {
+    const backup = serializeProject(fakeProject(), [fakeClip('clip_a', 'AAAA')], fakeAudio())
+    await expect(parseProjectBackup(backup.slice(0, backup.size - 4))).rejects.toThrow(/damaged/i)
   })
 
   it('reports per-clip progress during import', async () => {

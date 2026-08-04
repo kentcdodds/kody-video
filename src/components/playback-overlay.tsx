@@ -1,14 +1,19 @@
 import type { Handle } from 'remix/ui'
 import { on, ref } from 'remix/ui'
 import { planExport } from '../lib/export'
-import type { ClipRecord } from '../lib/types'
+import { clipAudioVolume, type ClipRecord, type ProjectAudioRecord } from '../lib/types'
 import { IconPlay } from './icons'
 import { isInteractiveTarget } from '../lib/keyboard'
 
 interface PlaybackOverlayProps {
   clips: ClipRecord[]
+  /** Background-music track played under the clips (null when none). */
+  audio: ProjectAudioRecord | null
   onClose: () => void
 }
+
+/** Smoothing time constant for music volume moves (~settles in 3×). */
+const MUSIC_VOLUME_TAU_MS = 200
 
 /**
  * Sequential project preview, OK Video style: one persistent video element
@@ -41,6 +46,13 @@ export function PlaybackOverlay(handle: Handle<PlaybackOverlayProps>) {
    * events from the previous clip that fire before the new source is ready. */
   let loadedIndex = -1
 
+  // Background music: one looping audio element under the whole preview.
+  // Its volume glides toward the current clip's music volume every frame,
+  // so transitions between clips ramp instead of jumping — same behavior
+  // the export renders, heard live.
+  let audioEl: HTMLAudioElement | null = null
+  let audioUrl: string | null = null
+
   const currentSegment = () => resolveSegments()[index] ?? null
   const startSec = () => {
     const segment = currentSegment()
@@ -53,6 +65,76 @@ export function PlaybackOverlay(handle: Handle<PlaybackOverlayProps>) {
   const segmentMs = () => {
     const segment = currentSegment()
     return segment ? segment.endMs - segment.startMs : 0
+  }
+
+  const segmentMusicVolume = () => {
+    const segment = currentSegment()
+    const track = props.audio
+    if (!segment || !track) return 0
+    return clipAudioVolume(segment.clip, track.defaultVolume)
+  }
+
+  /** Playhead position on the output timeline, in ms. */
+  const timelinePositionMs = () => {
+    const segment = currentSegment()
+    if (!segment) return 0
+    const elapsedSec = videoEl ? Math.max(0, videoEl.currentTime - segment.startMs / 1000) : 0
+    return segment.offsetMs + elapsedSec * 1000
+  }
+
+  /** Keep the looping track under the playhead. Small drift is left alone —
+   * a re-seek every segment would audibly hiccup continuous playback. */
+  const syncMusicPosition = () => {
+    const audio = audioEl
+    const track = props.audio
+    if (!audio || !track || track.durationMs <= 0) return
+    const expectedSec = (timelinePositionMs() % track.durationMs) / 1000
+    if (Math.abs(audio.currentTime - expectedSec) > 0.35) {
+      audio.currentTime = expectedSec
+    }
+  }
+
+  const playMusic = () => {
+    const audio = audioEl
+    if (!audio) return
+    syncMusicPosition()
+    void audio.play().catch(() => undefined)
+  }
+
+  const pauseMusic = () => {
+    audioEl?.pause()
+  }
+
+  const bindAudio = (el: HTMLAudioElement, signal: AbortSignal) => {
+    const track = props.audio
+    if (!track) return
+    audioEl = el
+    el.loop = true
+    el.volume = 0
+    audioUrl = URL.createObjectURL(track.blob)
+    el.src = audioUrl
+
+    // Per-frame volume glide toward the current clip's target.
+    let last = performance.now()
+    let raf = 0
+    const tick = (now: number) => {
+      const dt = Math.min(100, now - last)
+      last = now
+      const target = segmentMusicVolume()
+      const alpha = 1 - Math.exp(-dt / MUSIC_VOLUME_TAU_MS)
+      const next = el.volume + (target - el.volume) * alpha
+      el.volume = Math.abs(next - target) < 0.005 ? target : next
+      raf = requestAnimationFrame(tick)
+    }
+    raf = requestAnimationFrame(tick)
+
+    signal.addEventListener('abort', () => {
+      cancelAnimationFrame(raf)
+      el.pause()
+      if (audioEl === el) audioEl = null
+      if (audioUrl) URL.revokeObjectURL(audioUrl)
+      audioUrl = null
+    })
   }
 
   /** Bind the current segment's blob to the persistent video element.
@@ -80,10 +162,13 @@ export function PlaybackOverlay(handle: Handle<PlaybackOverlayProps>) {
       const video = videoEl
       if (video) {
         video.currentTime = startSec()
-        void video.play().catch(() => {
-          needsTap = true
-          void handle.update()
-        })
+        void video
+          .play()
+          .then(() => playMusic())
+          .catch(() => {
+            needsTap = true
+            void handle.update()
+          })
       }
       void handle.update()
       return
@@ -110,6 +195,7 @@ export function PlaybackOverlay(handle: Handle<PlaybackOverlayProps>) {
       .play()
       .then(() => {
         needsTap = false
+        playMusic()
         void handle.update()
       })
       .catch(() => {
@@ -146,6 +232,7 @@ export function PlaybackOverlay(handle: Handle<PlaybackOverlayProps>) {
             .play()
             .then(() => {
               needsTap = false
+              playMusic()
               void handle.update()
             })
             .catch(() => {
@@ -154,6 +241,7 @@ export function PlaybackOverlay(handle: Handle<PlaybackOverlayProps>) {
             })
         } else {
           video.pause()
+          pauseMusic()
         }
         return
       }
@@ -241,6 +329,14 @@ export function PlaybackOverlay(handle: Handle<PlaybackOverlayProps>) {
           ))}
         </div>
 
+        {props.audio ? (
+          <audio
+            preload="auto"
+            aria-hidden="true"
+            mix={ref((node, signal) => bindAudio(node as HTMLAudioElement, signal))}
+          />
+        ) : null}
+
         <video
           className="playback-video"
           playsInline
@@ -291,6 +387,7 @@ export function PlaybackOverlay(handle: Handle<PlaybackOverlayProps>) {
                   .play()
                   .then(() => {
                     needsTap = false
+                    playMusic()
                     void handle.update()
                   })
                   .catch(() => undefined)

@@ -17,7 +17,7 @@ import {
   projectBackupFilename,
   serializeProject,
 } from '../lib/project-transfer'
-import { deleteProject, getClipsForProject, renameProject } from '../lib/storage'
+import { deleteProject, getClipsForProject, getProjectAudio, renameProject } from '../lib/storage'
 import { clearExportCache } from '../lib/export/export-cache'
 import { reportError } from '../lib/error-reporting'
 import { canPromptInstall, promptInstall, subscribeInstallPrompt } from '../lib/install-prompt'
@@ -134,7 +134,8 @@ export function HomePage(handle: Handle) {
             ? await prefetched.clips
             : await getClipsForProject(project.id)
         if (clips.length === 0) throw new Error('Nothing to back up — this project has no clips.')
-        const backup = serializeProject(project, clips)
+        const audio = await getProjectAudio(project.id)
+        const backup = serializeProject(project, clips, audio)
         const filename = projectBackupFilename(project.name)
         const sizeLabel = formatBytes(backup.size)
         // Android's share sheet fails (often silently) on very large files —

@@ -5,15 +5,21 @@ import {
   duplicateClip,
   getClipsForProject,
   getProject,
+  getProjectAudio,
   getSettings,
   getUndoSnapshot,
   listProjects,
   moveClip,
+  removeProjectAudio,
   setLastOpenedProjectId,
+  setProjectAudio,
   undoDeleteLastClip,
+  updateClipAudioVolume,
   updateClipThumbs,
   updateClipTrim,
+  updateProjectAudioDefaultVolume,
 } from './storage'
+import { probeAudioFile } from './audio-import'
 import { estimateExportCacheBytes } from './export/export-cache'
 import { estimateStorageSpace, type StorageSpace } from './storage-space'
 import type { GeneratedThumbs } from './thumbs'
@@ -23,6 +29,7 @@ import {
   type ClipId,
   type ClipRecord,
   type Project,
+  type ProjectAudioRecord,
   type ProjectId,
 } from './types'
 
@@ -36,6 +43,8 @@ export interface ProjectSummary extends Project {
 export interface ProjectLoaderData {
   project: Project | null
   clips: ClipRecord[]
+  /** Background-audio track played under the clips (null when none is set). */
+  audio: ProjectAudioRecord | null
   canUndo: boolean
   onboardingDismissed: boolean
   /** True when the one-time "Remove Watermark" purchase is unlocked. */
@@ -108,6 +117,7 @@ export async function loadProjectPage(projectId: ProjectId): Promise<ProjectLoad
           clipIds: [],
         },
         clips: [],
+        audio: null,
         canUndo: false,
         onboardingDismissed: settings.onboardingDismissed,
         watermarkRemoved: settings.watermarkRemoved === true,
@@ -117,9 +127,10 @@ export async function loadProjectPage(projectId: ProjectId): Promise<ProjectLoad
       }
     }
 
-    const [project, clips, undo, settings, storage] = await Promise.all([
+    const [project, clips, audio, undo, settings, storage] = await Promise.all([
       getProject(projectId),
       getClipsForProject(projectId),
+      getProjectAudio(projectId),
       getUndoSnapshot(projectId),
       getSettings(),
       estimateStorageSpace(),
@@ -128,6 +139,7 @@ export async function loadProjectPage(projectId: ProjectId): Promise<ProjectLoad
       return {
         project: null,
         clips: [],
+        audio: null,
         canUndo: false,
         onboardingDismissed: settings.onboardingDismissed,
         watermarkRemoved: settings.watermarkRemoved === true,
@@ -149,6 +161,7 @@ export async function loadProjectPage(projectId: ProjectId): Promise<ProjectLoad
     return {
       project,
       clips: hydrated,
+      audio: audio ?? null,
       canUndo: !!undo,
       onboardingDismissed: settings.onboardingDismissed,
       watermarkRemoved: settings.watermarkRemoved === true,
@@ -160,6 +173,7 @@ export async function loadProjectPage(projectId: ProjectId): Promise<ProjectLoad
     return {
       project: null,
       clips: [],
+      audio: null,
       canUndo: false,
       onboardingDismissed: true,
       watermarkRemoved: false,
@@ -239,6 +253,42 @@ export async function trimClip(
   trimEndMs: number,
 ): Promise<void> {
   await updateClipTrim(clipId, trimStartMs, trimEndMs)
+}
+
+/** Attach a picked audio file as the project's background-music track. */
+export async function addProjectAudioFromFile(
+  file: File,
+  ensureProjectId: () => Promise<ProjectId>,
+): Promise<ProjectAudioRecord> {
+  // Probe first: a bad pick on /project/new must not create an empty project.
+  const probed = await probeAudioFile(file)
+  const projectId = await ensureProjectId()
+  return setProjectAudio({
+    projectId,
+    blob: probed.blob,
+    mimeType: probed.mimeType,
+    durationMs: probed.durationMs,
+    name: probed.name,
+  })
+}
+
+export async function removeProjectAudioTrack(projectId: ProjectId): Promise<void> {
+  await removeProjectAudio(projectId)
+}
+
+export async function setProjectAudioDefaultVolume(
+  projectId: ProjectId,
+  volume: number,
+): Promise<void> {
+  await updateProjectAudioDefaultVolume(projectId, volume)
+}
+
+/** Set (or clear, with null) a clip's background-music volume override. */
+export async function setClipAudioVolume(
+  clipId: ClipId,
+  volume: number | null,
+): Promise<void> {
+  await updateClipAudioVolume(clipId, volume)
 }
 
 export {

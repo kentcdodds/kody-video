@@ -7,7 +7,7 @@
  */
 
 import { getDb, getSettings } from '../storage'
-import type { ClipRecord, ProjectId } from '../types'
+import type { ClipRecord, ProjectAudioMeta, ProjectId } from '../types'
 import { withExportCacheReserved } from './export-cache'
 import { readOpfsFile, removeExportEntry, streamToOpfsFile } from './opfs'
 import type { ExportResult } from './shared'
@@ -15,10 +15,20 @@ import type { ExportResult } from './shared'
 const LAST_EXPORT_PREFIX = 'last-export'
 
 /** Anything that changes the rendered output must change the signature. */
-export function exportSignature(clips: ClipRecord[], watermarked: boolean): string {
+export function exportSignature(
+  clips: ClipRecord[],
+  watermarked: boolean,
+  audio?: Pick<ProjectAudioMeta, 'addedAt' | 'durationMs' | 'defaultVolume'> | null,
+): string {
   return JSON.stringify({
     watermarked,
-    clips: clips.map((clip) => [clip.id, clip.trimStartMs, clip.trimEndMs]),
+    clips: clips.map((clip) => [
+      clip.id,
+      clip.trimStartMs,
+      clip.trimEndMs,
+      clip.audioVolume ?? null,
+    ]),
+    audio: audio ? [audio.addedAt, audio.durationMs, audio.defaultVolume] : null,
   })
 }
 

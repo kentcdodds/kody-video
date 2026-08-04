@@ -19,12 +19,19 @@ import {
 import { deriveProjectLocation } from '../geo'
 import { isIosBrowser } from '../platform'
 import type { ClipRecord } from '../types'
+import {
+  mixBackgroundIntoChannels,
+  planBackgroundGain,
+  type BackgroundAudioTrack,
+  type GainPoint,
+} from './background-audio'
 import { injectMp4Metadata, type Mp4Chapter } from './mp4-metadata'
 import { createOpfsExportFile } from './opfs'
 import { clampSegmentToMedia, type ExportPlan } from './plan'
 import {
   PREVIEW_INTERVAL_MS,
   blitPreview,
+  decodeBackgroundAudio,
   decodeClipAudio,
   drawWatermark,
   loadClipVideo,
@@ -111,6 +118,7 @@ export async function exportWithWebCodecs(
   onProgress?: (ratio: number) => void,
   getPreviewCanvas?: () => HTMLCanvasElement | null,
   watermarkImage?: HTMLImageElement | null,
+  background?: BackgroundAudioTrack | null,
 ): Promise<ExportResult> {
   if (!supportsWebCodecsExport()) {
     throw new Error('WebCodecs is not available')
@@ -178,6 +186,21 @@ export async function exportWithWebCodecs(
   const multiDay = clipsSpanMultipleDays(clipsInPlan)
   const chapters: Mp4Chapter[] = []
 
+  // Background music: decoded once, mixed into each segment's audio slice
+  // at the envelope gain (per-clip volumes with ramped transitions).
+  const backgroundBuffer = background
+    ? await decodeBackgroundAudio(background.blob, AUDIO_SAMPLE_RATE)
+    : null
+  const backgroundChannels = backgroundBuffer
+    ? Array.from({ length: backgroundBuffer.numberOfChannels }, (_, ch) =>
+        backgroundBuffer.getChannelData(ch),
+      )
+    : null
+  const gainPoints: GainPoint[] =
+    backgroundChannels && background
+      ? planBackgroundGain(plan.segments, background.defaultVolume, plan.totalMs)
+      : []
+
   try {
     for (const [segmentIndex, segment] of plan.segments.entries()) {
       const input = new Input({
@@ -226,7 +249,21 @@ export async function exportWithWebCodecs(
         // (silence-padded), appended sequentially — timestamps are implied
         // by position, so segments can never drift.
         const buffer = await decodeClipAudio(segment.clip.blob, AUDIO_SAMPLE_RATE)
-        await audioSource.add(sliceSegmentAudio(buffer, clamped.startMs, segmentMs))
+        const slice = sliceSegmentAudio(buffer, clamped.startMs, segmentMs)
+        if (backgroundChannels && gainPoints.length > 0) {
+          mixBackgroundIntoChannels({
+            channels: Array.from({ length: slice.numberOfChannels }, (_, ch) =>
+              slice.getChannelData(ch),
+            ),
+            background: backgroundChannels,
+            sampleRate: AUDIO_SAMPLE_RATE,
+            // Frames already written = the real position of this slice, even
+            // when clamping shortened an earlier segment.
+            sliceStartFrame: Math.round(state.outputOffsetSec * AUDIO_SAMPLE_RATE),
+            points: gainPoints,
+          })
+        }
+        await audioSource.add(slice)
 
         const pumpShared: PumpSharedArgs = {
           startSec: clamped.startMs / 1000,

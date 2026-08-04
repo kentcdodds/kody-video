@@ -26,6 +26,9 @@ export interface ClipMeta {
   lat?: number
   lng?: number
   locationAccuracyM?: number
+  /** Background-music volume (0–1) while this clip plays. Absent = the
+   * project audio track's default volume. */
+  audioVolume?: number
 }
 
 export interface ClipRecord extends ClipMeta {
@@ -40,6 +43,38 @@ export interface DeletedClipSnapshot {
   clip: ClipRecord
   index: number
   deletedAt: number
+}
+
+/** One optional background-audio track per project, played under the clips. */
+export interface ProjectAudioMeta {
+  projectId: ProjectId
+  mimeType: string
+  durationMs: number
+  /** Display name (the picked file's name). */
+  name: string
+  /** Baseline volume (0–1) for clips without a per-clip override. */
+  defaultVolume: number
+  addedAt: number
+}
+
+export interface ProjectAudioRecord extends ProjectAudioMeta {
+  blob: Blob
+}
+
+/** Sits under speech without drowning it — the out-of-the-box music level. */
+export const DEFAULT_AUDIO_VOLUME = 0.25
+
+export function clampVolume(volume: number): number {
+  if (!Number.isFinite(volume)) return DEFAULT_AUDIO_VOLUME
+  return Math.max(0, Math.min(1, volume))
+}
+
+/** Background-music volume while a clip plays: its override or the default. */
+export function clipAudioVolume(
+  clip: Pick<ClipMeta, 'audioVolume'>,
+  defaultVolume: number,
+): number {
+  return clampVolume(clip.audioVolume ?? defaultVolume)
 }
 
 export interface AppMeta {

@@ -1,5 +1,5 @@
-import { addClip, createProject, deleteProject, updateClipTrim } from './storage'
-import type { ClipRecord, Project } from './types'
+import { addClip, createProject, deleteProject, setProjectAudio, updateClipTrim } from './storage'
+import type { ClipRecord, Project, ProjectAudioRecord } from './types'
 
 /**
  * Single-file project backup, used both as a safety net and to move a
@@ -7,7 +7,10 @@ import type { ClipRecord, Project } from './types'
  * browser storage is separate).
  *
  * Format: `KODYVID1` magic, u32 big-endian JSON manifest length, UTF-8 JSON
- * manifest, then every clip's media bytes concatenated in manifest order.
+ * manifest, then every clip's media bytes concatenated in manifest order,
+ * then (when present) the background-audio track's bytes. Older app
+ * versions ignore the unknown manifest fields and the trailing audio bytes,
+ * so music-carrying backups still import there (clips only).
  * Thumbnails are intentionally excluded — the loader regenerates them.
  */
 const MAGIC = 'KODYVID1'
@@ -24,7 +27,18 @@ interface ManifestClip {
   lat?: number
   lng?: number
   locationAccuracyM?: number
+  /** Background-music volume override (0–1) while this clip plays. */
+  audioVolume?: number
   /** Byte length of this clip's media in the blob section. */
+  byteLength: number
+}
+
+interface ManifestAudio {
+  mimeType: string
+  durationMs: number
+  name: string
+  defaultVolume: number
+  /** Byte length of the track, appended after every clip's media bytes. */
   byteLength: number
 }
 
@@ -34,6 +48,8 @@ interface Manifest {
   exportedAt: number
   projectName: string
   clips: ManifestClip[]
+  /** Background-music track (absent on projects without one). */
+  audio?: ManifestAudio
 }
 
 export function projectBackupFilename(projectName: string): string {
@@ -47,7 +63,11 @@ export function projectBackupFilename(projectName: string): string {
 }
 
 /** Bundle a project into one shareable/downloadable backup Blob. */
-export function serializeProject(project: Project, clips: ClipRecord[]): Blob {
+export function serializeProject(
+  project: Project,
+  clips: ClipRecord[],
+  audio?: ProjectAudioRecord | null,
+): Blob {
   const manifest: Manifest = {
     version: 1,
     app: 'kody-video',
@@ -64,8 +84,18 @@ export function serializeProject(project: Project, clips: ClipRecord[]): Blob {
       lat: clip.lat,
       lng: clip.lng,
       locationAccuracyM: clip.locationAccuracyM,
+      audioVolume: clip.audioVolume,
       byteLength: clip.blob.size,
     })),
+  }
+  if (audio) {
+    manifest.audio = {
+      mimeType: audio.mimeType,
+      durationMs: audio.durationMs,
+      name: audio.name,
+      defaultVolume: audio.defaultVolume,
+      byteLength: audio.blob.size,
+    }
   }
 
   const manifestBytes = new TextEncoder().encode(JSON.stringify(manifest))
@@ -74,14 +104,22 @@ export function serializeProject(project: Project, clips: ClipRecord[]): Blob {
   new DataView(header.buffer).setUint32(MAGIC_BYTES.byteLength, manifestBytes.byteLength)
 
   // Blob composition references the clip blobs — nothing is copied here.
-  return new Blob([header, manifestBytes, ...clips.map((clip) => clip.blob)], {
-    type: 'application/octet-stream',
-  })
+  return new Blob(
+    [
+      header,
+      manifestBytes,
+      ...clips.map((clip) => clip.blob),
+      ...(audio ? [audio.blob] : []),
+    ],
+    { type: 'application/octet-stream' },
+  )
 }
 
 export interface ParsedBackup {
   projectName: string
   clips: Array<Omit<ManifestClip, 'byteLength'> & { blob: Blob }>
+  /** Background-music track, when the backup carries one. */
+  audio: (Omit<ManifestAudio, 'byteLength'> & { blob: Blob }) | null
 }
 
 /**
@@ -144,12 +182,34 @@ export async function parseProjectBackup(file: Blob): Promise<ParsedBackup> {
       lat: clip.lat,
       lng: clip.lng,
       locationAccuracyM: clip.locationAccuracyM,
+      audioVolume: typeof clip.audioVolume === 'number' ? clip.audioVolume : undefined,
       blob: file.slice(offset, offset + clip.byteLength, mimeType),
     })
     offset += clip.byteLength
   }
 
-  return { projectName: String(manifest.projectName || 'Imported project'), clips }
+  let audio: ParsedBackup['audio'] = null
+  const manifestAudio = manifest.audio
+  if (manifestAudio) {
+    if (
+      !Number.isInteger(manifestAudio.byteLength) ||
+      manifestAudio.byteLength <= 0 ||
+      offset + manifestAudio.byteLength > file.size
+    ) {
+      throw new BackupFormatError('This backup file is damaged')
+    }
+    const mimeType =
+      typeof manifestAudio.mimeType === 'string' ? manifestAudio.mimeType : 'audio/mpeg'
+    audio = {
+      mimeType,
+      durationMs: manifestAudio.durationMs,
+      name: String(manifestAudio.name || 'Audio track'),
+      defaultVolume: manifestAudio.defaultVolume,
+      blob: file.slice(offset, offset + manifestAudio.byteLength, mimeType),
+    }
+  }
+
+  return { projectName: String(manifest.projectName || 'Imported project'), clips, audio }
 }
 
 function assertImportableClip(clip: ParsedBackup['clips'][number]): void {
@@ -192,6 +252,7 @@ export async function importProjectBackup(
         lat: clip.lat,
         lng: clip.lng,
         locationAccuracyM: clip.locationAccuracyM,
+        audioVolume: clip.audioVolume,
       })
       // Restore trims (addClip resets them to the full clip).
       const trimmed = await updateClipTrim(added.id, clip.trimStartMs, clip.trimEndMs)
@@ -202,6 +263,21 @@ export async function importProjectBackup(
       await ensureClipThumbs({ ...added, ...trimmed, blob: added.blob }).catch(() => undefined)
       done += 1
       onProgress?.(done, parsed.clips.length)
+    }
+    if (parsed.audio) {
+      // Best-effort: background music is a Plus perk, so restoring a
+      // Plus-made backup on a free device keeps the clips and simply skips
+      // the track (setProjectAudio enforces the gate). A damaged audio
+      // section must not kill an otherwise intact import either.
+      const bytes = await parsed.audio.blob.arrayBuffer()
+      await setProjectAudio({
+        projectId: project.id,
+        blob: new Blob([bytes], { type: parsed.audio.mimeType }),
+        mimeType: parsed.audio.mimeType,
+        durationMs: parsed.audio.durationMs,
+        name: parsed.audio.name,
+        defaultVolume: parsed.audio.defaultVolume,
+      }).catch(() => undefined)
     }
     return project
   } catch (error) {

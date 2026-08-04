@@ -33,13 +33,19 @@ For a phone on the same network, use your machine’s LAN URL over HTTPS, or tun
 - Self-timer for hands-free takes (tap to stop)
 - Recording feedback (REC pill + elapsed) with a page that does **not** re-render per frame — capture stays smooth
 - Editor: filmstrip timeline (thumbnails, width ∝ duration), drag to reorder, duplicate, delete w/ undo, **in-timeline trim with drag handles**, **add clips from your device/gallery**
+- **Background music** (Plus): add one audio track that plays under the whole
+  film at a background-friendly default volume; tap any clip to set the music
+  volume just for that clip (duck it under speech, swell it for b-roll) and
+  volume changes glide across clip boundaries — in the preview and in the
+  exported file (track loops when shorter than the film)
 - Project preview playback: tap edges to skip clips, tap middle to stop
 - Up to **6** stable project slots (create / open / rename / delete, poster art from your clips)
 - Big Go CTA: on-device export to **one video file**, then Share (system sheet) or Save
 - Fallback: save clips as separate files
 - Project **backup/import**: one `.kodyvideo` file per project (clips, trims,
-  location data) — a safety net, and the way to move a project between
-  devices or origins (e.g. kody-video.pages.dev → kody.video)
+  location data, background music + volumes) — a safety net, and the way to
+  move a project between devices or origins (e.g. kody-video.pages.dev →
+  kody.video)
 - Installable PWA (manifest + Workbox service worker for the app shell)
 - **No accounts, no uploads, no analytics**
 
@@ -118,6 +124,7 @@ before this feature simply lack the data and degrade gracefully.
 | clips    | Clip metadata, `Blob` media, filmstrip thumbnails     |
 | undo     | Last deleted clip per project (for Undo)              |
 | meta     | Settings (`maxProjects`, last opened id, onboarding)  |
+| audio    | Background-music track per project (blob + volumes)   |
 
 Database name: `kody-video`. Blobs never leave the device unless the user explicitly shares/downloads.
 
@@ -177,8 +184,9 @@ API is missing.
 
 The free plan includes one project, and exports carry a small Kody Video mark
 in the corner. Kody Video Plus — a one-time $0.99 Stripe Payment Link —
-removes the watermark and unlocks six project slots: the export sheet (or a
-locked home slot) links to checkout, Stripe redirects back to
+removes the watermark, unlocks six project slots, and unlocks background
+music: the export sheet (or a locked home slot, or the locked "Add music"
+button in the editor) links to checkout, Stripe redirects back to
 `/unlocked?session_id=…`, and a single Cloudflare Pages Function
 (`functions/api/verify-purchase.ts`) verifies the session server-side before
 the entitlement is stored in IndexedDB. 100%-off promotion codes (friends /

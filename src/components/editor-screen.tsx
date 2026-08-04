@@ -16,8 +16,10 @@ import {
   type ClipId,
   type ClipRecord,
   type Project,
+  type ProjectAudioRecord,
   type ProjectId,
 } from '../lib/types'
+import { AudioStrip } from './audio-strip'
 import { EditorClipPreview, type EditorClipPreviewHandle } from './editor-clip-preview'
 import {
   IconBack,
@@ -43,6 +45,12 @@ interface EditorScreenProps {
    * clip is added from a lazy "/project/new" shell. */
   ensureProjectId: () => Promise<ProjectId>
   clips: ClipRecord[]
+  /** Background-music track for the project (null when none is set). */
+  audio: ProjectAudioRecord | null
+  /** Kody Video Plus unlocked (background music is a Plus perk). */
+  plus: boolean
+  /** Open the Plus upsell sheet. */
+  onUpsell: () => void
   canUndo: boolean
   /** True while a full-screen overlay owns input (playback, export, …). */
   interactionLocked: boolean
@@ -374,9 +382,24 @@ export function EditorScreen(handle: Handle<EditorScreenProps>) {
               }}
               onAddFromDevice={openDevicePicker}
               addingFromDevice={importing}
+              showAudioBadges={props.audio !== null}
               refresh={props.refresh}
             />
           )}
+
+          {!trimming ? (
+            <AudioStrip
+              ensureProjectId={props.ensureProjectId}
+              audio={props.audio}
+              selectedClip={selected}
+              selectedIndex={selectedIndex}
+              disabled={importing}
+              plus={props.plus}
+              onUpsell={props.onUpsell}
+              showToast={props.showToast}
+              refresh={props.refresh}
+            />
+          ) : null}
 
           {!trimming ? (
             <div className="editor-actions" role="toolbar" aria-label="Clip actions">

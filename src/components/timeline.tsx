@@ -32,6 +32,8 @@ interface TimelineProps {
   /** Open the device file picker to append gallery videos. */
   onAddFromDevice?: () => void
   addingFromDevice?: boolean
+  /** Show per-clip music-volume badges (project has a background track). */
+  showAudioBadges?: boolean
   refresh: () => void
 }
 
@@ -372,6 +374,11 @@ export function Timeline(handle: Handle<TimelineProps>) {
                   )}
                 </div>
                 <span className="clip-dur">{formatDuration(effectiveDurationMs(clip))}</span>
+                {props.showAudioBadges && clip.audioVolume !== undefined ? (
+                  <span className="clip-audio-badge" aria-hidden="true">
+                    ♪ {Math.round(clip.audioVolume * 100)}%
+                  </span>
+                ) : null}
               </button>
             </div>
           )

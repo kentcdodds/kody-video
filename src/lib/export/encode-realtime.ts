@@ -1,8 +1,11 @@
 import { pickRecorderMimeType } from '../media'
+import { clipAudioVolume } from '../types'
+import type { BackgroundAudioTrack } from './background-audio'
 import { clampSegmentToMedia, type ExportPlan } from './plan'
 import {
   PREVIEW_EVERY_N_FRAMES,
   blitPreview,
+  decodeBackgroundAudio,
   decodeClipAudio,
   drawCover,
   drawWatermark,
@@ -27,6 +30,8 @@ export interface RealtimeExportOptions {
   getPreviewCanvas?: () => HTMLCanvasElement | null
   /** Mark stamped onto each frame; null when the user purchased removal. */
   watermarkImage?: HTMLImageElement | null
+  /** Background-music track mixed under the clips (per-clip volumes). */
+  background?: BackgroundAudioTrack | null
 }
 
 /**
@@ -92,6 +97,30 @@ export async function exportRealtime(
     dest = null
   }
 
+  // Background music rides a looping buffer source behind a gain node; the
+  // gain glides toward each clip's volume as the export reaches it (this
+  // engine paints in realtime, so Web Audio's own ramping does the work).
+  let backgroundGain: GainNode | null = null
+  let backgroundSource: AudioBufferSourceNode | null = null
+  if (options.background && audioContext && dest) {
+    const backgroundBuffer = await decodeBackgroundAudio(options.background.blob)
+    if (backgroundBuffer) {
+      try {
+        backgroundSource = audioContext.createBufferSource()
+        backgroundSource.buffer = backgroundBuffer
+        backgroundSource.loop = true
+        backgroundGain = audioContext.createGain()
+        backgroundGain.gain.value = 0
+        backgroundSource.connect(backgroundGain)
+        backgroundGain.connect(dest)
+        backgroundSource.start()
+      } catch {
+        backgroundGain = null
+        backgroundSource = null
+      }
+    }
+  }
+
   const mixedStream = new MediaStream([
     ...canvasStream.getVideoTracks(),
     ...(dest?.stream.getAudioTracks() ?? []),
@@ -138,6 +167,13 @@ export async function exportRealtime(
       try {
         const clamped = clampSegmentToMedia(segment, loaded.mediaDurationMs)
         if (!clamped) continue
+        if (backgroundGain && audioContext && options.background) {
+          backgroundGain.gain.setTargetAtTime(
+            clipAudioVolume(segment.clip, options.background.defaultVolume),
+            audioContext.currentTime,
+            0.2,
+          )
+        }
         const paintedMs = await paintSegment({
           video: loaded.video,
           blob: segment.clip.blob,
@@ -168,10 +204,19 @@ export async function exportRealtime(
       throw new Error('No video frames could be exported')
     }
 
+    // Ease the music out instead of cutting it mid-note.
+    if (backgroundGain && audioContext) {
+      backgroundGain.gain.setTargetAtTime(0, audioContext.currentTime, 0.06)
+    }
     // Hold the last frame briefly so the final GOP isn't truncated.
     await wait(180)
     options.onProgress?.(1)
   } finally {
+    try {
+      backgroundSource?.stop()
+    } catch {
+      // already stopped
+    }
     if (recorder.state !== 'inactive') recorder.stop()
     canvasStream.getTracks().forEach((t) => t.stop())
     if (audioContext) {
