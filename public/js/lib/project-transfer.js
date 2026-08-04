@@ -1,5 +1,5 @@
-import { addClip, createProject, deleteProject, updateClipTrim } from './storage.js';
-import { ensureClipThumbs } from './thumbs.js';
+import { addClip, createProject, deleteProject, updateClipTrim } from "./storage.js";
+import { ensureClipThumbs } from "./thumbs.js";
 /**
  * Single-file project backup, used both as a safety net and to move a
  * project between origins (e.g. kody-video.pages.dev → kody.video, whose

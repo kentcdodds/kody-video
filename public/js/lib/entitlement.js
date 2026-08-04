@@ -1,4 +1,4 @@
-import { getDb, getSettings } from './storage.js';
+import { getDb, getSettings } from "./storage.js";
 /** Stripe Payment Link for the one-time "Remove Watermark" unlock ($0.99). */
 export const REMOVE_WATERMARK_LINK = 'https://buy.stripe.com/00wfZi71ibU30rk9hU2Ry07';
 const SESSION_ID_PATTERN = /cs_(?:live|test)_[a-zA-Z0-9]+/;

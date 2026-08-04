@@ -1,5 +1,5 @@
-import { loadClipVideo, seekTo } from './export/shared.js';
-import { updateClipThumbs } from './storage.js';
+import { loadClipVideo, seekTo } from "./export/shared.js";
+import { updateClipThumbs } from "./storage.js";
 /** Filmstrip frame height: timeline tiles are 72 CSS px on up-to-3× screens. */
 export const THUMB_HEIGHT = 216;
 export const THUMB_COUNT = 3;

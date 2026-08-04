@@ -5,9 +5,9 @@
  * exactly what produced it; tapping Go on an unchanged project serves it
  * instantly, and Retry always forces a fresh encode.
  */
-import { getDb, getSettings } from '../storage.js';
-import { withExportCacheReserved } from './export-cache.js';
-import { readOpfsFile, removeExportEntry, streamToOpfsFile } from './opfs.js';
+import { getDb, getSettings } from "../storage.js";
+import { withExportCacheReserved } from "./export-cache.js";
+import { readOpfsFile, removeExportEntry, streamToOpfsFile } from "./opfs.js";
 const LAST_EXPORT_PREFIX = 'last-export';
 /** Anything that changes the rendered output must change the signature. */
 export function exportSignature(clips, watermarked) {

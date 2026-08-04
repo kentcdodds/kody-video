@@ -1,29 +1,12 @@
 /** Plain-language privacy policy and terms for on-device Kody Video. */
-
-import { define, fromHtml, h, KvElement } from '../dom.js'
-import { iconBack } from '../components/icons.js'
-
+import { define, fromHtml, h, KvElement } from "../dom.js";
+import { iconBack } from "../components/icons.js";
 function legalScreen(title, bodyHtml) {
-  return h(
-    'div',
-    { className: 'screen about-screen' },
-    h(
-      'div',
-      { className: 'about-top' },
-      h('a', { href: '/', className: 'btn-icon', 'aria-label': 'Back to projects' }, iconBack()),
-      h('strong', null, title),
-      h('span', { className: 'about-top-spacer', 'aria-hidden': 'true' }),
-    ),
-    fromHtml(`<div class="about-body">${bodyHtml}</div>`),
-  )
+    return h('div', { className: 'screen about-screen' }, h('div', { className: 'about-top' }, h('a', { href: '/', className: 'btn-icon', 'aria-label': 'Back to projects' }, iconBack()), h('strong', null, title), h('span', { className: 'about-top-spacer', 'aria-hidden': 'true' })), fromHtml(`<div class="about-body">${bodyHtml}</div>`));
 }
-
 export class KvPrivacyPage extends KvElement {
-  render() {
-    this.replaceChildren(
-      legalScreen(
-        'Privacy',
-        `
+    render() {
+        this.replaceChildren(legalScreen('Privacy', `
         <h1>Privacy</h1>
         <p class="legal-updated">Last updated: August 2026</p>
         <section class="about-section">
@@ -71,19 +54,13 @@ export class KvPrivacyPage extends KvElement {
         <section class="about-section legal-nav">
           <p>See also the <a href="/terms">Terms</a> and <a href="/about">About</a> pages.</p>
         </section>
-        `,
-      ),
-    )
-  }
+        `));
+    }
 }
-define('kv-privacy-page', KvPrivacyPage)
-
+define('kv-privacy-page', KvPrivacyPage);
 export class KvTermsPage extends KvElement {
-  render() {
-    this.replaceChildren(
-      legalScreen(
-        'Terms',
-        `
+    render() {
+        this.replaceChildren(legalScreen('Terms', `
         <h1>Terms</h1>
         <p class="legal-updated">Last updated: August 2026</p>
         <section class="about-section">
@@ -122,9 +99,7 @@ export class KvTermsPage extends KvElement {
         <section class="about-section legal-nav">
           <p>See also the <a href="/privacy">Privacy</a> and <a href="/about">About</a> pages.</p>
         </section>
-        `,
-      ),
-    )
-  }
+        `));
+    }
 }
-define('kv-terms-page', KvTermsPage)
+define('kv-terms-page', KvTermsPage);

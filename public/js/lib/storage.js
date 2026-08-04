@@ -1,6 +1,6 @@
-import { openDB } from './idb.js';
-import { removeExportEntry } from './export/opfs.js';
-import { FREE_PROJECTS, MAX_PROJECTS, newId, } from './types.js';
+import { openDB } from "./idb.js";
+import { removeExportEntry } from "./export/opfs.js";
+import { FREE_PROJECTS, MAX_PROJECTS, newId, } from "./types.js";
 export const DB_NAME = 'kody-video';
 const DB_VERSION = 1;
 let dbPromise = null;

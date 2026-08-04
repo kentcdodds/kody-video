@@ -1,0 +1,15 @@
+{
+  "name": "kody-video-typescript",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "build": "tsc -p tsconfig.app.json && tsc -p tsconfig.sw.json && tsc -p tsconfig.worker.json",
+    "check": "npm run build -- --pretty false",
+    "deploy": "npm run build && wrangler deploy"
+  },
+  "devDependencies": {
+    "mediabunny": "^1.52.1",
+    "typescript": "~5.8.3"
+  }
+}

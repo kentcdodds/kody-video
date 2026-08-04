@@ -1,5 +1,5 @@
-import { isMediaElementFailure } from './export/media-error.js';
-import { measureBlobDuration, pickRecordingMimeType } from './media.js';
+import { isMediaElementFailure } from "./export/media-error.js";
+import { measureBlobDuration, pickRecordingMimeType } from "./media.js";
 /** Ignore accidental taps shorter than this — they can't produce a real clip. */
 const MIN_TAKE_MS = 120;
 function stopSessionTracks(session) {

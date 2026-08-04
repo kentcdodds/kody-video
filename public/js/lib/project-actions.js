@@ -1,8 +1,8 @@
-import { addClip, clearUndo, deleteClip, duplicateClip, getClipsForProject, getProject, getSettings, getUndoSnapshot, listProjects, moveClip, setLastOpenedProjectId, undoDeleteLastClip, updateClipThumbs, updateClipTrim, } from './storage.js';
-import { estimateExportCacheBytes } from './export/export-cache.js';
-import { estimateStorageSpace } from './storage-space.js';
-import { ensureClipThumbs } from './thumbs.js';
-import { NEW_PROJECT_ID, effectiveDurationMs, } from './types.js';
+import { addClip, clearUndo, deleteClip, duplicateClip, getClipsForProject, getProject, getSettings, getUndoSnapshot, listProjects, moveClip, setLastOpenedProjectId, undoDeleteLastClip, updateClipThumbs, updateClipTrim, } from "./storage.js";
+import { estimateExportCacheBytes } from "./export/export-cache.js";
+import { estimateStorageSpace } from "./storage-space.js";
+import { ensureClipThumbs } from "./thumbs.js";
+import { NEW_PROJECT_ID, effectiveDurationMs, } from "./types.js";
 export async function loadHomePage() {
     const [projects, storage, exportCacheBytes, settings] = await Promise.all([
         loadHomeProjects(),

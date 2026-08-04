@@ -22,7 +22,7 @@
       name="description"
       content="Kody Video — hold anywhere to record clips. Privacy-first camera for the web."
     />
-    <link rel="canonical" href="https://vanilla.kody.video/" />
+    <link rel="canonical" href="https://typescript.kody.video/" />
     <meta property="og:type" content="website" />
     <meta property="og:site_name" content="Kody Video" />
     <meta property="og:title" content="Kody Video — hold to record, tap Go to share" />
@@ -30,8 +30,8 @@
       property="og:description"
       content="A private, on-device clips camera for the web. Record shot by shot, trim on a filmstrip, export one video. Free & open source. Vanilla web-components edition."
     />
-    <meta property="og:url" content="https://vanilla.kody.video/" />
-    <meta property="og:image" content="https://vanilla.kody.video/og-image.png" />
+    <meta property="og:url" content="https://typescript.kody.video/" />
+    <meta property="og:image" content="https://typescript.kody.video/og-image.png" />
     <meta property="og:image:width" content="1200" />
     <meta property="og:image:height" content="630" />
     <meta property="og:image:alt" content="Kody the koala filming a vertical video on his phone — Kody Video" />
@@ -41,7 +41,7 @@
       name="twitter:description"
       content="A private, on-device clips camera for the web. Free & open source."
     />
-    <meta name="twitter:image" content="https://vanilla.kody.video/og-image.png" />
+    <meta name="twitter:image" content="https://typescript.kody.video/og-image.png" />
     <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
     <link rel="manifest" href="/manifest.webmanifest" />
     <link rel="preconnect" href="https://fonts.googleapis.com" />
@@ -55,8 +55,8 @@
     <link rel="stylesheet" href="/styles/record.css" />
     <link rel="stylesheet" href="/styles/editor.css" />
     <!-- The one dependency: Mediabunny, vendored and mapped to its bare
-         specifier so the ported modules' `import ... from 'mediabunny'`
-         resolves without any build step. -->
+         specifier so the compiled modules' `import ... from 'mediabunny'`
+         resolves without a bundler (the only build step is tsc). -->
     <script type="importmap">
       {
         "imports": {

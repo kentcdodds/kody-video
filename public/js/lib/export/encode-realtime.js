@@ -1,6 +1,6 @@
-import { pickRecorderMimeType } from '../media.js';
-import { clampSegmentToMedia } from './plan.js';
-import { PREVIEW_EVERY_N_FRAMES, blitPreview, decodeClipAudio, drawCover, drawWatermark, loadClipVideo, pickOutputSize, recordVideoLumaSample, seekTo, tagExportError, wait, waitForPreviewCanvas, } from './shared.js';
+import { pickRecorderMimeType } from "../media.js";
+import { clampSegmentToMedia } from "./plan.js";
+import { PREVIEW_EVERY_N_FRAMES, blitPreview, decodeClipAudio, drawCover, drawWatermark, loadClipVideo, pickOutputSize, recordVideoLumaSample, seekTo, tagExportError, wait, waitForPreviewCanvas, } from "./shared.js";
 /**
  * Fallback stitcher for browsers without WebCodecs: plays each clip into a
  * canvas captured by MediaRecorder, mixing audio via Web Audio. Realtime and

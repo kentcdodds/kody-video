@@ -7,8 +7,8 @@
  * microphone (for narration) mixed into a single track. The result feeds the
  * exact same recorder + clip pipeline as camera takes.
  */
-import { openMicrophoneTrack } from './media.js';
-import { HoldRecorder } from './recorder.js';
+import { openMicrophoneTrack } from "./media.js";
+import { HoldRecorder } from "./recorder.js";
 export function isScreenRecordingSupported() {
     return (typeof navigator !== 'undefined' &&
         typeof navigator.mediaDevices?.getDisplayMedia === 'function' &&

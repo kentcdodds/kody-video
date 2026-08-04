@@ -1,0 +1,17 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "lib": ["ES2022", "WebWorker"],
+    "erasableSyntaxOnly": true,
+    "verbatimModuleSyntax": true,
+    "strict": true,
+    "noUncheckedIndexedAccess": true,
+    "skipLibCheck": true,
+    "rootDir": "src/worker",
+    "outDir": "dist-worker",
+    "tsBuildInfoFile": "node_modules/.tmp/tsconfig.worker.tsbuildinfo"
+  },
+  "include": ["src/worker"]
+}

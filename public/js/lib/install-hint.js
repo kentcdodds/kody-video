@@ -3,7 +3,7 @@
  * a home screen there is the manual Share → Add to Home Screen flow. This
  * decides when nudging about that is actually useful.
  */
-import { isIosBrowser } from './media.js';
+import { isIosBrowser } from "./media.js";
 const DISMISSED_KEY = 'kody-video:install-hint-dismissed';
 function isStandalone() {
     if (window.matchMedia('(display-mode: standalone)').matches)

@@ -1,9 +1,10 @@
 {
   "$schema": "https://unpkg.com/wrangler/config-schema.json",
-  // Temporary experiment deployment — the vanilla re-implementation of
-  // Kody Video, served from a plain Cloudflare Worker with static assets.
-  "name": "kody-video-vanilla",
-  "main": "worker.js",
+  // Temporary experiment deployment — the TypeScript edition of the
+  // vanilla re-implementation, served from a plain Cloudflare Worker with
+  // static assets. Run `npm run build` before deploying.
+  "name": "kody-video-typescript",
+  "main": "dist-worker/worker.js",
   "compatibility_date": "2026-07-01",
   "assets": {
     "directory": "./public",
@@ -13,5 +14,5 @@
     // …but the API always reaches the worker.
     "run_worker_first": ["/api/*"]
   },
-  "routes": [{ "pattern": "vanilla.kody.video", "custom_domain": true }]
+  "routes": [{ "pattern": "typescript.kody.video", "custom_domain": true }]
 }

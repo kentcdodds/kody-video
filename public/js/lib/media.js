@@ -1,5 +1,5 @@
 import { ALL_FORMATS, BlobSource, Input } from 'mediabunny';
-import { loadClipVideo } from './export/shared.js';
+import { loadClipVideo } from "./export/shared.js";
 export function isMediaDevicesSupported() {
     return typeof navigator !== 'undefined' && !!navigator.mediaDevices?.getUserMedia;
 }

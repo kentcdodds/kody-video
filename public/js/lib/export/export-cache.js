@@ -14,8 +14,8 @@
  * swept at boot and before each new export; users can drop the lot from
  * the storage UI.
  */
-import { getDb, getSettings, listProjects } from '../storage.js';
-import { listExportEntries, removeExportEntry } from './opfs.js';
+import { getDb, getSettings, listProjects } from "../storage.js";
+import { listExportEntries, removeExportEntry } from "./opfs.js";
 /**
  * Cross-tab coordination: an export in one tab streams into a temp file
  * that no metadata references yet — a sweep or clear from another tab

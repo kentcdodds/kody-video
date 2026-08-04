@@ -5,9 +5,9 @@
  * zip64 for huge projects) is exactly right — and the archive streams to
  * OPFS where available, so even gigabyte projects never sit in RAM.
  */
-import { makeZip } from './zip.js';
-import { withExportCacheReserved } from './export/export-cache.js';
-import { streamToOpfsFile } from './export/opfs.js';
+import { makeZip } from "./zip.js";
+import { withExportCacheReserved } from "./export/export-cache.js";
+import { streamToOpfsFile } from "./export/opfs.js";
 function extensionFor(mimeType) {
     return /mp4/i.test(mimeType) ? 'mp4' : 'webm';
 }

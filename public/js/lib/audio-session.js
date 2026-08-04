@@ -1,4 +1,4 @@
-import { isIosBrowser } from './media.js';
+import { isIosBrowser } from "./media.js";
 function audioSession() {
     if (!isIosBrowser())
         return null;

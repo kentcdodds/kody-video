@@ -1,10 +1,10 @@
 import { ALL_FORMATS, AudioBufferSource, BlobSource, BufferTarget, CanvasSink, CanvasSource, Input, Mp4OutputFormat, Output, Quality, StreamTarget, WebMOutputFormat, getFirstEncodableAudioCodec, getFirstEncodableVideoCodec, } from 'mediabunny';
-import { deriveProjectLocation } from '../geo.js';
-import { isIosBrowser } from '../media.js';
-import { injectMp4Metadata } from './mp4-metadata.js';
-import { createOpfsExportFile } from './opfs.js';
-import { clampSegmentToMedia } from './plan.js';
-import { PREVIEW_INTERVAL_MS, blitPreview, decodeClipAudio, drawWatermark, loadClipVideo, tagExportError, pickOutputSize, recordVideoLumaSample, seekTo, waitForPreviewCanvas, } from './shared.js';
+import { deriveProjectLocation } from "../geo.js";
+import { isIosBrowser } from "../media.js";
+import { injectMp4Metadata } from "./mp4-metadata.js";
+import { createOpfsExportFile } from "./opfs.js";
+import { clampSegmentToMedia } from "./plan.js";
+import { PREVIEW_INTERVAL_MS, blitPreview, decodeClipAudio, drawWatermark, loadClipVideo, tagExportError, pickOutputSize, recordVideoLumaSample, seekTo, waitForPreviewCanvas, } from "./shared.js";
 const FPS = 30;
 const AUDIO_SAMPLE_RATE = 48000;
 const AUDIO_CHANNELS = 2;

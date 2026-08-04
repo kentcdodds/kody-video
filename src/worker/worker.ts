@@ -9,10 +9,29 @@
  * with Checkout Sessions read access is enough).
  */
 
+/** The slice of the Workers runtime surface this module touches — declared
+ * locally so the project needs no @cloudflare/workers-types dependency. */
+interface AssetsBinding {
+  fetch(request: Request): Promise<Response>
+}
+
+interface Env {
+  ASSETS: AssetsBinding
+  STRIPE_SECRET_KEY?: string
+  /** Optional override; defaults to the production payment link. */
+  STRIPE_PAYMENT_LINK_ID?: string
+}
+
+interface StripeCheckoutSession {
+  status?: string
+  payment_status?: string
+  payment_link?: string
+}
+
 const PRODUCTION_PAYMENT_LINK_ID = 'plink_1TxcxULAQpAnsYszr2bLuqOl'
 const SESSION_ID_PATTERN = /^cs_[a-zA-Z0-9_]+$/
 
-function json(body, status) {
+function json(body: unknown, status: number): Response {
   return new Response(JSON.stringify(body), {
     status,
     headers: {
@@ -22,7 +41,7 @@ function json(body, status) {
   })
 }
 
-async function verifyPurchase(request, env) {
+async function verifyPurchase(request: Request, env: Env): Promise<Response> {
   const secretKey = env.STRIPE_SECRET_KEY
   if (!secretKey) {
     return json({ unlocked: false, error: 'Purchase verification is not configured yet.' }, 503)
@@ -44,7 +63,7 @@ async function verifyPurchase(request, env) {
     return json({ unlocked: false, error: 'Could not reach Stripe. Try again shortly.' }, 502)
   }
 
-  const session = await response.json()
+  const session = (await response.json()) as StripeCheckoutSession
 
   const expectedLink = env.STRIPE_PAYMENT_LINK_ID ?? PRODUCTION_PAYMENT_LINK_ID
   const complete = session.status === 'complete'
@@ -63,7 +82,7 @@ async function verifyPurchase(request, env) {
 }
 
 export default {
-  async fetch(request, env) {
+  async fetch(request: Request, env: Env): Promise<Response> {
     const url = new URL(request.url)
     if (url.pathname === '/api/verify-purchase' && request.method === 'GET') {
       return verifyPurchase(request, env)

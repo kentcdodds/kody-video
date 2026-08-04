@@ -1,6 +1,6 @@
 import { ALL_FORMATS, AudioBufferSink, BlobSource, Input } from 'mediabunny';
-import { reportError } from '../error-reporting.js';
-import { isMediaElementFailure, MediaElementFailureError } from './media-error.js';
+import { reportError } from "../error-reporting.js";
+import { isMediaElementFailure, MediaElementFailureError } from "./media-error.js";
 /**
  * Backoff between loadClipVideo retries. Hardware decoder slots (camera,
  * editor preview, a prior failed open) often take a few hundred ms to free
