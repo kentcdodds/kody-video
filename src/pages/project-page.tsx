@@ -99,11 +99,15 @@ export function ProjectPage(handle: Handle<ProjectPageProps>) {
     void handle.update()
   }
 
+  /** Monotonic request id: an older in-flight load for the same project
+   * (mount racing a post-mutation refresh) must never overwrite newer data. */
+  let loadVersion = 0
   const load = (projectId: string) => {
     loadedForId = projectId
+    const version = ++loadVersion
     void loadProjectPage(projectId)
       .then((loaded) => {
-        if (handle.signal.aborted || loadedForId !== projectId) return
+        if (handle.signal.aborted || version !== loadVersion) return
         data = loaded
         if (!onboardingInitialized) {
           onboardingInitialized = true
@@ -112,7 +116,7 @@ export function ProjectPage(handle: Handle<ProjectPageProps>) {
         void handle.update()
       })
       .catch((err) => {
-        if (handle.signal.aborted || loadedForId !== projectId) return
+        if (handle.signal.aborted || version !== loadVersion) return
         reportError(err, 'load-project')
         // Reuse the page's error rendering path (banner + back-home link).
         data = {

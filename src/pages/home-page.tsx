@@ -68,16 +68,21 @@ export function HomePage(handle: Handle) {
   // user activation (Web Share needs it; an IndexedDB read can outlive it).
   let prefetchedClips: { projectId: string; clips: Promise<ClipRecord[]> } | null = null
 
+  /** Monotonic request id: an older in-flight load (e.g. the mount load
+   * resolving after a delete's refresh) must never overwrite newer state. */
+  let refreshVersion = 0
   const refresh = () => {
+    const version = ++refreshVersion
     void loadHomePage()
       .then((loaded) => {
+        if (handle.signal.aborted || version !== refreshVersion) return
         lastHomeData = loaded
-        if (handle.signal.aborted) return
         data = loaded
+        error = null
         void handle.update()
       })
       .catch((err) => {
-        if (handle.signal.aborted) return
+        if (handle.signal.aborted || version !== refreshVersion) return
         reportError(err, 'load-home')
         error = err instanceof Error ? err.message : 'Could not load your projects.'
         void handle.update()
