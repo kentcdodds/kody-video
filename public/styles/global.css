@@ -779,3 +779,9 @@ kv-terms-page,
 kv-unlocked-page {
   display: contents;
 }
+
+/* The vanilla components toggle overlays with the `hidden` attribute instead
+   of conditional rendering — it must always win over class display rules. */
+[hidden] {
+  display: none !important;
+}

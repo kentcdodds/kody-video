@@ -47,6 +47,9 @@ export class KvTimeline extends KvElement {
   }
 
   render() {
+    // The editor attaches the element before assigning props on the first
+    // sync — nothing to draw yet.
+    if (!this.props) return
     const { clips, selectedClipId } = this.props
 
     if (clips.length === 0) {

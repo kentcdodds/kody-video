@@ -15,9 +15,11 @@ const CACHE_NAME = `kody-video-${CACHE_VERSION}`
 // The app shell. `og-image.png` and `art/kody-video-icon.png` are excluded
 // on purpose: the social card is for link scrapers and the icon master is
 // only a source file — neither belongs in every visitor's cache.
+// Note: the app shell is cached as '/' — the assets server redirects
+// '/index.html' to '/', and a redirected cached response is rejected by
+// Chromium when used for a navigation (net::ERR_FAILED).
 const PRECACHE = [
   '/',
-  '/index.html',
   '/manifest.webmanifest',
   '/styles/global.css',
   '/styles/home.css',
@@ -138,9 +140,7 @@ self.addEventListener('fetch', (event) => {
 
   // Navigations get the cached app shell (offline-first SPA).
   if (request.mode === 'navigate') {
-    event.respondWith(
-      caches.match('/index.html').then((cached) => cached ?? fetch(request)),
-    )
+    event.respondWith(caches.match('/').then((cached) => cached ?? fetch(request)))
     return
   }
 
