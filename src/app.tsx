@@ -1,14 +1,16 @@
 import type { Handle } from 'remix/ui'
 import { on } from 'remix/ui'
 import { registerSW } from 'virtual:pwa-register'
+import { lazyPage } from './components/lazy-page'
 import { registerUpdateHandles } from './lib/app-update'
 import { Router } from './router'
-import { AboutPage } from './pages/about-page'
 import { HomePage } from './pages/home-page'
-import { PrivacyPage } from './pages/privacy-page'
-import { ProjectPage } from './pages/project-page'
-import { TermsPage } from './pages/terms-page'
-import { UnlockedPage } from './pages/unlocked-page'
+
+const ProjectPage = lazyPage(() => import('./pages/project-page'), 'ProjectPage')
+const UnlockedPage = lazyPage(() => import('./pages/unlocked-page'), 'UnlockedPage')
+const AboutPage = lazyPage(() => import('./pages/about-page'), 'AboutPage')
+const PrivacyPage = lazyPage(() => import('./pages/privacy-page'), 'PrivacyPage')
+const TermsPage = lazyPage(() => import('./pages/terms-page'), 'TermsPage')
 
 export function App(handle: Handle) {
   let needRefresh = false
@@ -42,7 +44,9 @@ export function App(handle: Handle) {
       <Router
         routes={{
           '/': () => <HomePage />,
-          '/project/:projectId': (params) => <ProjectPage projectId={params.projectId ?? ''} />,
+          '/project/:projectId': (params) => (
+            <ProjectPage projectId={params.projectId ?? ''} />
+          ),
           '/unlocked': () => <UnlockedPage />,
           '/about': () => <AboutPage />,
           '/privacy': () => <PrivacyPage />,

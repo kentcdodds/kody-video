@@ -16,7 +16,7 @@ import {
 } from './storage'
 import { estimateExportCacheBytes } from './export/export-cache'
 import { estimateStorageSpace, type StorageSpace } from './storage-space'
-import { ensureClipThumbs, type GeneratedThumbs } from './thumbs'
+import type { GeneratedThumbs } from './thumbs'
 import {
   NEW_PROJECT_ID,
   effectiveDurationMs,
@@ -140,6 +140,8 @@ export async function loadProjectPage(projectId: ProjectId): Promise<ProjectLoad
     // Backfill filmstrip thumbnails for clips that lack them. Serially —
     // Android caps concurrent video decoders hard, and this normally touches
     // at most the clip that was just recorded.
+    // Lazy: thumbs → export/shared → mediabunny. Home never hits this path.
+    const { ensureClipThumbs } = await import('./thumbs')
     const hydrated: ClipRecord[] = []
     for (const clip of clips) {
       hydrated.push(await ensureClipThumbs(clip))

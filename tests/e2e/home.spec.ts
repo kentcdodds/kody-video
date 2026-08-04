@@ -128,10 +128,10 @@ test.describe('home & app shell', () => {
     await page.getByRole('link', { name: 'About' }).click()
     await page.waitForURL(/\/about/)
     await expect(page.locator('body')).toContainText('Kody Video')
-    for (const path of ['/privacy', '/terms']) {
-      await page.goto(path)
-      await expect(page.locator('h1, h2').first()).toBeVisible()
-    }
+    await page.goto('/privacy')
+    await expect(page.getByRole('heading', { name: 'Privacy', exact: true })).toBeVisible()
+    await page.goto('/terms')
+    await expect(page.getByRole('heading', { name: 'Terms', exact: true })).toBeVisible()
   })
 })
 

@@ -31,11 +31,41 @@ export default defineConfig({
           }),
         ]
       : []),
+    {
+      // First paint / LCP use inline critical CSS in index.html only. Strip
+      // any Vite-injected stylesheet links so lantern does not model a
+      // style-related LCP render delay; full CSS arrives via dynamic import()
+      // from main.tsx. Defer the module entry by two frames so the LCP image
+      // can paint before the main bundle evaluates.
+      name: 'lcp-first-paint',
+      transformIndexHtml(html) {
+        const withoutCssLinks = html
+          .replace(/<link rel="stylesheet"[^>]*>/g, '')
+          .replace(/<link[^>]*as="style"[^>]*>/g, '')
+          .replace(/<noscript><link rel="stylesheet"[^>]*><\/noscript>/g, '')
+        return withoutCssLinks.replace(
+          /<script type="module" crossorigin src="([^"]+)"><\/script>/,
+          `<script type="module">
+            const src = "$1";
+            const boot = () => { import(src); };
+            requestAnimationFrame(() => requestAnimationFrame(boot));
+          </script>`,
+        )
+      },
+    },
     VitePWA({
       // Prompt-based updates: users see "new version ready — update" instead
       // of silently running stale code until some future reload.
       registerType: 'prompt',
-      includeAssets: ['favicon.png', 'apple-touch-icon.png', 'kody-mark.webp', 'art/*.webp'],
+      includeAssets: [
+        'favicon.png',
+        'apple-touch-icon.png',
+        'kody-mark.webp',
+        'art/*.webp',
+        'fonts/*.woff2',
+        'robots.txt',
+        'sitemap.xml',
+      ],
       manifest: {
         name: 'Kody Video',
         short_name: 'Kody Video',
@@ -79,7 +109,12 @@ export default defineConfig({
         // Never SPA-fallback these: opening the social card in a tab with an
         // active service worker was "redirecting" to the app, and the API
         // must always hit the server.
-        navigateFallbackDenylist: [/^\/api\//, /\/og-image\.png$/],
+        navigateFallbackDenylist: [
+          /^\/api\//,
+          /\/og-image\.png$/,
+          /^\/robots\.txt$/,
+          /^\/sitemap\.xml$/,
+        ],
         maximumFileSizeToCacheInBytes: 3 * 1024 * 1024,
       },
       devOptions: {

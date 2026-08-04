@@ -1,5 +1,4 @@
 import { addClip, createProject, deleteProject, updateClipTrim } from './storage'
-import { ensureClipThumbs } from './thumbs'
 import type { ClipRecord, Project } from './types'
 
 /**
@@ -197,7 +196,9 @@ export async function importProjectBackup(
       // Restore trims (addClip resets them to the full clip).
       const trimmed = await updateClipTrim(added.id, clip.trimStartMs, clip.trimEndMs)
       // Generate thumbnails now so the slot poster shows right away and the
-      // first open doesn't pay the backfill cost.
+      // first open doesn't pay the backfill cost. Lazy import keeps mediabunny
+      // out of the home-shell graph until an import actually runs.
+      const { ensureClipThumbs } = await import('./thumbs')
       await ensureClipThumbs({ ...added, ...trimmed, blob: added.blob }).catch(() => undefined)
       done += 1
       onProgress?.(done, parsed.clips.length)

@@ -1,5 +1,6 @@
 import type { Handle } from 'remix/ui'
 import { on, ref } from 'remix/ui'
+import '../styles/record.css'
 import type { Camera } from '../lib/camera'
 import { dragZoomValue } from '../lib/drag-zoom'
 import { getLocationFix, type LocationFix } from '../lib/location'

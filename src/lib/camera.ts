@@ -1,7 +1,6 @@
 import { engageRecordAudioSession, releaseRecordAudioSession } from './audio-session'
 import {
   canFlipCamera,
-  isIosBrowser,
   listRearCameras,
   openCameraStream,
   openMicrophoneTrack,
@@ -14,6 +13,7 @@ import {
   type CameraPermissionState,
   type FacingMode,
 } from './media'
+import { isIosBrowser } from './platform'
 
 /**
  * iOS Safari is known to deliver muted (silent-but-live) audio tracks when

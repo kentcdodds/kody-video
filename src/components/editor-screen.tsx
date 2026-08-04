@@ -1,5 +1,6 @@
 import type { Handle, RemixNode } from 'remix/ui'
 import { on, ref } from 'remix/ui'
+import '../styles/editor.css'
 import {
   duplicateSelectedClip,
   moveSelectedClip,
