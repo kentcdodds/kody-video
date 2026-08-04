@@ -1,5 +1,5 @@
-import { startTransition, useRef, useState, useSyncExternalStore } from 'react'
-import { Link, useLoaderData, useNavigate, useRevalidator } from 'react-router-dom'
+import type { Handle } from 'remix/ui'
+import { on } from 'remix/ui'
 import { BlobImage } from '../components/blob-image'
 import { BrandMark } from '../components/brand-mark'
 import { ConfirmSheet } from '../components/confirm-sheet'
@@ -22,6 +22,7 @@ import { clearExportCache } from '../lib/export/export-cache'
 import { reportError } from '../lib/error-reporting'
 import { canPromptInstall, promptInstall, subscribeInstallPrompt } from '../lib/install-prompt'
 import { dismissIosInstallHint, shouldShowIosInstallHint } from '../lib/install-hint'
+import { navigate } from '../router'
 import {
   formatBytes,
   formatStoragePercent,
@@ -44,37 +45,33 @@ function isLegacyOrigin(): boolean {
   return location.hostname === 'kody-video.pages.dev'
 }
 
-export async function homeLoader(): Promise<HomeLoaderData> {
-  return loadHomePage()
-}
-
-export function HomePage() {
-  const { projects, storage, exportCacheBytes, plus } = useLoaderData() as HomeLoaderData
-  const revalidator = useRevalidator()
-  const navigate = useNavigate()
-  const [error, setError] = useState<string | null>(null)
-  const [menuProject, setMenuProject] = useState<ProjectSummary | null>(null)
-  const [renaming, setRenaming] = useState<ProjectSummary | null>(null)
-  const [deleting, setDeleting] = useState<ProjectSummary | null>(null)
-  const [busy, setBusy] = useState(false)
-  const [notice, setNotice] = useState<string | null>(null)
-  const [importProgress, setImportProgress] = useState<string | null>(null)
-  const [showInstallHint, setShowInstallHint] = useState(shouldShowIosInstallHint)
-  const [upselling, setUpselling] = useState(false)
-  const [restoring, setRestoring] = useState(false)
+export function HomePage(handle: Handle) {
+  let data: HomeLoaderData | null = null
+  let error: string | null = null
+  let menuProject: ProjectSummary | null = null
+  let renaming: ProjectSummary | null = null
+  let deleting: ProjectSummary | null = null
+  let busy = false
+  let notice: string | null = null
+  let importProgress: string | null = null
+  let showInstallHint = shouldShowIosInstallHint()
+  let upselling = false
+  let restoring = false
   // Prefetched when the options sheet opens so the Save-backup tap keeps its
   // user activation (Web Share needs it; an IndexedDB read can outlive it).
-  const prefetchedClipsRef = useRef<{ projectId: string; clips: Promise<ClipRecord[]> } | null>(
-    null,
-  )
+  let prefetchedClips: { projectId: string; clips: Promise<ClipRecord[]> } | null = null
 
   const refresh = () => {
-    startTransition(() => {
-      void revalidator.revalidate()
+    void loadHomePage().then((loaded) => {
+      if (handle.signal.aborted) return
+      data = loaded
+      void handle.update()
     })
   }
+  refresh()
 
-  const installable = useSyncExternalStore(subscribeInstallPrompt, canPromptInstall)
+  const unsubscribeInstall = subscribeInstallPrompt(() => void handle.update())
+  handle.signal.addEventListener('abort', unsubscribeInstall)
 
   // Nothing is persisted until the first clip is recorded — backing out of
   // an untouched new project leaves no empty project behind.
@@ -85,32 +82,33 @@ export function HomePage() {
   // Cached export files (the recoverable last export + scratch) can hold
   // gigabytes — when storage runs hot, the fix must be one tap away.
   const onClearExportCache = () => {
-    setBusy(true)
-    setError(null)
-    setNotice(null)
+    busy = true
+    error = null
+    notice = null
+    void handle.update()
     void clearExportCache()
       .then((freedBytes) => {
-        setNotice(`Cleared cached export files — freed ${formatBytes(freedBytes)}.`)
+        notice = `Cleared cached export files — freed ${formatBytes(freedBytes)}.`
         refresh()
       })
       .catch((err) => {
         reportError(err, 'clear-export-cache')
-        setError(
-          err instanceof Error ? err.message : 'Could not clear cached exports — try again.',
-        )
+        error = err instanceof Error ? err.message : 'Could not clear cached exports — try again.'
       })
       .finally(() => {
-        setBusy(false)
+        busy = false
+        void handle.update()
       })
   }
 
   const backupProject = (project: ProjectSummary) => {
     void (async () => {
-      setBusy(true)
-      setError(null)
-      setNotice(null)
+      busy = true
+      error = null
+      notice = null
+      void handle.update()
       try {
-        const prefetched = prefetchedClipsRef.current
+        const prefetched = prefetchedClips
         const clips =
           prefetched && prefetched.projectId === project.id
             ? await prefetched.clips
@@ -123,36 +121,36 @@ export function HomePage() {
         // route big backups straight to a download instead.
         if (backup.size > SHARE_BACKUP_LIMIT_BYTES) {
           await downloadBlob(backup, filename)
-          setNotice(
+          notice =
             `Backup (${sizeLabel}) saved to your downloads — too large for the share sheet. ` +
-              'Open kody.video and tap Import to restore it.',
-          )
+            'Open kody.video and tap Import to restore it.'
         } else {
           const outcome = await shareOrDownload(backup, filename)
           if (outcome !== 'cancelled') {
-            setNotice(
-              `Backup (${sizeLabel}) saved. Open kody.video (or any Kody Video) and tap Import to restore it.`,
-            )
+            notice = `Backup (${sizeLabel}) saved. Open kody.video (or any Kody Video) and tap Import to restore it.`
           }
         }
       } catch (err) {
-        setError(err instanceof Error ? err.message : 'Could not create the backup')
+        error = err instanceof Error ? err.message : 'Could not create the backup'
       } finally {
-        setBusy(false)
+        busy = false
+        void handle.update()
       }
     })()
   }
 
   const importBackup = (file: File) => {
     void (async () => {
-      setBusy(true)
-      setError(null)
-      setNotice(null)
-      setImportProgress('Reading backup…')
+      busy = true
+      error = null
+      notice = null
+      importProgress = 'Reading backup…'
+      void handle.update()
       try {
         const parsed = await parseProjectBackup(file)
         const project = await importProjectBackup(parsed, (done, total) => {
-          setImportProgress(`Importing clip ${Math.min(done + 1, total)} of ${total}…`)
+          importProgress = `Importing clip ${Math.min(done + 1, total)} of ${total}…`
+          void handle.update()
         })
         requestPersistentStorage()
         // Land directly in the imported project — unambiguous success, and
@@ -161,305 +159,350 @@ export function HomePage() {
       } catch (err) {
         // Wrong/damaged file picked = expected user input, not a crash.
         if (!(err instanceof BackupFormatError)) reportError(err, 'import')
-        setError(err instanceof Error ? err.message : 'Could not import that file')
+        error = err instanceof Error ? err.message : 'Could not import that file'
       } finally {
-        setImportProgress(null)
-        setBusy(false)
+        importProgress = null
+        busy = false
+        void handle.update()
       }
     })()
   }
 
-  const slots = Array.from({ length: MAX_PROJECTS }, (_, index) => projects[index] ?? null)
-  const projectLimit = plus ? MAX_PROJECTS : FREE_PROJECTS
-  const atCap = projects.length >= projectLimit
-  const severity = storage ? storageSeverity(storage.ratio) : 'ok'
-  const oldestProject = projects[0] ?? null
+  return () => {
+    if (!data) return null
+    const { projects, storage, exportCacheBytes, plus } = data
+    const installable = canPromptInstall()
 
-  return (
-    <div className="screen home-screen">
-      <div className="home-hero">
-        <div className="home-hero-art" aria-hidden="true">
-          <BrandMark size={96} className="brand-hero-art" variant="camera" />
+    const slots = Array.from({ length: MAX_PROJECTS }, (_, index) => projects[index] ?? null)
+    const projectLimit = plus ? MAX_PROJECTS : FREE_PROJECTS
+    const atCap = projects.length >= projectLimit
+    const severity = storage ? storageSeverity(storage.ratio) : 'ok'
+    const oldestProject = projects[0] ?? null
+
+    return (
+      <div className="screen home-screen">
+        <div className="home-hero">
+          <div className="home-hero-art" aria-hidden="true">
+            <BrandMark size={96} className="brand-hero-art" variant="camera" />
+          </div>
+          <h1 className="brand">
+            Kody <span>Video</span>
+          </h1>
+          <p className="lede">Hold to record. Tap Go to share.</p>
         </div>
-        <h1 className="brand">
-          Kody <span>Video</span>
-        </h1>
-        <p className="lede">Hold to record. Tap Go to share.</p>
-      </div>
 
-      {isLegacyOrigin() ? (
-        <div className="home-migrate">
-          <strong>Kody Video has moved to <a href="https://kody.video">kody.video</a>.</strong>{' '}
-          Projects live in this browser per-site, so use ⋯ → Save backup here, then Import them
-          over there. This address keeps working but won&rsquo;t get updates.
-        </div>
-      ) : null}
+        {isLegacyOrigin() ? (
+          <div className="home-migrate">
+            <strong>Kody Video has moved to <a href="https://kody.video">kody.video</a>.</strong>{' '}
+            Projects live in this browser per-site, so use ⋯ → Save backup here, then Import them
+            over there. This address keeps working but won&rsquo;t get updates.
+          </div>
+        ) : null}
 
-      {error ? <div className="error-banner">{error}</div> : null}
-      {notice ? <p className="home-notice">{notice}</p> : null}
-      {importProgress ? (
-        <p className="home-notice" role="status" aria-live="polite">
-          {importProgress} Keep this tab open.
-        </p>
-      ) : null}
+        {error ? <div className="error-banner">{error}</div> : null}
+        {notice ? <p className="home-notice">{notice}</p> : null}
+        {importProgress ? (
+          <p className="home-notice" role="status" aria-live="polite">
+            {importProgress} Keep this tab open.
+          </p>
+        ) : null}
 
-      {storage && severity !== 'ok' ? (
-        <div
-          className={`storage-banner${severity === 'critical' ? ' is-critical' : ''}`}
-          role="alert"
-        >
-          <strong>
-            Device storage {formatStoragePercent(storage.ratio)} full
-            {severity === 'critical' ? ' — recordings may start failing' : ''}
-          </strong>
-          <span>
-            {formatBytes(storage.usedBytes)} of {formatBytes(storage.quotaBytes)} used.
-            {oldestProject
-              ? ` Free space fast: delete an old project (⋯ on “${oldestProject.name}”, then Delete).`
-              : ' Free space by clearing other site data or files on this device.'}
-          </span>
-          {exportCacheBytes > 0 ? (
-            <button
-              type="button"
-              className="btn btn-secondary storage-banner-action"
-              disabled={busy}
-              onClick={onClearExportCache}
-            >
-              Clear cached exports ({formatBytes(exportCacheBytes)})
-            </button>
-          ) : null}
-        </div>
-      ) : null}
-
-      {showInstallHint ? (
-        <div className="home-install-hint">
-          <span className="install-hint-icon" aria-hidden="true">
-            <IconShareIos size={18} />
-          </span>
-          <span>
-            Install Kody Video: tap <strong>Share</strong>, then{' '}
-            <strong>Add to Home Screen</strong> — full screen, and your clips are safer from
-            Safari&rsquo;s storage cleanup.
-          </span>
-          <button
-            type="button"
-            className="install-hint-dismiss"
-            aria-label="Dismiss install tip"
-            onClick={() => {
-              dismissIosInstallHint()
-              setShowInstallHint(false)
-            }}
+        {storage && severity !== 'ok' ? (
+          <div
+            className={`storage-banner${severity === 'critical' ? ' is-critical' : ''}`}
+            role="alert"
           >
-            <IconClose size={16} />
-          </button>
-        </div>
-      ) : null}
-
-      <section className="project-slots" aria-label="Kody Video projects">
-        {slots.map((project, index) =>
-          project ? (
-            <article
-              key={project.id}
-              className={project.posterThumb ? 'project-slot filled has-poster' : 'project-slot filled'}
-            >
-              {project.posterThumb ? (
-                <BlobImage
-                  blob={project.posterThumb}
-                  className="slot-poster"
-                  alt=""
-                  aria-hidden="true"
-                  draggable={false}
-                />
-              ) : null}
-              <div className="slot-fade" aria-hidden="true" />
-              <Link className="slot-open" to={`/project/${project.id}`}>
-                <span className="slot-number">Slot {index + 1}</span>
-                <strong>{project.name}</strong>
-                <small>
-                  {project.clipCount} clip{project.clipCount === 1 ? '' : 's'} ·{' '}
-                  {formatDuration(project.durationMs)}
-                </small>
-              </Link>
+            <strong>
+              Device storage {formatStoragePercent(storage.ratio)} full
+              {severity === 'critical' ? ' — recordings may start failing' : ''}
+            </strong>
+            <span>
+              {formatBytes(storage.usedBytes)} of {formatBytes(storage.quotaBytes)} used.
+              {oldestProject
+                ? ` Free space fast: delete an old project (⋯ on “${oldestProject.name}”, then Delete).`
+                : ' Free space by clearing other site data or files on this device.'}
+            </span>
+            {exportCacheBytes > 0 ? (
               <button
                 type="button"
-                className="slot-options"
-                aria-label={`Options for ${project.name}`}
-                onClick={() => {
-                  prefetchedClipsRef.current = {
-                    projectId: project.id,
-                    clips: getClipsForProject(project.id),
-                  }
-                  setMenuProject(project)
-                }}
+                className="btn btn-secondary storage-banner-action"
+                disabled={busy}
+                mix={on('click', onClearExportCache)}
               >
-                <IconMore />
+                Clear cached exports ({formatBytes(exportCacheBytes)})
               </button>
-            </article>
-          ) : index < projectLimit ? (
+            ) : null}
+          </div>
+        ) : null}
+
+        {showInstallHint ? (
+          <div className="home-install-hint">
+            <span className="install-hint-icon" aria-hidden="true">
+              <IconShareIos size={18} />
+            </span>
+            <span>
+              Install Kody Video: tap <strong>Share</strong>, then{' '}
+              <strong>Add to Home Screen</strong> — full screen, and your clips are safer from
+              Safari&rsquo;s storage cleanup.
+            </span>
             <button
-              key={`empty-${index}`}
               type="button"
-              className="project-slot empty"
-              disabled={busy}
-              onClick={openNewProject}
+              className="install-hint-dismiss"
+              aria-label="Dismiss install tip"
+              mix={on('click', () => {
+                dismissIosInstallHint()
+                showInstallHint = false
+                void handle.update()
+              })}
             >
-              <span className="slot-plus" aria-hidden="true">
-                <IconPlus size={26} />
-              </span>
-              <strong>New project</strong>
-              <small>{`Slot ${index + 1}`}</small>
+              <IconClose size={16} />
+            </button>
+          </div>
+        ) : null}
+
+        <section className="project-slots" aria-label="Kody Video projects">
+          {slots.map((project, index) =>
+            project ? (
+              <article
+                key={project.id}
+                className={
+                  project.posterThumb ? 'project-slot filled has-poster' : 'project-slot filled'
+                }
+              >
+                {project.posterThumb ? (
+                  <BlobImage
+                    blob={project.posterThumb}
+                    className="slot-poster"
+                    alt=""
+                    aria-hidden="true"
+                    draggable={false}
+                  />
+                ) : null}
+                <div className="slot-fade" aria-hidden="true" />
+                <a className="slot-open" href={`/project/${project.id}`}>
+                  <span className="slot-number">Slot {index + 1}</span>
+                  <strong>{project.name}</strong>
+                  <small>
+                    {project.clipCount} clip{project.clipCount === 1 ? '' : 's'} ·{' '}
+                    {formatDuration(project.durationMs)}
+                  </small>
+                </a>
+                <button
+                  type="button"
+                  className="slot-options"
+                  aria-label={`Options for ${project.name}`}
+                  mix={on('click', () => {
+                    prefetchedClips = {
+                      projectId: project.id,
+                      clips: getClipsForProject(project.id),
+                    }
+                    menuProject = project
+                    void handle.update()
+                  })}
+                >
+                  <IconMore />
+                </button>
+              </article>
+            ) : index < projectLimit ? (
+              <button
+                key={`empty-${index}`}
+                type="button"
+                className="project-slot empty"
+                disabled={busy}
+                mix={on('click', openNewProject)}
+              >
+                <span className="slot-plus" aria-hidden="true">
+                  <IconPlus size={26} />
+                </span>
+                <strong>New project</strong>
+                <small>{`Slot ${index + 1}`}</small>
+              </button>
+            ) : (
+              <button
+                key={`locked-${index}`}
+                type="button"
+                className="project-slot empty locked"
+                mix={on('click', () => {
+                  upselling = true
+                  void handle.update()
+                })}
+              >
+                <span className="slot-plus" aria-hidden="true">
+                  <IconLock size={22} />
+                </span>
+                <strong>Plus slot</strong>
+                <small>Unlock with Kody Video Plus</small>
+              </button>
+            ),
+          )}
+        </section>
+
+        <p className="home-privacy">
+          Clips stay on this phone until you share.
+          {storage
+            ? ` ${formatBytes(storage.usedBytes)} of ${formatBytes(storage.quotaBytes)} used.`
+            : ''}{' '}
+          <a href="/about">About</a>
+          {installable ? (
+            <>
+              {' · '}
+              <button
+                type="button"
+                className="link-button"
+                mix={on('click', () => {
+                  void promptInstall()
+                })}
+              >
+                Install app
+              </button>
+            </>
+          ) : null}
+        </p>
+
+        <div className="home-footer">
+          {atCap && !plus ? (
+            <button
+              type="button"
+              className="btn btn-primary"
+              mix={on('click', () => {
+                upselling = true
+                void handle.update()
+              })}
+            >
+              Get more projects
             </button>
           ) : (
             <button
-              key={`locked-${index}`}
               type="button"
-              className="project-slot empty locked"
-              onClick={() => setUpselling(true)}
+              className="btn btn-primary"
+              disabled={busy || atCap}
+              mix={on('click', openNewProject)}
             >
-              <span className="slot-plus" aria-hidden="true">
-                <IconLock size={22} />
-              </span>
-              <strong>Plus slot</strong>
-              <small>Unlock with Kody Video Plus</small>
+              {atCap ? `Limit ${MAX_PROJECTS}` : 'New project'}
             </button>
-          ),
-        )}
-      </section>
-
-      <p className="home-privacy">
-        Clips stay on this phone until you share.
-        {storage ? ` ${formatBytes(storage.usedBytes)} of ${formatBytes(storage.quotaBytes)} used.` : ''}{' '}
-        <Link to="/about">About</Link>
-        {installable ? (
-          <>
-            {' · '}
-            <button
-              type="button"
-              className="link-button"
-              onClick={() => {
-                void promptInstall()
-              }}
-            >
-              Install app
-            </button>
-          </>
-        ) : null}
-      </p>
-
-      <div className="home-footer">
-        {atCap && !plus ? (
-          <button type="button" className="btn btn-primary" onClick={() => setUpselling(true)}>
-            Get more projects
-          </button>
-        ) : (
-          <button
-            type="button"
-            className="btn btn-primary"
-            disabled={busy || atCap}
-            onClick={openNewProject}
+          )}
+          <label
+            className={`btn btn-ghost home-import${busy ? ' is-disabled' : ''}`}
+            mix={on('click', (event) => {
+              if (!atCap) return
+              event.preventDefault()
+              if (!plus) {
+                upselling = true
+                void handle.update()
+                return
+              }
+              error = `Project limit reached (${MAX_PROJECTS}). Delete a project before importing.`
+              void handle.update()
+            })}
           >
-            {atCap ? `Limit ${MAX_PROJECTS}` : 'New project'}
-          </button>
-        )}
-        <label
-          className={`btn btn-ghost home-import${busy ? ' is-disabled' : ''}`}
-          onClick={(event) => {
-            if (!atCap) return
-            event.preventDefault()
-            if (!plus) {
-              setUpselling(true)
-              return
-            }
-            setError(
-              `Project limit reached (${MAX_PROJECTS}). Delete a project before importing.`,
-            )
-          }}
-        >
-          Import
-          <input
-            type="file"
-            accept=".kodyvideo,application/octet-stream"
-            className="visually-hidden"
-            disabled={busy}
-            onChange={(event) => {
-              const file = event.target.files?.[0]
-              event.target.value = ''
-              if (file) importBackup(file)
+            Import
+            <input
+              type="file"
+              accept=".kodyvideo,application/octet-stream"
+              className="visually-hidden"
+              disabled={busy}
+              mix={on('change', (event) => {
+                const input = event.currentTarget as HTMLInputElement
+                const file = input.files?.[0]
+                input.value = ''
+                if (file) importBackup(file)
+              })}
+            />
+          </label>
+        </div>
+
+        {menuProject ? (
+          <HomeOptionsSheet
+            projectName={menuProject.name}
+            onClose={() => {
+              menuProject = null
+              void handle.update()
+            }}
+            onOpen={() => {
+              const id = menuProject!.id
+              menuProject = null
+              void handle.update()
+              navigate(`/project/${id}`)
+            }}
+            onRename={() => {
+              renaming = menuProject
+              menuProject = null
+              void handle.update()
+            }}
+            onBackup={() => {
+              const project = menuProject!
+              menuProject = null
+              void handle.update()
+              backupProject(project)
+            }}
+            onDelete={() => {
+              deleting = menuProject
+              menuProject = null
+              void handle.update()
             }}
           />
-        </label>
+        ) : null}
+
+        {renaming ? (
+          <RenameSheet
+            key={renaming.id}
+            initialName={renaming.name}
+            onClose={() => {
+              renaming = null
+              void handle.update()
+            }}
+            onSave={async (name) => {
+              await renameProject(renaming!.id, name)
+              refresh()
+            }}
+          />
+        ) : null}
+
+        {deleting ? (
+          <ConfirmSheet
+            title="Delete project?"
+            message={`Delete “${deleting.name}” and all its clips? This can’t be undone.`}
+            confirmLabel="Delete"
+            onClose={() => {
+              deleting = null
+              void handle.update()
+            }}
+            onConfirm={async () => {
+              await deleteProject(deleting!.id)
+              refresh()
+            }}
+          />
+        ) : null}
+
+        {upselling ? (
+          <UpsellSheet
+            onClose={() => {
+              upselling = false
+              void handle.update()
+            }}
+            onRestore={() => {
+              upselling = false
+              restoring = true
+              void handle.update()
+            }}
+          />
+        ) : null}
+
+        {restoring ? (
+          <RestoreSheet
+            onClose={() => {
+              restoring = false
+              void handle.update()
+            }}
+            onRestored={() => {
+              restoring = false
+              notice = 'Kody Video Plus restored — all project slots are unlocked.'
+              void handle.update()
+              refresh()
+            }}
+          />
+        ) : null}
       </div>
-
-      {menuProject ? (
-        <HomeOptionsSheet
-          projectName={menuProject.name}
-          onClose={() => setMenuProject(null)}
-          onOpen={() => {
-            const id = menuProject.id
-            setMenuProject(null)
-            navigate(`/project/${id}`)
-          }}
-          onRename={() => {
-            setRenaming(menuProject)
-            setMenuProject(null)
-          }}
-          onBackup={() => {
-            const project = menuProject
-            setMenuProject(null)
-            backupProject(project)
-          }}
-          onDelete={() => {
-            setDeleting(menuProject)
-            setMenuProject(null)
-          }}
-        />
-      ) : null}
-
-      {renaming ? (
-        <RenameSheet
-          key={renaming.id}
-          initialName={renaming.name}
-          onClose={() => setRenaming(null)}
-          onSave={async (name) => {
-            await renameProject(renaming.id, name)
-            refresh()
-          }}
-        />
-      ) : null}
-
-      {deleting ? (
-        <ConfirmSheet
-          title="Delete project?"
-          message={`Delete “${deleting.name}” and all its clips? This can’t be undone.`}
-          confirmLabel="Delete"
-          onClose={() => setDeleting(null)}
-          onConfirm={async () => {
-            await deleteProject(deleting.id)
-            refresh()
-          }}
-        />
-      ) : null}
-
-      {upselling ? (
-        <UpsellSheet
-          onClose={() => setUpselling(false)}
-          onRestore={() => {
-            setUpselling(false)
-            setRestoring(true)
-          }}
-        />
-      ) : null}
-
-      {restoring ? (
-        <RestoreSheet
-          onClose={() => setRestoring(false)}
-          onRestored={() => {
-            setRestoring(false)
-            setNotice('Kody Video Plus restored — all project slots are unlocked.')
-            refresh()
-          }}
-        />
-      ) : null}
-    </div>
-  )
+    )
+  }
 }

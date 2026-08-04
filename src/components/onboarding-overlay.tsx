@@ -1,3 +1,5 @@
+import type { Handle } from 'remix/ui'
+import { on } from 'remix/ui'
 import { BrandMark } from './brand-mark'
 
 interface OnboardingOverlayProps {
@@ -23,8 +25,8 @@ const steps = [
   },
 ]
 
-export function OnboardingOverlay({ onDismiss }: OnboardingOverlayProps) {
-  return (
+export function OnboardingOverlay(handle: Handle<OnboardingOverlayProps>) {
+  return () => (
     <div className="onboarding-overlay" role="dialog" aria-label="Kody Video quick start">
       <div className="onboarding-card">
         <div className="onboarding-card-top">
@@ -45,7 +47,11 @@ export function OnboardingOverlay({ onDismiss }: OnboardingOverlayProps) {
             </li>
           ))}
         </ol>
-        <button type="button" className="btn btn-primary" onClick={onDismiss}>
+        <button
+          type="button"
+          className="btn btn-primary"
+          mix={on('click', () => handle.props.onDismiss())}
+        >
           Start recording
         </button>
       </div>

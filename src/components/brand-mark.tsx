@@ -1,3 +1,5 @@
+import type { Handle } from 'remix/ui'
+
 interface BrandMarkProps {
   size?: number
   className?: string
@@ -25,22 +27,25 @@ const sources: Record<NonNullable<BrandMarkProps['variant']>, { webp: string; fa
   },
 }
 
-export function BrandMark({ size = 56, className, variant = 'mark' }: BrandMarkProps) {
-  const src = sources[variant]
+export function BrandMark(handle: Handle<BrandMarkProps>) {
+  return () => {
+    const { size = 56, className, variant = 'mark' } = handle.props
+    const src = sources[variant]
 
-  return (
-    <picture className={className ? `${className}-picture` : undefined}>
-      <source srcSet={src.webp} type="image/webp" />
-      <img
-        className={className}
-        width={size}
-        height={size}
-        src={src.fallback}
-        alt=""
-        aria-hidden="true"
-        draggable={false}
-        decoding="async"
-      />
-    </picture>
-  )
+    return (
+      <picture className={className ? `${className}-picture` : undefined}>
+        <source srcSet={src.webp} type="image/webp" />
+        <img
+          className={className}
+          width={size}
+          height={size}
+          src={src.fallback}
+          alt=""
+          aria-hidden="true"
+          draggable={false}
+          decoding="async"
+        />
+      </picture>
+    )
+  }
 }

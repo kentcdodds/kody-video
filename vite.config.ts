@@ -1,5 +1,4 @@
 import { defineConfig } from 'vite'
-import react from '@vitejs/plugin-react'
 import { VitePWA } from 'vite-plugin-pwa'
 import { sentryVitePlugin } from '@sentry/vite-plugin'
 
@@ -17,8 +16,11 @@ export default defineConfig({
     // Generated for Sentry upload, never referenced from the served bundles.
     sourcemap: sentryUpload ? 'hidden' : false,
   },
+  esbuild: {
+    jsx: 'automatic',
+    jsxImportSource: 'remix/ui',
+  },
   plugins: [
-    react(),
     ...(sentryUpload
       ? [
           sentryVitePlugin({

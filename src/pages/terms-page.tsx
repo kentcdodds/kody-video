@@ -1,14 +1,13 @@
-import { Link } from 'react-router-dom'
 import { IconBack } from '../components/icons'
 
 /** Plain-language terms of use for on-device Kody Video. */
 export function TermsPage() {
-  return (
+  return () => (
     <div className="screen about-screen">
       <div className="about-top">
-        <Link to="/" className="btn-icon" aria-label="Back to projects">
+        <a href="/" className="btn-icon" aria-label="Back to projects">
           <IconBack />
-        </Link>
+        </a>
         <strong>Terms</strong>
         <span className="about-top-spacer" aria-hidden="true" />
       </div>
@@ -76,8 +75,7 @@ export function TermsPage() {
 
         <section className="about-section legal-nav">
           <p>
-            See also the <Link to="/privacy">Privacy</Link> and{' '}
-            <Link to="/about">About</Link> pages.
+            See also the <a href="/privacy">Privacy</a> and <a href="/about">About</a> pages.
           </p>
         </section>
       </div>

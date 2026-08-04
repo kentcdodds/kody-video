@@ -1,9 +1,7 @@
-import { useCallback, useLayoutEffect, useRef, type RefCallback } from 'react'
-
 interface SheetModalOptions {
   onDismiss: () => void
-  /** Blocks Esc dismissal while an action is in flight. */
-  busy?: boolean
+  /** Blocks Esc dismissal while an action is in flight (read per keydown). */
+  busy?: () => boolean
 }
 
 /** Mounted sheets, in stacking order — only the topmost owns the keyboard
@@ -13,20 +11,19 @@ const sheetStack: HTMLElement[] = []
 /**
  * Modal behavior for bottom sheets: Escape dismisses (unless busy), Tab is
  * trapped inside the sheet, initial focus lands on `[data-sheet-focus]` (or
- * the first focusable), and focus returns to the opener on close. Attach the
- * returned ref to the sheet's dialog element and add `aria-modal="true"`.
+ * the first focusable), and focus returns to the opener on close. Attach via
+ * the `ref()` mixin on the sheet's dialog element and add `aria-modal="true"`.
  */
-export function useSheetModal({ onDismiss, busy }: SheetModalOptions): RefCallback<HTMLElement> {
-  const optionsRef = useRef({ onDismiss, busy })
-  useLayoutEffect(() => {
-    optionsRef.current = { onDismiss, busy }
-  })
-  const elementRef = useRef<HTMLElement | null>(null)
-  const previousFocusRef = useRef<HTMLElement | null>(null)
+export function attachSheetModal(
+  element: HTMLElement,
+  signal: AbortSignal,
+  options: SheetModalOptions,
+): void {
+  sheetStack.push(element)
+  const previousFocus =
+    document.activeElement instanceof HTMLElement ? document.activeElement : null
 
-  const onKeyDown = useCallback((event: KeyboardEvent) => {
-    const element = elementRef.current
-    if (!element) return
+  const onKeyDown = (event: KeyboardEvent) => {
     // Stacked sheets: only the topmost handles keys (the lower sheet's
     // listener must neither trap Tab nor dismiss on the same Escape).
     if (sheetStack[sheetStack.length - 1] !== element) return
@@ -34,7 +31,7 @@ export function useSheetModal({ onDismiss, busy }: SheetModalOptions): RefCallba
       // Capture-phase stop: the sheet's Escape must never also trigger
       // screen-level shortcuts (e.g. the editor's back-to-camera).
       event.stopPropagation()
-      if (!optionsRef.current.busy) optionsRef.current.onDismiss()
+      if (!options.busy?.()) options.onDismiss()
       return
     }
     if (event.key !== 'Tab') return
@@ -65,31 +62,18 @@ export function useSheetModal({ onDismiss, busy }: SheetModalOptions): RefCallba
       event.preventDefault()
       first.focus()
     }
-  }, [])
+  }
 
-  return useCallback(
-    (element: HTMLElement | null) => {
-      if (element) {
-        elementRef.current = element
-        sheetStack.push(element)
-        previousFocusRef.current =
-          document.activeElement instanceof HTMLElement ? document.activeElement : null
-        window.addEventListener('keydown', onKeyDown, true)
-        const initial =
-          element.querySelector<HTMLElement>('[data-sheet-focus]') ??
-          element.querySelector<HTMLElement>(
-            'button:not([disabled]), [href], input, select, textarea',
-          )
-        initial?.focus()
-      } else {
-        const index = elementRef.current ? sheetStack.indexOf(elementRef.current) : -1
-        if (index >= 0) sheetStack.splice(index, 1)
-        elementRef.current = null
-        window.removeEventListener('keydown', onKeyDown, true)
-        previousFocusRef.current?.focus()
-        previousFocusRef.current = null
-      }
-    },
-    [onKeyDown],
-  )
+  window.addEventListener('keydown', onKeyDown, { capture: true })
+  const initial =
+    element.querySelector<HTMLElement>('[data-sheet-focus]') ??
+    element.querySelector<HTMLElement>('button:not([disabled]), [href], input, select, textarea')
+  initial?.focus()
+
+  signal.addEventListener('abort', () => {
+    const index = sheetStack.indexOf(element)
+    if (index >= 0) sheetStack.splice(index, 1)
+    window.removeEventListener('keydown', onKeyDown, { capture: true })
+    previousFocus?.focus()
+  })
 }

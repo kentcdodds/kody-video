@@ -1,47 +1,28 @@
-import { useCallback, useRef, type ImgHTMLAttributes, type RefCallback } from 'react'
+import type { Handle, MixValue } from 'remix/ui'
+import { ref } from 'remix/ui'
+import { createBlobUrlBinder } from '../lib/blob-url'
 
-type BlobImageProps = Omit<ImgHTMLAttributes<HTMLImageElement>, 'src'> & {
+interface BlobImageProps {
   blob: Blob
+  className?: string
+  alt?: string
+  'aria-hidden'?: boolean | 'true' | 'false'
+  draggable?: boolean
+  mix?: MixValue
 }
 
-type BlobUrlState = { current: string | null; blob: Blob | null }
+/** Image element bound to a Blob via object URL (revoked on unmount/blob change). */
+export function BlobImage(handle: Handle<BlobImageProps>) {
+  const binder = createBlobUrlBinder<HTMLImageElement>(() => handle.props.blob)
 
-function bindBlobImageUrl(element: HTMLImageElement | null, blob: Blob, state: BlobUrlState): void {
-  if (!element) {
-    if (state.current) {
-      URL.revokeObjectURL(state.current)
-    }
-    state.current = null
-    state.blob = null
-    return
+  return () => {
+    const { blob: _blob, mix, ...props } = handle.props
+    binder.sync()
+    return (
+      <img
+        {...props}
+        mix={[mix, ref((node, signal) => binder.attach(node as HTMLImageElement, signal))]}
+      />
+    )
   }
-
-  if (state.blob !== blob || !state.current) {
-    if (state.current) {
-      URL.revokeObjectURL(state.current)
-    }
-    state.current = URL.createObjectURL(blob)
-    state.blob = blob
-  }
-
-  if (element.src !== state.current) {
-    element.src = state.current
-  }
-}
-
-/** Image element bound to a Blob via ref callback (revokes URL on unmount/blob change). */
-export function BlobImage({ blob, ...props }: BlobImageProps) {
-  const stateRef = useRef<BlobUrlState>({
-    current: null,
-    blob: null,
-  })
-
-  const setImageRef = useCallback<RefCallback<HTMLImageElement>>(
-    (element) => {
-      bindBlobImageUrl(element, blob, stateRef.current)
-    },
-    [blob],
-  )
-
-  return <img {...props} ref={setImageRef} />
 }

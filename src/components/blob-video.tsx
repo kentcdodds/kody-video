@@ -1,26 +1,37 @@
-import { useCallback, useRef, type RefCallback, type VideoHTMLAttributes } from 'react'
-import { bindBlobUrl } from '../lib/blob-url'
+import type { Handle, MixInput } from 'remix/ui'
+import { ref } from 'remix/ui'
+import { createBlobUrlBinder } from '../lib/blob-url'
 
-type BlobVideoProps = Omit<VideoHTMLAttributes<HTMLVideoElement>, 'src'> & {
+interface BlobVideoProps {
   blob: Blob
-  /** Outer ref to the underlying element (mount/unmount, like a plain ref). */
-  videoRef?: RefCallback<HTMLVideoElement>
+  className?: string
+  playsInline?: boolean
+  preload?: 'none' | 'metadata' | 'auto'
+  muted?: boolean
+  autoPlay?: boolean
+  /** Outer ref to the underlying element (insert + abort on removal). */
+  videoRef?: (element: HTMLVideoElement, signal: AbortSignal) => void
+  mix?: MixInput<HTMLVideoElement>
 }
 
-/** Video element bound to a Blob via ref callback (revokes URL on unmount/blob change). */
-export function BlobVideo({ blob, videoRef, ...props }: BlobVideoProps) {
-  const stateRef = useRef<{ current: string | null; blob: Blob | null }>({
-    current: null,
-    blob: null,
-  })
+/** Video element bound to a Blob via object URL (revoked on unmount/blob change). */
+export function BlobVideo(handle: Handle<BlobVideoProps>) {
+  const binder = createBlobUrlBinder<HTMLVideoElement>(() => handle.props.blob)
 
-  const setVideoRef = useCallback<RefCallback<HTMLVideoElement>>(
-    (element) => {
-      bindBlobUrl(element, blob, stateRef.current)
-      videoRef?.(element)
-    },
-    [blob, videoRef],
-  )
-
-  return <video {...props} ref={setVideoRef} />
+  return () => {
+    const { blob: _blob, videoRef, mix, ...props } = handle.props
+    binder.sync()
+    return (
+      <video
+        {...props}
+        mix={[
+          mix,
+          ref((node, signal) => {
+            binder.attach(node as HTMLVideoElement, signal)
+            videoRef?.(node as HTMLVideoElement, signal)
+          }),
+        ]}
+      />
+    )
+  }
 }
