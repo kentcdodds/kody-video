@@ -1,3 +1,4 @@
+import { copyFile } from 'node:fs/promises'
 import { defineConfig } from 'vite'
 import { VitePWA } from 'vite-plugin-pwa'
 import { sentryVitePlugin } from '@sentry/vite-plugin'
@@ -185,5 +186,16 @@ export default defineConfig({
         enabled: false,
       },
     }),
+    {
+      // _redirects rewrites deep links to /app (see public/_redirects):
+      // Cloudflare Pages 308-normalizes rewrites that target /index.html,
+      // so the shell needs a second name. Written after the service worker
+      // generation so it stays out of the precache (navigateFallback keeps
+      // using /index.html).
+      name: 'spa-shell-copy',
+      closeBundle: async () => {
+        await copyFile('dist/index.html', 'dist/app.html')
+      },
+    },
   ],
 })

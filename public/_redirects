@@ -1,4 +1,19 @@
-# SPA fallback for client routes. Existing static files (including /assets/*,
-# /llms.txt, /robots.txt, /sitemap.xml) are served from the build output and
-# are not rewritten.
-/*    /index.html   200
+# SPA rewrites for the app's client routes ONLY (see src/app.tsx). Everything
+# else that misses a static file serves public/404.html with a real 404.
+#
+# Deliberate and load-bearing: a catch-all /* rewrite used to answer missing
+# /assets/* chunk URLs with index.html as HTTP 200. During a deploy's edge
+# window that let browsers AND the service worker's install precache store
+# HTML bodies under hashed .js/.css URLs, poisoning clients so the app could
+# never boot (2026-08-05 incident). A 404 can never be cached as a module and
+# a failed service worker install cleanly retries.
+#
+# Targets are /app (the pretty URL of app.html, a build-time copy of the
+# shell) because Cloudflare Pages normalizes rewrites targeting /index.html
+# into 308 redirects to /, which drops the requested path (it broke /about
+# and Stripe's return to /unlocked when this was first attempted).
+/project/*    /app    200
+/unlocked     /app    200
+/about        /app    200
+/privacy      /app    200
+/terms        /app    200
