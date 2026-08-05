@@ -42,10 +42,10 @@ test.describe('home & app shell', () => {
     await unlockPlus(page)
     const outcome = await page.evaluate(async () => {
       const storage = await import('/src/lib/storage.ts')
-      // Custom names: projects still in their default state (empty, named
-      // "Project N") are auto-deleted when the home screen loads.
+      // Explicit names (even default-shaped ones): only projects still
+      // carrying their GENERATED name are auto-deleted on home load.
       for (let i = 1; i <= 6; i += 1) {
-        await storage.createProject(`Trip ${i}`)
+        await storage.createProject(`Project ${i}`)
       }
       try {
         await storage.createProject('One too many')

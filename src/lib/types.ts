@@ -7,6 +7,10 @@ export interface Project {
   createdAt: number
   updatedAt: number
   clipIds: ClipId[]
+  /** True while the name is still the generated "Project N" — cleared on
+   * rename, and never set for caller-chosen names, so a deliberate name
+   * (even one shaped like "Project 2") is never mistaken for the default. */
+  nameIsDefault?: boolean
 }
 
 export interface ClipMeta {

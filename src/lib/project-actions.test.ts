@@ -34,7 +34,8 @@ describe('loadHomeProjects', () => {
 
   it('keeps empty projects the user renamed', async () => {
     const project = await createProject()
-    await renameProject(project.id, 'Project X')
+    // Even a rename to a default-shaped name is deliberate.
+    await renameProject(project.id, 'Project 2')
 
     const summaries = await loadHomeProjects()
 

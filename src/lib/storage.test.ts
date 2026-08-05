@@ -139,6 +139,21 @@ describe('storage layer', () => {
     expect((await listProjects())[0]?.name).toBe('Ski trip')
   })
 
+  it('deleteProjectIfPristine keeps a project renamed to a default-shaped name', async () => {
+    const project = await createProject()
+    await renameProject(project.id, 'Project 2')
+
+    expect(await deleteProjectIfPristine(project.id)).toBe(false)
+    expect((await listProjects())[0]?.name).toBe('Project 2')
+  })
+
+  it('deleteProjectIfPristine keeps a project created with a default-shaped name', async () => {
+    const project = await createProject('Project 2')
+
+    expect(await deleteProjectIfPristine(project.id)).toBe(false)
+    expect(await listProjects()).toHaveLength(1)
+  })
+
   it('deleteProjectIfPristine keeps projects with background music', async () => {
     await markWatermarkRemoved('cs_test_storage')
     const project = await createProject()

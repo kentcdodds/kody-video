@@ -174,13 +174,17 @@ export async function createProject(name?: string): Promise<Project> {
   }
 
   const now = Date.now()
+  const chosenName = name?.trim()
   const project: Project = {
     id: newId('proj'),
-    name: name?.trim() || defaultProjectName(existing.length + 1),
+    name: chosenName || defaultProjectName(existing.length + 1),
     createdAt: now,
     updatedAt: now,
     clipIds: [],
   }
+  // Marks eligibility for the default-state cleanup on exit — a
+  // caller-chosen name is meaningful and must never be auto-deleted.
+  if (!chosenName) project.nameIsDefault = true
   await db.put('projects', project)
   await setLastOpenedProjectId(project.id)
   return project
@@ -197,6 +201,9 @@ export async function renameProject(id: ProjectId, name: string): Promise<Projec
   const trimmed = name.trim()
   if (!trimmed) throw new Error('Name cannot be empty')
   const updated: Project = { ...project, name: trimmed, updatedAt: Date.now() }
+  // Any rename is deliberate — even one back to a "Project N"-shaped name —
+  // so the project stops being eligible for the default-state cleanup.
+  delete updated.nameIsDefault
   await db.put('projects', updated)
   return updated
 }
@@ -205,13 +212,9 @@ export async function deleteProject(id: ProjectId): Promise<void> {
   await deleteProjectRecords(id, { onlyIfPristine: false })
 }
 
-/** Matches names produced by defaultProjectName — a rename away from the
- * default marks the project as meaningful. */
-const DEFAULT_PROJECT_NAME_PATTERN = /^Project \d+$/
-
 /**
  * Delete the project only when it is still indistinguishable from a freshly
- * created one: no clips, default name, no background music. Exiting such a
+ * created one: no clips, never renamed, no background music. Exiting such a
  * project should leave nothing behind — deleting it changes nothing the user
  * can see, so it happens silently. Any leftover undo snapshot (last clip
  * deleted, never restored) goes with it. Returns true when it was deleted.
@@ -238,7 +241,7 @@ async function deleteProjectRecords(
     const audio = await tx.objectStore('audio').get(id)
     const pristine =
       project.clipIds.length === 0 &&
-      DEFAULT_PROJECT_NAME_PATTERN.test(project.name) &&
+      project.nameIsDefault === true &&
       (!audio || audio.tracks.length === 0)
     if (!pristine) {
       await tx.done
