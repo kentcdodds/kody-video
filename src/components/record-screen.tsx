@@ -424,7 +424,7 @@ export function RecordScreen(handle: Handle<RecordScreenProps>) {
     }
   }
 
-  const endRecord = async (endPointerId?: number) => {
+  const endRecord = async (endPointerId?: number, options?: { flushNow?: boolean }) => {
     // Pointer events never end a Space-owned take (keyup does, and it
     // clears the flag before calling in).
     if (endPointerId !== undefined && keyboardTake) return
@@ -459,7 +459,10 @@ export function RecordScreen(handle: Handle<RecordScreenProps>) {
     // back the on-screen element blinks its overlay path.
     const capturedThumbs = captureTakeThumbs().catch(() => null)
     try {
-      const result = await recorder.stop()
+      // flushNow: the caller is about to tear the camera (and the
+      // recorder's live mic track) down — the stop-grace tail must be
+      // skipped and the encoder flushed synchronously inside this call.
+      const result = await recorder.stop(options?.flushNow ? { graceMs: 0 } : undefined)
       if (!result) {
         props.showToast('Hold a bit longer')
         return
@@ -633,9 +636,9 @@ export function RecordScreen(handle: Handle<RecordScreenProps>) {
         while (restartRequested) {
           restartRequested = false
           // If a take was somehow still running on a frozen stream, save it
-          // first.
+          // first — flushed immediately, the stream is dead or dying.
           if (recorder.isRecording || recording) {
-            await endRecord()
+            await endRecord(undefined, { flushNow: true })
           }
           camera.stop()
           // The app may have been hidden again while the take was finishing —
@@ -663,10 +666,11 @@ export function RecordScreen(handle: Handle<RecordScreenProps>) {
       micSilent = false
       void handle.update()
       if (recorder.isRecording || recording) {
-        // MediaRecorder.stop() runs synchronously inside endRecord, so the
-        // encoder has flushed by the time the tracks are stopped below; the
-        // save itself continues in the background.
-        void endRecord()
+        // flushNow makes MediaRecorder.stop() run synchronously inside
+        // endRecord (no stop-grace), so the encoder has flushed by the time
+        // the tracks are stopped below; the save itself continues in the
+        // background.
+        void endRecord(undefined, { flushNow: true })
       }
       camera.stop()
       cameraStoppedInBackground = true

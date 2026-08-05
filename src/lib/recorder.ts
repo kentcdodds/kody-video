@@ -68,6 +68,9 @@ function stopSessionTracks(session: RecordingSession): void {
 export class HoldRecorder {
   private session: RecordingSession | null = null
   private stopping = false
+  /** Cuts a pending stop grace short — set only while a stop() is waiting
+   * out its grace window (see cancel()). */
+  private fireStopNow: (() => void) | null = null
 
   get isRecording(): boolean {
     return this.session?.recorder.state === 'recording'
@@ -119,7 +122,10 @@ export class HoldRecorder {
     }
   }
 
-  stop(): Promise<RecordingResult | null> {
+  /** `graceMs: 0` stops the MediaRecorder SYNCHRONOUSLY inside this call —
+   * background/unmount teardown stops the camera right after, and the
+   * encoder must have flushed by then. */
+  stop(options?: { graceMs?: number }): Promise<RecordingResult | null> {
     const session = this.session
     if (!session || session.recorder.state === 'inactive') {
       if (session) stopSessionTracks(session)
@@ -132,6 +138,7 @@ export class HoldRecorder {
     const releaseAt = performance.now()
     const wallClockMs = Math.max(0, Math.round(releaseAt - session.startedAt))
     const finishSession = () => {
+      this.fireStopNow = null
       stopSessionTracks(session)
       if (this.session === session) {
         this.session = null
@@ -190,17 +197,34 @@ export class HoldRecorder {
         finishSession()
         reject(new Error('Recording failed'))
       }
-      window.setTimeout(() => {
+      const graceMs = options?.graceMs ?? STOP_GRACE_MS
+      let graceTimer = 0
+      const fire = () => {
+        window.clearTimeout(graceTimer)
+        this.fireStopNow = null
         graceActualMs = Math.round(performance.now() - releaseAt)
-        // cancel() may have raced the grace timer and already stopped it.
         if (session.recorder.state !== 'inactive') {
           session.recorder.stop()
         }
-      }, STOP_GRACE_MS)
+      }
+      if (graceMs <= 0) {
+        fire()
+      } else {
+        this.fireStopNow = fire
+        graceTimer = window.setTimeout(fire, graceMs)
+      }
     })
   }
 
   cancel(): void {
+    // A stop() already owns this session (waiting out its grace, or
+    // awaiting onstop): hasten it and let its save resolve. Discarding
+    // here would orphan the pending stop() promise — endRecord would hang
+    // and a take the user properly released would be lost.
+    if (this.stopping) {
+      this.fireStopNow?.()
+      return
+    }
     const session = this.session
     this.session = null
     this.stopping = false
