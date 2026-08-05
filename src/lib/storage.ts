@@ -43,7 +43,8 @@ interface ClipsDB extends DBSchema {
 }
 
 export const DB_NAME = 'kody-video'
-const DB_VERSION = 2
+/** Bumped when a migration must re-run for already-open clients. */
+export const DB_VERSION = 3
 
 let dbPromise: Promise<IDBPDatabase<ClipsDB>> | null = null
 
@@ -63,24 +64,41 @@ async function completeTransaction(
   await Promise.all([...ops, tx.done])
 }
 
+/**
+ * Ensure every object store exists. Version gates alone are not enough: a
+ * version-less `indexedDB.open('kody-video')` (e.g. a diagnostic page) can
+ * create an empty version-1 DB, after which `oldVersion < 1` skips the
+ * original stores and only `audio` is added on the v2 bump.
+ */
+export function ensureObjectStores(db: {
+  objectStoreNames: DOMStringList
+  createObjectStore: IDBPDatabase<ClipsDB>['createObjectStore']
+}): void {
+  if (!db.objectStoreNames.contains('projects')) {
+    const projects = db.createObjectStore('projects', { keyPath: 'id' })
+    projects.createIndex('by-updated', 'updatedAt')
+  }
+  if (!db.objectStoreNames.contains('clips')) {
+    const clips = db.createObjectStore('clips', { keyPath: 'id' })
+    clips.createIndex('by-project', 'projectId')
+  }
+  if (!db.objectStoreNames.contains('undo')) {
+    db.createObjectStore('undo', { keyPath: 'clip.projectId' })
+  }
+  if (!db.objectStoreNames.contains('meta')) {
+    db.createObjectStore('meta', { keyPath: 'key' })
+  }
+  if (!db.objectStoreNames.contains('audio')) {
+    // One optional background-audio playlist per project.
+    db.createObjectStore('audio', { keyPath: 'projectId' })
+  }
+}
+
 export function getDb(): Promise<IDBPDatabase<ClipsDB>> {
   if (!dbPromise) {
     dbPromise = openDB<ClipsDB>(DB_NAME, DB_VERSION, {
-      upgrade(db, oldVersion) {
-        if (oldVersion < 1) {
-          const projects = db.createObjectStore('projects', { keyPath: 'id' })
-          projects.createIndex('by-updated', 'updatedAt')
-
-          const clips = db.createObjectStore('clips', { keyPath: 'id' })
-          clips.createIndex('by-project', 'projectId')
-
-          db.createObjectStore('undo', { keyPath: 'clip.projectId' })
-          db.createObjectStore('meta', { keyPath: 'key' })
-        }
-        if (oldVersion < 2) {
-          // One optional background-audio track per project.
-          db.createObjectStore('audio', { keyPath: 'projectId' })
-        }
+      upgrade(db) {
+        ensureObjectStores(db)
       },
     })
   }

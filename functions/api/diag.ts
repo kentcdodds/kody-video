@@ -42,35 +42,39 @@ const PAGE = `<!doctype html>
       log('ua: ' + navigator.userAgent)
 
       // 1. Is the data alive in this origin's IndexedDB? (read-only)
+      // Never call indexedDB.open(name) without a version on a missing DB —
+      // that creates an empty version-1 database with zero stores. The app
+      // then upgrades oldVersion=1 → 2 and only adds 'audio', leaving
+      // projects/clips/meta missing (Sentry NotFoundError in getSettings).
       try {
-        const db = await new Promise((resolve, reject) => {
-          const req = indexedDB.open('kody-video')
-          req.onsuccess = () => resolve(req.result)
-          req.onerror = () => reject(req.error)
-          req.onblocked = () => reject(new Error('open blocked by another tab'))
-        })
-        const stores = [...db.objectStoreNames]
-        log('idb stores: ' + (stores.join(', ') || '(none)'))
-        if (stores.includes('projects')) {
-          const tx = db.transaction(stores.filter((s) => ['projects', 'clips'].includes(s)), 'readonly')
-          const projects = await new Promise((resolve, reject) => {
-            const req = tx.objectStore('projects').getAll()
-            req.onsuccess = () => resolve(req.result)
-            req.onerror = () => reject(req.error)
-          })
-          const clipCount = stores.includes('clips')
-            ? await new Promise((resolve, reject) => {
-                const req = tx.objectStore('clips').count()
-                req.onsuccess = () => resolve(req.result)
-                req.onerror = () => reject(req.error)
-              })
-            : 'n/a'
-          log('PROJECTS HERE: ' + projects.length + ' (clips: ' + clipCount + ')')
-          for (const p of projects.slice(0, 8)) {
-            log('  - "' + p.name + '" clips=' + (p.clipIds?.length ?? '?'))
+        const db = await openExistingKodyDb()
+        if (!db) {
+          log('idb: (no database yet on this origin)')
+        } else {
+          const stores = [...db.objectStoreNames]
+          log('idb version: ' + db.version)
+          log('idb stores: ' + (stores.join(', ') || '(none)'))
+          if (stores.includes('projects')) {
+            const tx = db.transaction(stores.filter((s) => ['projects', 'clips'].includes(s)), 'readonly')
+            const projects = await new Promise((resolve, reject) => {
+              const req = tx.objectStore('projects').getAll()
+              req.onsuccess = () => resolve(req.result)
+              req.onerror = () => reject(req.error)
+            })
+            const clipCount = stores.includes('clips')
+              ? await new Promise((resolve, reject) => {
+                  const req = tx.objectStore('clips').count()
+                  req.onsuccess = () => resolve(req.result)
+                  req.onerror = () => reject(req.error)
+                })
+              : 'n/a'
+            log('PROJECTS HERE: ' + projects.length + ' (clips: ' + clipCount + ')')
+            for (const p of projects.slice(0, 8)) {
+              log('  - "' + p.name + '" clips=' + (p.clipIds?.length ?? '?'))
+            }
           }
+          db.close()
         }
-        db.close()
       } catch (err) {
         log('idb: FAILED - ' + err)
       }
@@ -130,6 +134,33 @@ const PAGE = `<!doctype html>
         } catch {}
         location.replace('/?fresh=' + Date.now())
       })
+
+      /**
+       * Open the app DB only when it already exists. A version-less open on a
+       * missing DB would create an empty schema the app cannot heal from
+       * without a version bump.
+       */
+      async function openExistingKodyDb() {
+        const name = 'kody-video'
+        if (typeof indexedDB.databases === 'function') {
+          const listed = await indexedDB.databases()
+          if (!listed.some((d) => d.name === name)) return null
+        }
+        return new Promise((resolve, reject) => {
+          const req = indexedDB.open(name)
+          req.onupgradeneeded = (event) => {
+            // Missing DB: abort the implicit create so we leave nothing behind.
+            if (event.oldVersion === 0) event.target.transaction.abort()
+          }
+          req.onsuccess = () => resolve(req.result)
+          req.onerror = () => {
+            // Abort of a fresh create surfaces as AbortError — treat as missing.
+            if (req.error && req.error.name === 'AbortError') resolve(null)
+            else reject(req.error)
+          }
+          req.onblocked = () => reject(new Error('open blocked by another tab'))
+        })
+      }
     </script>
   </body>
 </html>
