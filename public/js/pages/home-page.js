@@ -7,6 +7,13 @@ import { define, h, KvElement } from '../dom.js'
 import { reportError } from '../lib/error-reporting.js'
 import { clearExportCache } from '../lib/export/export-cache.js'
 import { dismissIosInstallHint, shouldShowIosInstallHint } from '../lib/install-hint.js'
+import {
+  SHOWCASE_EDITION,
+  SHOWCASE_PR_NUMBER,
+  SHOWCASE_PR_URL,
+  dismissShowcaseBanner,
+  shouldShowShowcaseBanner,
+} from '../lib/showcase.js'
 import { canPromptInstall, promptInstall, subscribeInstallPrompt } from '../lib/install-prompt.js'
 import { downloadBlob, shareOrDownload } from '../lib/media.js'
 import { loadHomePage } from '../lib/project-actions.js'
@@ -46,6 +53,7 @@ export class KvHomePage extends KvElement {
   notice = null
   importProgress = null
   showInstallHint = shouldShowIosInstallHint()
+  showShowcaseBanner = shouldShowShowcaseBanner()
   /** Prefetched when the options sheet opens so the Save-backup tap keeps
    * its user activation (Web Share needs it). */
   prefetchedClips = null
@@ -385,6 +393,45 @@ export class KvHomePage extends KvElement {
           h('h1', { className: 'brand' }, 'Kody ', h('span', null, 'Video')),
           h('p', { className: 'lede' }, 'Hold to record. Tap Go to share.'),
         ),
+
+        this.showShowcaseBanner
+          ? h(
+              'div',
+              { className: 'home-migrate home-showcase', role: 'note' },
+              h(
+                'span',
+                null,
+                h(
+                  'strong',
+                  null,
+                  `This is the ${SHOWCASE_EDITION} showcase — the real app lives at `,
+                  h('a', { href: 'https://kody.video' }, 'kody.video'),
+                  '.',
+                ),
+                ' Projects stay in this browser per-site, so record over there. Curious how this edition came to be? Read the agent’s analysis in ',
+                h(
+                  'a',
+                  { href: SHOWCASE_PR_URL, target: '_blank', rel: 'noreferrer noopener' },
+                  `PR #${SHOWCASE_PR_NUMBER}`,
+                ),
+                '.',
+              ),
+              h(
+                'button',
+                {
+                  type: 'button',
+                  className: 'install-hint-dismiss',
+                  'aria-label': 'Dismiss showcase note',
+                  onclick: () => {
+                    dismissShowcaseBanner()
+                    this.showShowcaseBanner = false
+                    this.update()
+                  },
+                },
+                iconClose(16),
+              ),
+            )
+          : null,
 
         this.error ? h('div', { className: 'error-banner' }, this.error) : null,
         this.notice ? h('p', { className: 'home-notice' }, this.notice) : null,
