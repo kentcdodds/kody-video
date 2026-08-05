@@ -7,7 +7,18 @@ import { buildDateLabel, shortVersion } from '../lib/build-info'
 import { reportError } from '../lib/error-reporting'
 import { clearExportCache, estimateExportCacheBytes } from '../lib/export/export-cache'
 import { listRearCameras } from '../lib/media'
-import { estimateStorageSpace, formatBytes, type StorageSpace } from '../lib/storage-space'
+import {
+  BackupFormatError,
+  importProjectBackup,
+  parseProjectBackup,
+} from '../lib/project-transfer'
+import {
+  estimateStorageSpace,
+  formatBytes,
+  requestPersistentStorage,
+  type StorageSpace,
+} from '../lib/storage-space'
+import { navigate } from '../router'
 
 /** Prefilled GitHub issue so bug reports arrive with device context attached. */
 function reportProblemUrl(): string {
@@ -58,6 +69,9 @@ export function AboutPage(handle: Handle) {
   let clearingCache = false
   let cameraReport: string | null = null
   let inspectingCameras = false
+  let importing = false
+  let importProgress: string | null = null
+  let importError: string | null = null
 
   const refresh = async () => {
     data = await loadAboutData()
@@ -132,6 +146,33 @@ export function AboutPage(handle: Handle) {
         clearingCache = false
         void handle.update()
       })
+  }
+
+  const importBackup = (file: File) => {
+    void (async () => {
+      importing = true
+      importError = null
+      importProgress = 'Reading backup…'
+      void handle.update()
+      try {
+        const parsed = await parseProjectBackup(file)
+        const project = await importProjectBackup(parsed, (done, total) => {
+          importProgress = `Importing clip ${Math.min(done + 1, total)} of ${total}…`
+          void handle.update()
+        })
+        requestPersistentStorage()
+        // Land directly in the imported project — unambiguous success.
+        navigate(`/project/${project.id}`)
+      } catch (err) {
+        // Wrong/damaged file picked = expected user input, not a crash.
+        if (!(err instanceof BackupFormatError)) reportError(err, 'import')
+        importError = err instanceof Error ? err.message : 'Could not import that file'
+      } finally {
+        importProgress = null
+        importing = false
+        void handle.update()
+      }
+    })()
   }
 
   const onCheckForUpdates = () => {
@@ -282,6 +323,36 @@ export function AboutPage(handle: Handle) {
                 {cacheStatus}
               </p>
             ) : null}
+          </section>
+
+          <section className="about-section">
+            <h2>Backups</h2>
+            <p>
+              Every project can be saved as a single <code>.kodyvideo</code> file (⋯ →{' '}
+              <strong>Save backup</strong> on the home screen) — a safety net, and the way to move
+              a project between devices. Restore one here:
+            </p>
+            <label className={`btn btn-ghost about-import${importing ? ' is-disabled' : ''}`}>
+              Import a backup
+              <input
+                type="file"
+                accept=".kodyvideo,application/octet-stream"
+                className="visually-hidden"
+                disabled={importing}
+                mix={on('change', (event) => {
+                  const input = event.currentTarget as HTMLInputElement
+                  const file = input.files?.[0]
+                  input.value = ''
+                  if (file) importBackup(file)
+                })}
+              />
+            </label>
+            {importProgress ? (
+              <p role="status" aria-live="polite">
+                {importProgress} Keep this tab open.
+              </p>
+            ) : null}
+            {importError ? <div className="error-banner">{importError}</div> : null}
           </section>
 
           <section className="about-section">

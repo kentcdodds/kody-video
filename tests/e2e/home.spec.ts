@@ -4,7 +4,7 @@ import { gotoHome, openNewProject, unlockPlus } from './helpers'
 test.describe('home & app shell', () => {
   test('onboarding shows on first camera open, dismisses for good', async ({ page }) => {
     await page.goto('/')
-    await page.getByRole('button', { name: 'New project', exact: true }).click()
+    await page.locator('.project-slot.empty').first().click()
     const overlay = page.locator('.onboarding-overlay')
     await expect(overlay).toBeVisible()
     await expect(overlay).toContainText('Hold to record')
@@ -17,11 +17,17 @@ test.describe('home & app shell', () => {
     await expect(page.locator('.onboarding-overlay')).toBeHidden()
   })
 
-  test('footer shows privacy line with storage usage', async ({ page }) => {
+  test('footer shows privacy line with a tappable storage gauge', async ({ page }) => {
     await gotoHome(page)
     const footer = page.locator('.home-privacy')
     await expect(footer).toContainText('Clips stay on this phone until you share.')
-    await expect(footer).toContainText(/of .+ used/)
+    const popover = page.locator('.storage-popover')
+    await expect(popover).toBeHidden()
+    await page.locator('.storage-meter').click()
+    await expect(popover).toBeVisible()
+    await expect(popover).toContainText(/of .+ used/)
+    await page.keyboard.press('Escape')
+    await expect(popover).toBeHidden()
   })
 
   test('free plan locks slots 2-6 behind the Plus upsell', async ({ page }) => {

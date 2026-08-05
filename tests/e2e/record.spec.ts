@@ -132,7 +132,7 @@ test.describe('camera & hold-to-record', () => {
       const storage = await import('/src/lib/storage.ts')
       await storage.setOnboardingDismissed(true)
     })
-    await page.getByRole('button', { name: 'New project', exact: true }).click()
+    await page.locator('.project-slot.empty').first().click()
     const panel = page.locator('.permission-panel')
     await expect(panel).toBeVisible()
     await expect(panel).toContainText('Camera access')

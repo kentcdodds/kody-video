@@ -52,7 +52,7 @@ For a phone on the same network, use your machine’s LAN URL over HTTPS, or tun
 - Project **backup/import**: one `.kodyvideo` file per project (clips, trims,
   location data, background music + volumes) — a safety net, and the way to
   move a project between devices or origins (e.g. kody-video.pages.dev →
-  kody.video)
+  kody.video); ⋯ → Save backup on a slot, import from the About page
 - Installable PWA (manifest + Workbox service worker for the app shell)
 - **No accounts, no uploads, no analytics**
 

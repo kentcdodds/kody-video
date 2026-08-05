@@ -224,7 +224,10 @@
   display: block;
   font-family: var(--font-display);
   font-size: 1.05rem;
-  line-height: 1.05;
+  /* overflow: hidden (for the ellipsis) also clips vertically — 1.05 cut
+     the descender off the "j" in "New project". 1.3 clears Fraunces
+     descenders. */
+  line-height: 1.3;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -267,37 +270,88 @@
 
 .home-privacy {
   margin: 8px 0 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-wrap: wrap;
+  column-gap: 8px;
   text-align: center;
   color: var(--ink-muted);
   /* Keep the painted box smaller than the 96×96 boot-hero art so this
      late-rendered line cannot steal LCP after the SPA mounts. */
   font-size: 0.72rem;
   line-height: 1.25;
-  max-width: 16rem;
+  max-width: 20rem;
   margin-left: auto;
   margin-right: auto;
   flex: 0 0 auto;
 }
 
-.home-footer {
+/* Storage gauge: a short, subtle bar next to the privacy line; the real
+   numbers live in the tap popover. Padding + negative margin grow the tap
+   target without disturbing the line's layout. */
+.storage-meter {
+  display: inline-flex;
+  align-items: center;
+  padding: 12px 6px;
+  margin: -12px -6px;
+  border-radius: 999px;
+}
+
+.storage-meter-track {
+  display: block;
+  width: 56px;
+  height: 5px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--ink) 14%, transparent);
+  overflow: hidden;
+}
+
+.storage-meter-fill {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: color-mix(in srgb, var(--ink-muted) 75%, transparent);
+  transition: width 240ms ease;
+}
+
+.storage-meter.is-warning .storage-meter-fill {
+  background: #e0a63a;
+}
+
+.storage-meter.is-critical .storage-meter-fill {
+  background: var(--danger);
+}
+
+.storage-popover {
+  /* Positioned by the popover anchor mixin; clear UA [popover] defaults —
+     but never display, or the closed popover leaks into the page. */
+  margin: 0;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: 8px 12px;
+  gap: 1px;
+  background: var(--toast-bg);
+  color: var(--ink);
+  font-family: var(--font-body);
+  font-size: 0.8rem;
+  line-height: 1.35;
+  text-align: center;
+  box-shadow: var(--shadow);
+  animation: rise-in 180ms ease both;
+}
+
+.storage-popover:popover-open {
   display: flex;
-  gap: 10px;
-  margin-top: 8px;
-  flex: 0 0 auto;
+  flex-direction: column;
 }
 
-.home-footer .btn {
-  flex: 1;
+.storage-popover strong {
+  font-weight: 700;
 }
 
-.home-footer .home-import {
-  flex: 0 0 auto;
-  cursor: pointer;
-}
-
-.home-footer .home-import.is-disabled {
-  opacity: 0.45;
-  pointer-events: none;
+.storage-popover span {
+  color: var(--ink-muted);
 }
 
 .home-notice {
@@ -503,6 +557,16 @@
   margin: 0;
   color: var(--ink-muted);
   line-height: 1.55;
+}
+
+.about-import {
+  margin-top: 10px;
+  cursor: pointer;
+}
+
+.about-import.is-disabled {
+  opacity: 0.45;
+  pointer-events: none;
 }
 
 .camera-report {

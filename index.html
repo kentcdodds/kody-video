@@ -168,6 +168,9 @@
       @media (min-width: 720px) {
         body {
           overflow: auto;
+          /* Must match global.css: BFC keeps #root margins from collapsing
+             through the 100%-tall body (phantom scroll below the fold). */
+          display: flow-root;
         }
         #boot-hero {
           display: none;
@@ -176,6 +179,9 @@
           margin-top: 24px;
           margin-bottom: 24px;
           height: min(920px, calc(100dvh - 48px));
+          /* Must match global.css: without this the base min-height: 100%
+             wins and the frame's bottom edge falls below the fold. */
+          min-height: 0;
           border-radius: 28px;
           /* Match full stylesheet: reserve border box so 1px border + shadow
              cannot reflow the frame after CSS arrives. */
