@@ -7,13 +7,15 @@ type PageComponent = (handle: Handle<any>) => () => RemixNode
 /** sessionStorage flag so a failed chunk load auto-reloads at most once. */
 export const LAZY_CHUNK_RELOAD_KEY = 'kody:lazy-chunk-reload'
 
-/** True for the browser errors Vite/webpack emit when a hashed chunk 404s. */
+/** True when a hashed lazy chunk failed to load (Chrome/Vite, webpack, Safari). */
 export function isChunkLoadError(error: unknown): boolean {
   const message = error instanceof Error ? error.message : String(error)
   return (
     /Failed to fetch dynamically imported module/i.test(message) ||
     /error loading dynamically imported module/i.test(message) ||
-    /Loading chunk [\w-]+ failed/i.test(message)
+    /Loading chunk [\w-]+ failed/i.test(message) ||
+    // Safari / WebKit (including installed iOS PWAs)
+    /Importing a module script failed/i.test(message)
   )
 }
 

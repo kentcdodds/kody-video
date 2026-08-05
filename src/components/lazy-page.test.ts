@@ -14,6 +14,9 @@ describe('isChunkLoadError', () => {
       isChunkLoadError(new Error('error loading dynamically imported module')),
     ).toBe(true)
     expect(isChunkLoadError(new Error('Loading chunk 5 failed'))).toBe(true)
+    expect(
+      isChunkLoadError(new Error('Importing a module script failed.')),
+    ).toBe(true)
   })
 
   it('ignores ordinary application errors', () => {
