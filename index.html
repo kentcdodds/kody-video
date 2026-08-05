@@ -176,6 +176,9 @@
           margin-top: 24px;
           margin-bottom: 24px;
           height: min(920px, calc(100dvh - 48px));
+          /* Must match global.css: without this the base min-height: 100%
+             wins and the frame's bottom edge falls below the fold. */
+          min-height: 0;
           border-radius: 28px;
           /* Match full stylesheet: reserve border box so 1px border + shadow
              cannot reflow the frame after CSS arrives. */

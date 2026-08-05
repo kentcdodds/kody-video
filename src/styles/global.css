@@ -94,6 +94,16 @@ body,
   height: 100%;
 }
 
+/* Keep the frame centered: must mirror the index.html critical CSS — this
+   stylesheet loads after it, and the margin: 0 reset above would otherwise
+   win over the critical margin auto and pin the app to the left. */
+#root {
+  width: min(480px, 100%);
+  max-width: 480px;
+  margin-left: auto;
+  margin-right: auto;
+}
+
 body {
   font-family: var(--font-body);
   color: var(--ink);
@@ -763,6 +773,9 @@ a {
     margin-top: 24px;
     margin-bottom: 24px;
     height: min(920px, calc(100dvh - 48px));
+    /* The base min-height: 100% would beat the height above and push the
+       frame's bottom edge below the fold. */
+    min-height: 0;
     border-radius: 28px;
     border: 1px solid var(--line);
     box-shadow: var(--shadow);
