@@ -134,6 +134,30 @@ test.describe('home & app shell', () => {
     await expect(page.getByRole('button', { name: 'Install app' })).toBeVisible()
   })
 
+  test('install button opens an explainer popover; Install consumes the prompt', async ({
+    page,
+  }) => {
+    await gotoHome(page)
+    await page.evaluate(() => {
+      window.dispatchEvent(new Event('beforeinstallprompt'))
+    })
+    await page.getByRole('button', { name: 'Install app' }).click()
+    const explainer = page.getByRole('dialog', { name: 'Install Kody Video' })
+    await expect(explainer).toBeVisible()
+    await expect(explainer).toContainText('works offline')
+
+    // Escape / outside click dismisses without consuming the prompt.
+    await page.keyboard.press('Escape')
+    await expect(explainer).toBeHidden()
+    await page.getByRole('button', { name: 'Install app' }).click()
+    await expect(explainer).toBeVisible()
+
+    // Install consumes the one-shot prompt: popover and corner button go away.
+    await explainer.getByRole('button', { name: 'Install' }).click()
+    await expect(explainer).toBeHidden()
+    await expect(page.getByRole('button', { name: 'Install app' })).toHaveCount(0)
+  })
+
   test('about, privacy, and terms pages render', async ({ page }) => {
     await gotoHome(page)
     await page.getByRole('link', { name: 'About Kody Video' }).click()
