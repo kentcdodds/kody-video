@@ -46,6 +46,7 @@ export const DB_NAME = 'kody-video'
 export const DB_VERSION = 3
 
 let dbPromise: Promise<IDBPDatabase<ClipsDB>> | null = null
+let activeDb: IDBPDatabase<ClipsDB> | null = null
 
 /**
  * Finish an explicit idb transaction without leaking AbortError.
@@ -93,15 +94,96 @@ export function ensureObjectStores(db: {
   }
 }
 
-export function getDb(): Promise<IDBPDatabase<ClipsDB>> {
-  if (!dbPromise) {
-    dbPromise = openDB<ClipsDB>(DB_NAME, DB_VERSION, {
-      upgrade(db) {
-        ensureObjectStores(db)
-      },
-    })
+/** True when IndexedDB rejected because the cached connection is gone. */
+export function isStaleConnectionError(error: unknown): boolean {
+  if (!(error instanceof DOMException) && !(error instanceof Error)) return false
+  if (error.name !== 'InvalidStateError') return false
+  return /database connection is (closing|closed)/i.test(error.message)
+}
+
+function forgetCachedDb(closedDb?: IDBPDatabase<ClipsDB> | null): void {
+  // Only clear when the terminating handle is still the active one (or no
+  // handle was supplied). If activeDb is null, a reconnect may already be
+  // in flight — leave that pending promise alone.
+  if (closedDb != null && activeDb !== closedDb) return
+  activeDb = null
+  dbPromise = null
+}
+
+function openTrackedDb(): Promise<IDBPDatabase<ClipsDB>> {
+  // Capture this open's handle in terminated — activeDb may already point at
+  // a newer reconnect by the time the close event runs.
+  const tracked = openDB<ClipsDB>(DB_NAME, DB_VERSION, {
+    upgrade(db) {
+      ensureObjectStores(db)
+    },
+    terminated() {
+      // iOS Safari often closes IDB when the page is backgrounded. Drop the
+      // singleton so the next getDb() opens a fresh connection.
+      void tracked.then((db) => forgetCachedDb(db))
+    },
+  }).then((db) => {
+    activeDb = db
+    return db
+  })
+  return tracked
+}
+
+function discardStaleDb(stale: IDBPDatabase<ClipsDB> | null, pending: Promise<IDBPDatabase<ClipsDB>> | null): void {
+  if (pending && dbPromise !== pending) return
+  forgetCachedDb(stale)
+  try {
+    stale?.close()
+  } catch {
+    // Already closing/closed.
   }
-  return dbPromise
+}
+
+/**
+ * Open (or reuse) the app IndexedDB connection.
+ *
+ * The handle is cached, but browsers — especially iOS Safari — may close it
+ * out from under us. getDb() clears the cache on close and, if a caller still
+ * holds a closing handle, probes and reopens once so getSettings/load-home
+ * does not surface InvalidStateError.
+ */
+export async function getDb(): Promise<IDBPDatabase<ClipsDB>> {
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    if (!dbPromise) {
+      dbPromise = openTrackedDb().catch((error) => {
+        forgetCachedDb()
+        throw error
+      })
+    }
+    const pending = dbPromise
+    try {
+      const db = await pending
+      // transaction() throws InvalidStateError while the connection is
+      // closing/closed — before the close event clears our cache (KODY-VIDEO-F).
+      db.transaction('meta')
+      return db
+    } catch (error) {
+      if (!isStaleConnectionError(error) || attempt === 1) throw error
+      discardStaleDb(activeDb, pending)
+    }
+  }
+  // Unreachable: the loop either returns or throws on the final attempt.
+  throw new Error('Failed to open IndexedDB')
+}
+
+/**
+ * Run an IndexedDB op, reopening once if Safari closes the connection after
+ * getDb()'s liveness probe (or mid-await inside an idempotent read/write).
+ */
+export async function withDb<T>(fn: (db: IDBPDatabase<ClipsDB>) => Promise<T>): Promise<T> {
+  try {
+    const db = await getDb()
+    return await fn(db)
+  } catch (error) {
+    if (!isStaleConnectionError(error)) throw error
+    discardStaleDb(activeDb, dbPromise)
+    return await fn(await getDb())
+  }
 }
 
 /** Test helper: close open connections and clear the module-level DB handle. */
@@ -110,7 +192,7 @@ export async function __resetDbForTests(): Promise<void> {
     const db = await dbPromise.catch(() => null)
     db?.close()
   }
-  dbPromise = null
+  forgetCachedDb()
   await new Promise<void>((resolve, reject) => {
     const req = indexedDB.deleteDatabase(DB_NAME)
     req.onsuccess = () => resolve()
@@ -120,19 +202,20 @@ export async function __resetDbForTests(): Promise<void> {
 }
 
 export async function getSettings(): Promise<AppMeta> {
-  const db = await getDb()
-  const existing = await db.get('meta', 'settings')
-  const defaults: AppMeta = {
-    key: 'settings',
-    maxProjects: MAX_PROJECTS,
-    lastOpenedProjectId: null,
-    onboardingDismissed: false,
-  }
-  const settings = existing ? { ...defaults, ...existing } : defaults
-  if (!existing || existing.onboardingDismissed === undefined) {
-    await db.put('meta', settings)
-  }
-  return settings
+  return withDb(async (db) => {
+    const existing = await db.get('meta', 'settings')
+    const defaults: AppMeta = {
+      key: 'settings',
+      maxProjects: MAX_PROJECTS,
+      lastOpenedProjectId: null,
+      onboardingDismissed: false,
+    }
+    const settings = existing ? { ...defaults, ...existing } : defaults
+    if (!existing || existing.onboardingDismissed === undefined) {
+      await db.put('meta', settings)
+    }
+    return settings
+  })
 }
 
 export async function setLastOpenedProjectId(projectId: ProjectId | null): Promise<void> {

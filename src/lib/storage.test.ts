@@ -17,6 +17,7 @@ import {
   getProjectAudio,
   getSettings,
   getUndoSnapshot,
+  isStaleConnectionError,
   listProjects,
   moveClip,
   removeProjectAudioTrack,
@@ -49,6 +50,67 @@ describe('storage layer', () => {
     await setOnboardingDismissed(true)
 
     expect((await getSettings()).onboardingDismissed).toBe(true)
+  })
+
+  it('reopens when the cached IDB connection is closing (iOS Safari)', async () => {
+    // KODY-VIDEO-F: iOS Safari closes the connection on background/navigation
+    // while our module still caches the handle. close() puts the connection in
+    // the "closing" state where transaction() throws InvalidStateError before
+    // the close event drops the singleton — the same window getSettings hit.
+    const stale = await getDb()
+    stale.close()
+
+    await expect(getSettings()).resolves.toMatchObject({ key: 'settings' })
+    const reopened = await getDb()
+    expect(reopened).not.toBe(stale)
+    await expect(createProject('After reopen')).resolves.toMatchObject({
+      name: 'After reopen',
+    })
+  })
+
+  it('retries getSettings when the connection dies after the liveness probe', async () => {
+    const db = await getDb()
+    const originalTransaction = db.transaction.bind(db)
+    let metaProbes = 0
+    db.transaction = ((...args: Parameters<typeof db.transaction>) => {
+      const storeNames = args[0]
+      const mode = args[1]
+      const names = Array.isArray(storeNames) ? storeNames : [storeNames]
+      // getDb() probes with transaction('meta'); let that succeed, then close
+      // before the real getSettings read — the TOCTOU CodeRabbit flagged.
+      if (names.length === 1 && names[0] === 'meta' && mode === undefined) {
+        metaProbes += 1
+        if (metaProbes === 1) {
+          const tx = originalTransaction(...args)
+          db.close()
+          return tx
+        }
+      }
+      return originalTransaction(...args)
+    }) as typeof db.transaction
+
+    await expect(getSettings()).resolves.toMatchObject({ key: 'settings' })
+    expect(await getDb()).not.toBe(db)
+  })
+
+  it('recognizes the IndexedDB closing/closed InvalidStateError signature', () => {
+    expect(
+      isStaleConnectionError(
+        new DOMException(
+          "Failed to execute 'transaction' on 'IDBDatabase': The database connection is closing.",
+          'InvalidStateError',
+        ),
+      ),
+    ).toBe(true)
+    expect(
+      isStaleConnectionError(
+        new DOMException('The database connection is closed.', 'InvalidStateError'),
+      ),
+    ).toBe(true)
+    expect(isStaleConnectionError(new DOMException('Quota exceeded', 'QuotaExceededError'))).toBe(
+      false,
+    )
+    expect(isStaleConnectionError(new Error('nope'))).toBe(false)
   })
 
   it('heals a DB left empty by a version-less open (diag-style)', async () => {
