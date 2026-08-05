@@ -9,6 +9,7 @@ import {
   boundaryRampHalfMs,
   channelPeak,
   createBackgroundMixer,
+  filmEdgeFades,
   gainAtMs,
   normalizationScale,
   planSegmentGain,
@@ -136,6 +137,61 @@ describe('planSegmentGain', () => {
   it('reads the clip override through segmentVolume', () => {
     expect(segmentVolume({ clip: { audioVolume: 0.7 } } as never, 0.25)).toBe(0.7)
     expect(segmentVolume({ clip: {} } as never, 0.25)).toBe(0.25)
+  })
+})
+
+describe('filmEdgeFades', () => {
+  const blob = new Blob(['x'])
+  const playlist = { defaultVolume: 0.25, fadeIn: true, fadeOut: true }
+
+  it('reads the film edges from the tracks that play there', () => {
+    const fades = filmEdgeFades(
+      {
+        ...playlist,
+        tracks: [
+          { blob, durationMs: 4_000, fadeIn: false },
+          { blob, durationMs: 20_000, fadeOut: false },
+        ],
+      },
+      6_000,
+    )
+    // The first track opens the film without a fade; the film's end lands
+    // inside track 2, whose fade-out is off.
+    expect(fades).toEqual({ fadeIn: false, fadeOut: false })
+  })
+
+  it('inherits playlist flags for tracks without their own', () => {
+    expect(
+      filmEdgeFades({ ...playlist, tracks: [{ blob, durationMs: 20_000 }] }, 6_000),
+    ).toEqual({ fadeIn: true, fadeOut: true })
+  })
+
+  it('respects trimmed lengths when finding the film-end track', () => {
+    const fades = filmEdgeFades(
+      {
+        ...playlist,
+        tracks: [
+          // Kept window 2s — the film's end at 5s lands in track 2.
+          { blob, durationMs: 20_000, trimStartMs: 3_000, trimEndMs: 5_000 },
+          { blob, durationMs: 20_000, fadeOut: false },
+        ],
+      },
+      5_000,
+    )
+    expect(fades.fadeOut).toBe(false)
+  })
+
+  it('needs no film-end fade when the playlist runs out early', () => {
+    expect(
+      filmEdgeFades({ ...playlist, tracks: [{ blob, durationMs: 3_000 }] }, 10_000),
+    ).toEqual({ fadeIn: true, fadeOut: false })
+  })
+
+  it('handles an empty playlist', () => {
+    expect(filmEdgeFades({ ...playlist, tracks: [] }, 10_000)).toEqual({
+      fadeIn: false,
+      fadeOut: false,
+    })
   })
 })
 
@@ -295,6 +351,70 @@ describe('createBackgroundMixer', () => {
     const mixer = createBackgroundMixer(sourceOf([[new Float32Array([0.5, 0.5])]]), 48000)
     await mixer.mixInto(slice, 0, flatEnvelope(0))
     expect(Array.from(slice[0])).toEqual(before)
+  })
+
+  it('scales the music side by the track level, leaving the clip side alone', async () => {
+    const slice = [new Float32Array([0.6, 0.6])]
+    const mixer = createBackgroundMixer(
+      {
+        ...sourceOf([[new Float32Array([0.4, 0.4])]]),
+        getTrackPlayback: () => ({ volume: 0.5, fadeIn: false, fadeOut: false }),
+      },
+      48000,
+    )
+    // out = clip·(1 − g) + music·g·level = 0.6·0.5 + 0.4·0.5·0.5 = 0.4.
+    await mixer.mixInto(slice, 0, flatEnvelope(0.5))
+    for (const sample of slice[0]) {
+      expect(sample).toBeCloseTo(0.4)
+    }
+  })
+
+  it('fades a mid-film track in and an early-ending track out', async () => {
+    // sampleRate 10: FADE_IN_MS (800ms) = 8 frames, FADE_OUT_MS (1200ms) =
+    // 12 frames, both clamped to half of each 4-frame track (2 frames).
+    const mixer = createBackgroundMixer(
+      {
+        ...sourceOf([
+          [new Float32Array(4).fill(0.4)],
+          [new Float32Array(4).fill(0.4)],
+        ]),
+        getTrackPlayback: () => ({ volume: 1, fadeIn: true, fadeOut: true }),
+        totalFrames: 100,
+      },
+      10,
+    )
+    const slice = [new Float32Array(8)]
+    await mixer.mixInto(slice, 0, flatEnvelope(1))
+    const samples = Array.from(slice[0]).map((v) => Number(v.toFixed(2)))
+    // Track 0 starts the film — its fade-in belongs to the share envelope,
+    // so it opens at full level; its end (before the film's) fades out.
+    expect(samples.slice(0, 2)).toEqual([0.4, 0.4])
+    expect(samples[2]).toBeCloseTo(0.4 * (2 / 2), 2)
+    expect(samples[3]).toBeCloseTo(0.4 * (1 / 2), 2)
+    // Track 1 starts mid-film — it fades in…
+    expect(samples[4]).toBeCloseTo(0, 2)
+    expect(samples[5]).toBeCloseTo(0.4 * (1 / 2), 2)
+    // …and fades out at its own end.
+    expect(samples[6]).toBeCloseTo(0.4 * (2 / 2), 2)
+    expect(samples[7]).toBeCloseTo(0.4 * (1 / 2), 2)
+  })
+
+  it('skips a track\u2019s own fade-out when the film cuts it off', async () => {
+    const mixer = createBackgroundMixer(
+      {
+        ...sourceOf([[new Float32Array(4).fill(0.4)]]),
+        getTrackPlayback: () => ({ volume: 1, fadeIn: true, fadeOut: true }),
+        // The film ends where (or before) the track does — the share
+        // envelope's film-edge fade covers that cut instead.
+        totalFrames: 4,
+      },
+      10,
+    )
+    const slice = [new Float32Array(4)]
+    await mixer.mixInto(slice, 0, flatEnvelope(1))
+    expect(Array.from(slice[0]).map((v) => Number(v.toFixed(2)))).toEqual([
+      0.4, 0.4, 0.4, 0.4,
+    ])
   })
 
   it('decodes each track at most once (lazy, in order)', async () => {

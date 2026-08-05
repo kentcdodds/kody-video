@@ -19,7 +19,9 @@ import {
   updateClipThumbs,
   updateClipTrim,
   updateProjectAudioSettings,
+  updateProjectAudioTrack,
   type ProjectAudioSettings,
+  type ProjectAudioTrackSettings,
 } from './storage'
 import { probeAudioFile } from './audio-import'
 import { estimateExportCacheBytes } from './export/export-cache'
@@ -297,6 +299,15 @@ export async function addProjectAudioFromFile(
 
 export async function removeAudioTrack(projectId: ProjectId, trackId: string): Promise<void> {
   await removeProjectAudioTrack(projectId, trackId)
+}
+
+/** Update one playlist track's playback settings (trim, level, fades). */
+export async function setAudioTrackSettings(
+  projectId: ProjectId,
+  trackId: string,
+  settings: ProjectAudioTrackSettings,
+): Promise<void> {
+  await updateProjectAudioTrack(projectId, trackId, settings)
 }
 
 export async function setProjectAudioSettings(

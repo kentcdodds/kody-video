@@ -131,6 +131,45 @@ describe('project backup round trip', () => {
     expect(imported[1].audioVolume).toBeUndefined()
   })
 
+  it('round-trips per-track playback settings (trim, level, fades)', async () => {
+    await markWatermarkRemoved('cs_test_transfer')
+    const audio = fakeAudio(['SONGBYTES', 'MORESONG'])
+    audio.tracks[0] = {
+      ...audio.tracks[0],
+      trimStartMs: 2_000,
+      trimEndMs: 11_000,
+      volume: 0.6,
+      fadeIn: false,
+      fadeOut: true,
+    }
+    const backup = serializeProject(fakeProject('Scored'), [fakeClip('clip_a', 'AAAA')], audio)
+
+    const parsed = await parseProjectBackup(backup)
+    expect(parsed.audio?.tracks[0]).toMatchObject({
+      trimStartMs: 2_000,
+      trimEndMs: 11_000,
+      volume: 0.6,
+      fadeIn: false,
+      fadeOut: true,
+    })
+    // The second track carries no per-track settings at all.
+    expect(parsed.audio?.tracks[1].trimStartMs).toBeUndefined()
+    expect(parsed.audio?.tracks[1].volume).toBeUndefined()
+    expect(parsed.audio?.tracks[1].fadeIn).toBeUndefined()
+
+    const project = await importProjectBackup(parsed)
+    const imported = await getProjectAudio(project.id)
+    expect(imported?.tracks[0]).toMatchObject({
+      trimStartMs: 2_000,
+      trimEndMs: 11_000,
+      volume: 0.6,
+      fadeIn: false,
+      fadeOut: true,
+    })
+    expect(imported?.tracks[1].trimStartMs).toBeUndefined()
+    expect(imported?.tracks[1].volume).toBeUndefined()
+  })
+
   it('imports a music-carrying backup on a free device, skipping the playlist', async () => {
     const backup = serializeProject(fakeProject('Scored'), [fakeClip('clip_a', 'AAAA')], fakeAudio())
     const parsed = await parseProjectBackup(backup)

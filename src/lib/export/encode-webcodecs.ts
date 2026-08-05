@@ -18,11 +18,12 @@ import {
 } from 'mediabunny'
 import { deriveProjectLocation } from '../geo'
 import { isIosBrowser } from '../platform'
-import type { ClipRecord } from '../types'
+import { resolveAudioTrackPlayback, type ClipRecord } from '../types'
 import {
   boundaryRampHalfMs,
   channelPeak,
   createBackgroundMixer,
+  filmEdgeFades,
   normalizationScale,
   planSegmentGain,
   segmentVolume,
@@ -216,19 +217,47 @@ export async function exportWithWebCodecs(
                 { length: buffer.numberOfChannels },
                 (_, ch) => buffer.getChannelData(ch),
               )
-              // Normalize the track in place (the decode is private).
+              // Normalize the track in place (the decode is private) over
+              // the WHOLE file, not just the kept window — a track's
+              // loudness must not change with where it is trimmed.
               const scale = normalizationScale(channelPeak(channels))
               if (scale !== 1) {
                 for (const data of channels) {
                   for (let i = 0; i < data.length; i += 1) data[i] *= scale
                 }
               }
-              return channels
+              // Only the kept (trimmed) window plays; the next track
+              // starts where it ends.
+              const playback = resolveAudioTrackPlayback(background.tracks[index], background)
+              const startFrame = Math.min(
+                channels[0].length,
+                Math.round((playback.trimStartMs / 1000) * AUDIO_SAMPLE_RATE),
+              )
+              const endFrame = Number.isFinite(playback.trimEndMs)
+                ? Math.min(
+                    channels[0].length,
+                    Math.round((playback.trimEndMs / 1000) * AUDIO_SAMPLE_RATE),
+                  )
+                : channels[0].length
+              if (endFrame <= startFrame) return null
+              if (startFrame === 0 && endFrame === channels[0].length) return channels
+              return channels.map((data) => data.subarray(startFrame, endFrame))
             },
+            getTrackPlayback: (index) => {
+              const playback = resolveAudioTrackPlayback(background.tracks[index], background)
+              return {
+                volume: playback.volume,
+                fadeIn: playback.fadeIn,
+                fadeOut: playback.fadeOut,
+              }
+            },
+            totalFrames: Math.round((plan.totalMs / 1000) * AUDIO_SAMPLE_RATE),
           },
           AUDIO_SAMPLE_RATE,
         )
       : null
+  /** Film-edge fades come from the tracks at the film's edges. */
+  const backgroundEdgeFades = background ? filmEdgeFades(background, plan.totalMs) : null
   const plannedDurationsMs = plan.segments.map((s) => s.endMs - s.startMs)
   /** Volume + real duration of the previous MIXED segment (dropped
    * segments must not become ramp anchors). */
@@ -342,7 +371,7 @@ export async function exportWithWebCodecs(
                     ),
                   }
                 : undefined,
-              fades: background,
+              fades: backgroundEdgeFades ?? background,
             }),
             // Whole-clip peak (not just this trim window) so a clip's
             // loudness doesn't change with where it is trimmed.

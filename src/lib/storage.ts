@@ -568,6 +568,57 @@ export async function removeProjectAudio(projectId: ProjectId): Promise<void> {
   await touchProject(projectId)
 }
 
+export interface ProjectAudioTrackSettings {
+  trimStartMs?: number
+  trimEndMs?: number
+  volume?: number
+  fadeIn?: boolean
+  fadeOut?: boolean
+}
+
+/** Update one playlist track's playback settings (trim window, level,
+ * fades). Trim values clamp into the media like updateClipTrim. */
+export async function updateProjectAudioTrack(
+  projectId: ProjectId,
+  trackId: string,
+  settings: ProjectAudioTrackSettings,
+): Promise<ProjectAudioRecord> {
+  const db = await getDb()
+  const tx = db.transaction('audio', 'readwrite')
+  const audio = await tx.store.get(projectId)
+  const track = audio?.tracks.find((t) => t.id === trackId)
+  if (!audio || !track) {
+    await tx.done.catch(() => undefined)
+    throw new Error(!audio ? 'This project has no background music' : 'Music track not found')
+  }
+  const updatedTrack: ProjectAudioTrack = { ...track }
+  // Non-finite trim requests fall back to the stored values — a NaN must
+  // never persist (it would poison every consumer's playback math).
+  const finiteOr = (value: number | undefined, fallback: number): number =>
+    value !== undefined && Number.isFinite(value) ? value : fallback
+  if (settings.trimStartMs !== undefined || settings.trimEndMs !== undefined) {
+    const requestedStart = finiteOr(settings.trimStartMs, track.trimStartMs ?? 0)
+    const requestedEnd = finiteOr(settings.trimEndMs, track.trimEndMs ?? track.durationMs)
+    const start = Math.max(0, Math.min(requestedStart, track.durationMs))
+    updatedTrack.trimStartMs = start
+    updatedTrack.trimEndMs = Math.max(start, Math.min(requestedEnd, track.durationMs))
+  }
+  if (settings.volume !== undefined) {
+    updatedTrack.volume = Number.isFinite(settings.volume)
+      ? Math.max(0, Math.min(1, settings.volume))
+      : 1
+  }
+  if (settings.fadeIn !== undefined) updatedTrack.fadeIn = settings.fadeIn
+  if (settings.fadeOut !== undefined) updatedTrack.fadeOut = settings.fadeOut
+  const updated: ProjectAudioRecord = {
+    ...audio,
+    tracks: audio.tracks.map((t) => (t.id === trackId ? updatedTrack : t)),
+  }
+  await completeTransaction([tx.store.put(updated)], tx)
+  await touchProject(projectId)
+  return updated
+}
+
 export interface ProjectAudioSettings {
   defaultVolume?: number
   fadeIn?: boolean

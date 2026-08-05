@@ -57,7 +57,8 @@
   transform-origin: center top;
 }
 
-.editor-screen.is-trimming .editor-stage {
+.editor-screen.is-trimming .editor-stage,
+.editor-screen.is-audio-editing .editor-stage {
   flex: 0.9 1 auto;
 }
 
@@ -612,6 +613,119 @@
 .audio-volume-reset:disabled {
   opacity: 0.35;
   cursor: not-allowed;
+}
+
+/* Track rows open the audio detail view */
+.audio-track-open {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: 1 1 auto;
+  min-width: 0;
+  min-height: 28px;
+  padding: 0;
+  margin: 0;
+  background: none;
+  border: none;
+  text-align: left;
+  cursor: pointer;
+  border-radius: 8px;
+}
+
+.audio-track-open:disabled {
+  opacity: 0.5;
+  cursor: wait;
+}
+
+.audio-track-open:hover .audio-track-name,
+.audio-track-open:focus-visible .audio-track-name {
+  color: var(--accent);
+}
+
+/* Audio track detail view (the audio counterpart of the trim strip) */
+.audio-detail-strip {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-height: calc(var(--editor-tile-h) + 52px);
+  animation: editor-trim-in 200ms ease both;
+}
+
+.audio-detail-name {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  font-size: 0.84rem;
+  font-weight: 600;
+  color: var(--ink);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.audio-detail-name svg {
+  flex: 0 0 auto;
+  color: var(--accent);
+}
+
+.audio-detail-track {
+  background: color-mix(in srgb, var(--accent) 8%, var(--bg-soft));
+}
+
+.audio-detail-wave {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  border-radius: 14px;
+  pointer-events: none;
+}
+
+.audio-detail-controls {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 30px;
+  flex-wrap: wrap;
+}
+
+.audio-detail-audition {
+  min-height: 30px;
+  padding: 0 12px;
+  font-size: 0.78rem;
+  flex: 0 0 auto;
+}
+
+.audio-detail-level {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  flex: 1 1 140px;
+  min-width: 120px;
+}
+
+.audio-detail-level .audio-volume-label {
+  flex: 0 0 auto;
+}
+
+.audio-detail-level input[type='range'] {
+  flex: 1 1 auto;
+  min-width: 40px;
+  height: 26px;
+  accent-color: var(--accent);
+  touch-action: pan-y;
+}
+
+.audio-detail-level-value {
+  flex: 0 0 auto;
+  font-size: 0.74rem;
+  color: var(--ink);
+  font-variant-numeric: tabular-nums;
+}
+
+.audio-detail-strip .audio-fades {
+  margin-left: 0;
 }
 
 /* Per-clip music-volume badge on timeline tiles */

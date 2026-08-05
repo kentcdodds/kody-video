@@ -292,7 +292,15 @@ export function ProjectPage(handle: Handle<ProjectPageProps>) {
           background:
             audio && audio.tracks.length > 0
               ? {
-                  tracks: audio.tracks.map((track) => ({ blob: track.blob })),
+                  tracks: audio.tracks.map((track) => ({
+                    blob: track.blob,
+                    durationMs: track.durationMs,
+                    trimStartMs: track.trimStartMs,
+                    trimEndMs: track.trimEndMs,
+                    volume: track.volume,
+                    fadeIn: track.fadeIn,
+                    fadeOut: track.fadeOut,
+                  })),
                   defaultVolume: audio.defaultVolume,
                   fadeIn: audio.fadeIn,
                   fadeOut: audio.fadeOut,
