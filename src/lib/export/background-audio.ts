@@ -30,13 +30,14 @@ export const MAX_NORMALIZATION_BOOST = 4
 /** Below this peak the audio is treated as silence and never boosted. */
 export const NORMALIZATION_SILENCE_FLOOR = 0.01
 
-/** Sampled peak of decoded channel data (stride-sampled like the export
- * diagnostics — exact peaks are not worth a full pass on long audio). */
+/** Exact peak of decoded channel data. Every sample is scanned: a strided
+ * scan can miss a transient, and a boost derived from an undermeasured
+ * peak would push that transient into the hard clamp instead of keeping
+ * the intended headroom. One pass over even a long song is milliseconds. */
 export function channelPeak(channels: Float32Array[]): number {
   let peak = 0
   for (const data of channels) {
-    const stride = Math.max(1, Math.floor(data.length / 8000))
-    for (let i = 0; i < data.length; i += stride) {
+    for (let i = 0; i < data.length; i += 1) {
       const value = Math.abs(data[i])
       if (value > peak) peak = value
     }

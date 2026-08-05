@@ -147,6 +147,15 @@ describe('normalization', () => {
     expect(channelPeak([new Float32Array(4)])).toBe(0)
   })
 
+  it('never misses a lone transient (exact scan, no striding)', () => {
+    // One full-scale spike buried in a long quiet buffer: a strided scan
+    // would miss it, derive a big boost, and clip it against the clamp.
+    const data = new Float32Array(100_000).fill(0.05)
+    data[73_331] = -1
+    expect(channelPeak([data])).toBe(1)
+    expect(normalizationScale(channelPeak([data]))).toBeCloseTo(NORMALIZED_PEAK)
+  })
+
   it('scales toward the target peak, bounded on both sides', () => {
     expect(normalizationScale(NORMALIZED_PEAK)).toBeCloseTo(1)
     expect(normalizationScale(0.45)).toBeCloseTo(NORMALIZED_PEAK / 0.45)

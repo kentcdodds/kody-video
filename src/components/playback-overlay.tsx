@@ -57,6 +57,11 @@ export function PlaybackOverlay(handle: Handle<PlaybackOverlayProps>) {
   /** Lazily created object URL per playlist track (revoked on unmount). */
   const trackUrls = new Map<number, string>()
   let musicTrackIndex = -1
+  /** True once the LAST track actually finished playing — decoded audio can
+   * end before its stored metadata duration, and the clip's own sound must
+   * come back up as soon as the music is really over, not when the
+   * metadata window says so. Cleared when a skip seeks music again. */
+  let playlistDone = false
 
   const currentSegment = () => resolveSegments()[index] ?? null
   const startSec = () => {
@@ -146,9 +151,11 @@ export function PlaybackOverlay(handle: Handle<PlaybackOverlayProps>) {
         musicTrackIndex = target.index
         audio.src = urlForTrack(target.index)
         audio.currentTime = target.offsetMs / 1000
+        playlistDone = false
       }
     } else if (Math.abs(audio.currentTime - target.offsetMs / 1000) > 0.35) {
       audio.currentTime = target.offsetMs / 1000
+      playlistDone = false
     }
     return true
   }
@@ -161,7 +168,12 @@ export function PlaybackOverlay(handle: Handle<PlaybackOverlayProps>) {
     const audio = audioEl
     if (!audio) return
     const next = musicTrackIndex + 1
-    if (next >= tracks.length) return // Playlist over — the rest is music-free.
+    if (next >= tracks.length) {
+      // Playlist over — the rest is music-free (and the clip's own sound
+      // comes back up right away, even inside the metadata overshoot).
+      playlistDone = true
+      return
+    }
     musicTrackIndex = next
     audio.src = urlForTrack(next)
     audio.currentTime = 0
@@ -200,7 +212,8 @@ export function PlaybackOverlay(handle: Handle<PlaybackOverlayProps>) {
       el.volume = Math.abs(next - target) < 0.005 ? target : next
       const video = videoEl
       if (video) {
-        const musicHere = props.audio ? trackAtMs(timelinePositionMs()) !== null : false
+        const musicHere =
+          props.audio && !playlistDone ? trackAtMs(timelinePositionMs()) !== null : false
         const clipTarget = musicHere ? 1 - target : 1
         const nextClip = video.volume + (clipTarget - video.volume) * alpha
         video.volume = Math.max(
