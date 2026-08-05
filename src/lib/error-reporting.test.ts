@@ -4,6 +4,8 @@ import {
   isExpectedUserError,
   isMonitoringSelfTestEvent,
   isProjectLimitEvent,
+  isReportingHostname,
+  reportComponentError,
   reportError,
 } from './error-reporting'
 import { ProjectLimitError } from './storage'
@@ -116,6 +118,24 @@ describe('isExpectedUserError / reportError', () => {
     // Short-circuits before the idle-deferred SDK load — no capture queued.
     expect(() =>
       reportError(new ProjectLimitError('The free plan includes 1 project'), 'save-clip'),
+    ).not.toThrow()
+  })
+})
+
+describe('isReportingHostname / local capture paths', () => {
+  it('allows only production deployment hostnames', () => {
+    expect(isReportingHostname('kody.video')).toBe(true)
+    expect(isReportingHostname('kody-video.pages.dev')).toBe(true)
+    expect(isReportingHostname('localhost')).toBe(false)
+    expect(isReportingHostname('127.0.0.1')).toBe(false)
+    expect(isReportingHostname('example.com')).toBe(false)
+  })
+
+  it('reportError and reportComponentError stay silent off reporting hosts', () => {
+    // Vitest runs on localhost — these must not load Sentry or throw.
+    expect(() => reportError(new Error('Vite HMR glitch'), 'import')).not.toThrow()
+    expect(() =>
+      reportComponentError(new ReferenceError('importProgress is not defined')),
     ).not.toThrow()
   })
 })

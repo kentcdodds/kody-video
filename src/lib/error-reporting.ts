@@ -7,6 +7,13 @@ const SENTRY_DSN =
 /** Only real deployments report — dev servers and test runs stay silent. */
 const REPORTING_HOSTNAMES = new Set(['kody.video', 'kody-video.pages.dev'])
 
+/** True when this origin is allowed to load Sentry / send crash reports. */
+export function isReportingHostname(hostname?: string): boolean {
+  const host =
+    hostname ?? (typeof location !== 'undefined' ? location.hostname : '')
+  return REPORTING_HOSTNAMES.has(host)
+}
+
 /**
  * Marker used by the monitoring setup agent when it throws a synthetic
  * uncaught error to verify the DSN. Not app code — drop it so drills do not
@@ -181,7 +188,10 @@ export function coarsePlatformTags(): Record<string, string> {
  * chunk (Legacy JS Array.from override + ~500KB), even though we never
  * enable replay.
  */
-function loadSentry(): Promise<SentryLike> {
+function loadSentry(): Promise<SentryLike> | null {
+  // Belt-and-suspenders: every capture path must stay silent off reporting hosts
+  // (Vite HMR glitches on localhost must never open triage issues).
+  if (!isReportingHostname()) return null
   if (sentry) return Promise.resolve(sentry)
   if (sentryLoad) return sentryLoad
 
@@ -225,10 +235,10 @@ function loadSentry(): Promise<SentryLike> {
  * critical request chain.
  */
 export function initErrorReporting(): void {
-  if (!REPORTING_HOSTNAMES.has(location.hostname)) return
+  if (!isReportingHostname()) return
 
   const start = () => {
-    void loadSentry().catch(() => undefined)
+    void loadSentry()?.catch(() => undefined)
   }
 
   if (typeof window.requestIdleCallback === 'function') {
@@ -259,6 +269,7 @@ export function reportError(
 ): void {
   // Plan/project caps are product UX (toast / upsell), not failures to triage.
   if (isExpectedUserError(error)) return
+  if (!isReportingHostname()) return
 
   if (sentry) {
     sentry.captureException(error, { tags: { step }, ...(extra ? { extra } : {}) })
@@ -266,7 +277,7 @@ export function reportError(
   }
   // SDK still loading / idle-deferred — queue via the shared loader.
   void loadSentry()
-    .then((client) => {
+    ?.then((client) => {
       client.captureException(error, { tags: { step }, ...(extra ? { extra } : {}) })
     })
     .catch(() => undefined)
@@ -279,6 +290,7 @@ export function reportError(
  */
 export function reportComponentError(error: unknown): void {
   console.error('Uncaught component error', error)
+  if (!isReportingHostname()) return
   if (sentry) {
     sentry.captureException(error, {
       mechanism: { type: 'remix.componentError', handled: false },
@@ -286,7 +298,7 @@ export function reportComponentError(error: unknown): void {
     return
   }
   void loadSentry()
-    .then((client) => {
+    ?.then((client) => {
       client.captureException(error, {
         mechanism: { type: 'remix.componentError', handled: false },
       })
