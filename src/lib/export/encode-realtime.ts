@@ -107,6 +107,9 @@ export async function exportRealtime(
   let backgroundGain: GainNode | null = null
   /** Complement gain the clips' own audio plays through (1 − music share). */
   let clipMixGain: GainNode | null = null
+  /** Set once the playlist has truly run out — later segments must stop
+   * scheduling the duck (the film's remainder is music-free). */
+  const playlistState = { done: false }
   let startBackground: (() => void) | null = null
   let stopBackground: (() => void) | null = null
   const backgroundTracks = options.background?.tracks ?? []
@@ -123,7 +126,9 @@ export async function exportRealtime(
       const playFrom = async (index: number): Promise<void> => {
         if (stopped || !audioContext) return
         if (index >= backgroundTracks.length) {
-          // Playlist over mid-film: the clip sound eases back to full.
+          // Playlist over mid-film: the clip sound eases back to full and
+          // stays there for the rest of the film.
+          playlistState.done = true
           clipGain.gain.setTargetAtTime(1, audioContext.currentTime, 0.1)
           return
         }
@@ -220,7 +225,11 @@ export async function exportRealtime(
         if (!clamped) continue
         if (backgroundGain && clipMixGain && audioContext && options.background) {
           startBackground?.()
-          const share = clipAudioVolume(segment.clip, options.background.defaultVolume)
+          // A finished playlist means the rest of the film is music-free —
+          // re-scheduling the duck would leave clip audio quiet for nothing.
+          const share = playlistState.done
+            ? 0
+            : clipAudioVolume(segment.clip, options.background.defaultVolume)
           const now = audioContext.currentTime
           if (segmentIndex === 0 && !options.background.fadeIn) {
             // No fade-in: the mix opens at the clip's shares directly.
@@ -280,10 +289,12 @@ export async function exportRealtime(
 
     // End-of-film safety ramp: with Fade out on it just finishes what the
     // scheduled fade started; with it off, a click-kill too short to hear
-    // as a fade (mirrors the WebCodecs edge ramp).
+    // as a fade (mirrors the WebCodecs edge ramp). The clip side rises to
+    // full in mirror, like the WebCodecs envelope's complement.
     if (backgroundGain && audioContext) {
       const tau = options.background?.fadeOut ? 0.06 : 0.008
       backgroundGain.gain.setTargetAtTime(0, audioContext.currentTime, tau)
+      clipMixGain?.gain.setTargetAtTime(1, audioContext.currentTime, tau)
     }
     // Hold the last frame briefly so the final GOP isn't truncated.
     await wait(180)
