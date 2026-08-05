@@ -574,13 +574,17 @@ a {
 .update-toast {
   position: absolute;
   top: calc(10px + var(--safe-top));
-  left: 50%;
-  transform: translateX(-50%);
-  /* Above #boot-hero (z-index 0) and in-app sheets/overlays. */
+  /* Center with left/right + max-content — not translateX(-50%) — so the
+     rise-in animation's transform cannot un-center the pill. Stacks above
+     #boot-hero (z-index 0) via #app's stacking context. */
+  left: 0;
+  right: 0;
+  width: max-content;
+  max-width: calc(100% - 24px);
+  margin-inline: auto;
   z-index: 20;
   display: flex;
   align-items: center;
-  max-width: calc(100% - 24px);
   background: var(--toast-bg);
   border: 1px solid var(--line);
   color: var(--ink);
