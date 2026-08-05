@@ -19,9 +19,11 @@ npm test           # unit tests
   multiple holds append; Backspace-delete offers Undo and Undo restores;
   self-timer counts down and records hands-free until tapped
 - **Lazy creation & plans**: "New project" creates nothing until the first
-  clip (URL flips from `/project/new`); backing out leaves no project; free
-  plan locks slots 2–6 behind the Plus upsell; Plus unlocks 6 and blocks the
-  7th; the upsell sheet copy and buttons
+  clip (URL flips from `/project/new`); backing out leaves no project;
+  recording a clip, deleting it, and backing out auto-deletes the
+  default-state project (no notification); free plan locks slots 2–6 behind
+  the Plus upsell; Plus unlocks 6 and blocks the 7th; the upsell sheet copy
+  and buttons
 - **Location**: toggle asks permission, `aria-pressed` reflects state, new
   clips carry exact coordinates, toasts confirm on/off
 - **Editor**: opens at the most recent clip; tap selects; tiles show

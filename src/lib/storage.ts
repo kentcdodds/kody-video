@@ -174,13 +174,17 @@ export async function createProject(name?: string): Promise<Project> {
   }
 
   const now = Date.now()
+  const chosenName = name?.trim()
   const project: Project = {
     id: newId('proj'),
-    name: name?.trim() || defaultProjectName(existing.length + 1),
+    name: chosenName || defaultProjectName(existing.length + 1),
     createdAt: now,
     updatedAt: now,
     clipIds: [],
   }
+  // Marks eligibility for the default-state cleanup on exit — a
+  // caller-chosen name is meaningful and must never be auto-deleted.
+  if (!chosenName) project.nameIsDefault = true
   await db.put('projects', project)
   await setLastOpenedProjectId(project.id)
   return project
@@ -197,16 +201,53 @@ export async function renameProject(id: ProjectId, name: string): Promise<Projec
   const trimmed = name.trim()
   if (!trimmed) throw new Error('Name cannot be empty')
   const updated: Project = { ...project, name: trimmed, updatedAt: Date.now() }
+  // Any rename is deliberate — even one back to a "Project N"-shaped name —
+  // so the project stops being eligible for the default-state cleanup.
+  delete updated.nameIsDefault
   await db.put('projects', updated)
   return updated
 }
 
 export async function deleteProject(id: ProjectId): Promise<void> {
-  const db = await getDb()
-  const project = await db.get('projects', id)
-  if (!project) return
+  await deleteProjectRecords(id, { onlyIfPristine: false })
+}
 
+/**
+ * Delete the project only when it is still indistinguishable from a freshly
+ * created one: no clips, never renamed, no background music. Exiting such a
+ * project should leave nothing behind — deleting it changes nothing the user
+ * can see, so it happens silently. Any leftover undo snapshot (last clip
+ * deleted, never restored) goes with it. Returns true when it was deleted.
+ */
+export async function deleteProjectIfPristine(id: ProjectId): Promise<boolean> {
+  return deleteProjectRecords(id, { onlyIfPristine: true })
+}
+
+async function deleteProjectRecords(
+  id: ProjectId,
+  options: { onlyIfPristine: boolean },
+): Promise<boolean> {
+  const db = await getDb()
   const tx = db.transaction(['projects', 'clips', 'undo', 'meta', 'audio'], 'readwrite')
+  const project = await tx.objectStore('projects').get(id)
+  if (!project) {
+    await tx.done
+    return false
+  }
+  if (options.onlyIfPristine) {
+    // Checked inside the deleting transaction: a clip save racing this
+    // delete (exiting right as a take persists) serializes against it, so a
+    // fresh clip can never survive into a half-deleted project.
+    const audio = await tx.objectStore('audio').get(id)
+    const pristine =
+      project.clipIds.length === 0 &&
+      project.nameIsDefault === true &&
+      (!audio || audio.tracks.length === 0)
+    if (!pristine) {
+      await tx.done
+      return false
+    }
+  }
   // Read meta before queueing writes so a failed delete cannot reject while
   // we are still awaiting get — that would reintroduce the AbortError leak.
   const settings = await tx.objectStore('meta').get('settings')
@@ -235,6 +276,7 @@ export async function deleteProject(id: ProjectId): Promise<void> {
   if (dropsCachedExport && settings?.lastExport) {
     await removeExportEntry(settings.lastExport.opfsName).catch(() => undefined)
   }
+  return true
 }
 
 export async function touchProject(id: ProjectId): Promise<void> {

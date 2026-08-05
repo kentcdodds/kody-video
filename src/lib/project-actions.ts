@@ -3,6 +3,7 @@ import {
   addProjectAudioTrack,
   clearUndo,
   deleteClip,
+  deleteProjectIfPristine,
   duplicateClip,
   getClipsForProject,
   getProject,
@@ -77,7 +78,16 @@ export async function loadHomePage(): Promise<HomeLoaderData> {
 }
 
 export async function loadHomeProjects(): Promise<ProjectSummary[]> {
-  const list = await listProjects()
+  const all = await listProjects()
+  // Exiting a project still in its default state (no clips, default name,
+  // no music) must leave nothing behind, just like backing out of
+  // /project/new. Every exit path lands back here, so such projects are
+  // silently deleted before the slots render.
+  const list: Project[] = []
+  for (const project of all) {
+    if (project.clipIds.length === 0 && (await deleteProjectIfPristine(project.id))) continue
+    list.push(project)
+  }
   // Stable slot order (creation order) — OK Video-style fixed project slots
   // that don't shuffle every time you open a project.
   list.sort((a, b) => a.createdAt - b.createdAt)

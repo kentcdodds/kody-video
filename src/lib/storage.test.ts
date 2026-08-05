@@ -8,6 +8,7 @@ import {
   ProjectLimitError,
   deleteClip,
   deleteProject,
+  deleteProjectIfPristine,
   duplicateClip,
   getClip,
   getClipsForProject,
@@ -88,6 +89,84 @@ describe('storage layer', () => {
     await deleteProject(project.id)
     expect(await listProjects()).toHaveLength(0)
     expect(await getClip(clip.id)).toBeUndefined()
+  })
+
+  it('deleteProjectIfPristine removes an untouched default-state project', async () => {
+    const project = await createProject()
+    expect(project.name).toBe('Project 1')
+
+    expect(await deleteProjectIfPristine(project.id)).toBe(true)
+    expect(await listProjects()).toHaveLength(0)
+    expect((await getSettings()).lastOpenedProjectId).toBeNull()
+    // Already gone — a second attempt is a no-op.
+    expect(await deleteProjectIfPristine(project.id)).toBe(false)
+  })
+
+  it('deleteProjectIfPristine drops an emptied project with its undo snapshot', async () => {
+    const project = await createProject()
+    const clip = await addClip({
+      projectId: project.id,
+      blob: fakeBlob('only-take'),
+      mimeType: 'video/webm',
+      durationMs: 800,
+    })
+    await deleteClip(clip.id)
+    expect(await getUndoSnapshot(project.id)).toBeTruthy()
+
+    expect(await deleteProjectIfPristine(project.id)).toBe(true)
+    expect(await listProjects()).toHaveLength(0)
+    expect(await getUndoSnapshot(project.id)).toBeUndefined()
+  })
+
+  it('deleteProjectIfPristine keeps projects with clips', async () => {
+    const project = await createProject()
+    await addClip({
+      projectId: project.id,
+      blob: fakeBlob('keeper'),
+      mimeType: 'video/webm',
+      durationMs: 800,
+    })
+
+    expect(await deleteProjectIfPristine(project.id)).toBe(false)
+    expect(await listProjects()).toHaveLength(1)
+  })
+
+  it('deleteProjectIfPristine keeps renamed projects', async () => {
+    const project = await createProject()
+    await renameProject(project.id, 'Ski trip')
+
+    expect(await deleteProjectIfPristine(project.id)).toBe(false)
+    expect((await listProjects())[0]?.name).toBe('Ski trip')
+  })
+
+  it('deleteProjectIfPristine keeps a project renamed to a default-shaped name', async () => {
+    const project = await createProject()
+    await renameProject(project.id, 'Project 2')
+
+    expect(await deleteProjectIfPristine(project.id)).toBe(false)
+    expect((await listProjects())[0]?.name).toBe('Project 2')
+  })
+
+  it('deleteProjectIfPristine keeps a project created with a default-shaped name', async () => {
+    const project = await createProject('Project 2')
+
+    expect(await deleteProjectIfPristine(project.id)).toBe(false)
+    expect(await listProjects()).toHaveLength(1)
+  })
+
+  it('deleteProjectIfPristine keeps projects with background music', async () => {
+    await markWatermarkRemoved('cs_test_storage')
+    const project = await createProject()
+    await addProjectAudioTrack({
+      projectId: project.id,
+      blob: new Blob(['song'], { type: 'audio/mpeg' }),
+      mimeType: 'audio/mpeg',
+      durationMs: 30_000,
+      name: 'song.mp3',
+    })
+
+    expect(await deleteProjectIfPristine(project.id)).toBe(false)
+    expect(await listProjects()).toHaveLength(1)
   })
 
   it('appends clips, trims, reorders, duplicates, deletes, and undoes', async () => {
