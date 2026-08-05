@@ -372,7 +372,9 @@ try {
   }
   if (download) {
     const backupPath = await download.path()
-    await page.locator('.home-import input[type=file]').setInputFiles(backupPath)
+    // Import lives on the About page (moved off the home screen).
+    await page.goto(`${BASE}/about`, { waitUntil: 'networkidle' })
+    await page.locator('.about-import input[type=file]').setInputFiles(backupPath)
     // Import now lands directly inside the imported project.
     const openedImported = await page
       .waitForURL(/\/project\//, { timeout: 20000 })
