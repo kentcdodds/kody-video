@@ -178,13 +178,20 @@ export function EditorClipPreview(handle: Handle<EditorClipPreviewProps>) {
       audio.pause()
       return
     }
+    // offsetMs is inside the KEPT window — media time adds the trim.
+    const expectedSec = trackMediaSec(props.audio, target.index, target.offsetMs)
+    // Positions inside a finished track's metadata overshoot have no
+    // decoded audio behind them — playing there would RESTART the ended
+    // element (play() on an ended media element seeks back to 0).
+    const decodedEndSec = Number.isFinite(audio.duration) ? audio.duration : Infinity
+    if (musicExhausted && musicTrackIndex === target.index && expectedSec >= decodedEndSec - 0.05) {
+      return
+    }
     musicExhausted = false
     if (musicTrackIndex !== target.index) {
       musicTrackIndex = target.index
       audio.src = urlForTrack(target.index)
     }
-    // offsetMs is inside the KEPT window — media time adds the trim.
-    const expectedSec = trackMediaSec(props.audio, target.index, target.offsetMs)
     if (Math.abs(audio.currentTime - expectedSec) > 0.05) {
       audio.currentTime = expectedSec
     }
@@ -309,10 +316,13 @@ export function EditorClipPreview(handle: Handle<EditorClipPreviewProps>) {
         }
       }
       const position = filmPositionMs()
-      // Live playlist coverage at the playhead — the playhead can pass the
-      // last decoded sample before the `ended` handler runs, and the mix
-      // must go to zero there like the export's (no bed past the playlist).
-      const musicHere = !musicExhausted && position !== null && trackAtMs(position) !== null
+      // The mix envelope is nonzero only where a bed is actually SOUNDING:
+      // live playlist coverage (the playhead can pass the last decoded
+      // sample before the `ended` handler runs — no bed past the playlist,
+      // like the export) AND a playing element (a rejected music play()
+      // must not leave the clip ducked under silence).
+      const musicHere =
+        !musicExhausted && position !== null && trackAtMs(position) !== null && !el.paused
       const mix = musicHere ? musicShare() * fadeScaleAt(position) : 0
       // The element's volume is the export's music-side gain: envelope ×
       // normalization boost × the track's level and interior fades.
@@ -326,15 +336,12 @@ export function EditorClipPreview(handle: Handle<EditorClipPreviewProps>) {
       el.volume = musicVol
       const video = media
       if (video) {
-        // The clip ducks only under a bed that is actually SOUNDING here:
-        // playlist coverage plus a playing element (a rejected music
-        // play() must not leave the clip quietly ducked under silence).
-        const covered = musicHere && !el.paused
         const clipScale = peekAudioNormalization(props.clip.blob)?.scale ?? 1
-        // Where the playlist covers this clip the export blends the clip
-        // at its normalized complement; where it doesn't, the clip's own
-        // sound plays at its normalized full level.
-        clipVol = glide(clipVol, covered ? clipElementVolume(mix, clipScale) : Math.min(1, clipScale))
+        // The clip's own sound stays coupled to the SAME gliding mix, like
+        // the project preview and the export's playlist-end ease: it
+        // carries the normalized complement under a sounding bed and
+        // returns to its normalized full level exactly as the mix falls.
+        clipVol = glide(clipVol, clipElementVolume(mix, clipScale))
         video.volume = clipVol
       }
       raf = requestAnimationFrame(tick)
