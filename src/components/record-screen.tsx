@@ -344,12 +344,15 @@ export function RecordScreen(handle: Handle<RecordScreenProps>) {
     try {
       // Grab the mic only for this take so Brave/Android voice-to-text stays free while idle.
       await camera.enableMic()
+      // Aborted presses keep the just-acquired mic warm — the real press
+      // usually follows within moments and must not pay a fresh
+      // acquisition's silent ramp-up at its head.
       if (nextPointerId !== null && pointerId !== nextPointerId) {
-        camera.releaseMic()
+        camera.releaseMic({ keepWarm: true })
         return false
       }
       if (nextRecordingMode === 'hold' && nextPointerId !== null && pointerId === null) {
-        camera.releaseMic()
+        camera.releaseMic({ keepWarm: true })
         return false
       }
       // Re-check after the mic await — an overlay may have opened meanwhile.
@@ -421,7 +424,7 @@ export function RecordScreen(handle: Handle<RecordScreenProps>) {
     }
   }
 
-  const endRecord = async (endPointerId?: number) => {
+  const endRecord = async (endPointerId?: number, options?: { flushNow?: boolean }) => {
     // Pointer events never end a Space-owned take (keyup does, and it
     // clears the flag before calling in).
     if (endPointerId !== undefined && keyboardTake) return
@@ -433,10 +436,12 @@ export function RecordScreen(handle: Handle<RecordScreenProps>) {
     // succession) must not re-enter and double-save the clip.
     if (endInFlight) return
     if (!recorder.isRecording && !recording) {
-      // Pointer released while mic grant was still in flight.
+      // Pointer released while mic grant was still in flight. Keep the
+      // just-acquired mic warm — an aborted press is usually followed by
+      // the real one.
       pointerId = null
       keyboardTake = false
-      camera.releaseMic()
+      camera.releaseMic({ keepWarm: true })
       return
     }
     endInFlight = true
@@ -454,7 +459,10 @@ export function RecordScreen(handle: Handle<RecordScreenProps>) {
     // back the on-screen element blinks its overlay path.
     const capturedThumbs = captureTakeThumbs().catch(() => null)
     try {
-      const result = await recorder.stop()
+      // flushNow: the caller is about to tear the camera (and the
+      // recorder's live mic track) down — the stop-grace tail must be
+      // skipped and the encoder flushed synchronously inside this call.
+      const result = await recorder.stop(options?.flushNow ? { graceMs: 0 } : undefined)
       if (!result) {
         props.showToast('Hold a bit longer')
         return
@@ -494,7 +502,9 @@ export function RecordScreen(handle: Handle<RecordScreenProps>) {
       if (!recorder.isRecording && !beginInFlight) {
         micMonitor?.stop()
         micMonitor = null
-        camera.releaseMic()
+        // Warm release: the next take reuses this mic instead of paying a
+        // fresh acquisition's silent ramp-up at its head.
+        camera.releaseMic({ keepWarm: true })
         releaseWakeLock()
         // A quick next hold already replaced the mirror via
         // startThumbMirror — only tear it down when this take is the last.
@@ -626,9 +636,9 @@ export function RecordScreen(handle: Handle<RecordScreenProps>) {
         while (restartRequested) {
           restartRequested = false
           // If a take was somehow still running on a frozen stream, save it
-          // first.
+          // first — flushed immediately, the stream is dead or dying.
           if (recorder.isRecording || recording) {
-            await endRecord()
+            await endRecord(undefined, { flushNow: true })
           }
           camera.stop()
           // The app may have been hidden again while the take was finishing —
@@ -656,10 +666,11 @@ export function RecordScreen(handle: Handle<RecordScreenProps>) {
       micSilent = false
       void handle.update()
       if (recorder.isRecording || recording) {
-        // MediaRecorder.stop() runs synchronously inside endRecord, so the
-        // encoder has flushed by the time the tracks are stopped below; the
-        // save itself continues in the background.
-        void endRecord()
+        // flushNow makes MediaRecorder.stop() run synchronously inside
+        // endRecord (no stop-grace), so the encoder has flushed by the time
+        // the tracks are stopped below; the save itself continues in the
+        // background.
+        void endRecord(undefined, { flushNow: true })
       }
       camera.stop()
       cameraStoppedInBackground = true

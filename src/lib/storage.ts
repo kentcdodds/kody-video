@@ -319,6 +319,9 @@ export interface AddClipInput {
   blob: Blob
   mimeType: string
   durationMs: number
+  /** Default trim-out point; recordings pass the release point so the
+   * stop-grace tail (real media past the finger-lift) starts trimmed off. */
+  trimEndMs?: number
   width?: number
   height?: number
   lat?: number
@@ -360,7 +363,7 @@ export async function addClip(input: AddClipInput): Promise<ClipRecord> {
     mimeType: input.mimeType,
     durationMs: input.durationMs,
     trimStartMs: 0,
-    trimEndMs: input.durationMs,
+    trimEndMs: Math.max(0, Math.min(input.trimEndMs ?? input.durationMs, input.durationMs)),
     createdAt: input.createdAt ?? now,
     width: input.width,
     height: input.height,

@@ -169,6 +169,30 @@ describe('storage layer', () => {
     expect(await listProjects()).toHaveLength(1)
   })
 
+  it('stores a default trim-out at the requested point, clamped to the media', async () => {
+    const project = await createProject('Grace')
+    // Recordings pass the release point; the media runs a stop-grace longer.
+    const clip = await addClip({
+      projectId: project.id,
+      blob: fakeBlob('graced'),
+      mimeType: 'video/webm',
+      durationMs: 2200,
+      trimEndMs: 2000,
+    })
+    expect(clip.trimStartMs).toBe(0)
+    expect(clip.trimEndMs).toBe(2000)
+    expect(clip.durationMs).toBe(2200)
+
+    const clamped = await addClip({
+      projectId: project.id,
+      blob: fakeBlob('clamped'),
+      mimeType: 'video/webm',
+      durationMs: 1000,
+      trimEndMs: 5000,
+    })
+    expect(clamped.trimEndMs).toBe(1000)
+  })
+
   it('appends clips, trims, reorders, duplicates, deletes, and undoes', async () => {
     const project = await createProject('Edit me')
     const c1 = await addClip({
