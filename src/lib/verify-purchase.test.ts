@@ -23,7 +23,7 @@ afterEach(() => {
 })
 
 describe('verify-purchase function', () => {
-  const url = 'https://kody-video.pages.dev/api/verify-purchase?session_id=cs_live_abc123'
+  const url = 'https://kody.video/api/verify-purchase?session_id=cs_live_abc123'
   const env = { STRIPE_SECRET_KEY: 'rk_test_x' }
 
   it('returns 503 when the secret is not configured', async () => {

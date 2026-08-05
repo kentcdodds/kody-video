@@ -21,8 +21,7 @@ npm run test:e2e   # Playwright e2e suite (fake camera/mic; recording, editor, p
 npm run test:smoke # Playwright UX smoke (fake camera, records + exports)
 ```
 
-**Live app:** [https://kody.video](https://kody.video) (Cloudflare Pages, builds from `main`; the original
-[kody-video.pages.dev](https://kody-video.pages.dev) origin stays live so existing on-device projects remain accessible)
+**Live app:** [https://kody.video](https://kody.video) (Cloudflare Pages, builds from `main`)
 
 For a phone on the same network, use your machine’s LAN URL over HTTPS, or tunnel (`npm run dev -- --host` plus a trusted tunnel). `getUserMedia` will fail on plain `http://<lan-ip>` in most browsers.
 
@@ -52,8 +51,8 @@ For a phone on the same network, use your machine’s LAN URL over HTTPS, or tun
 - Fallback: save clips as separate files
 - Project **backup/import**: one `.kodyvideo` file per project (clips, trims,
   location data, background music + volumes) — a safety net, and the way to
-  move a project between devices or origins (e.g. kody-video.pages.dev →
-  kody.video); ⋯ → Save backup on a slot, import from the About page
+  move a project between devices or browser origins (storage is per-origin);
+  ⋯ → Save backup on a slot, import from the About page
 - Installable PWA (manifest + Workbox service worker for the app shell)
 - **No accounts, no uploads, no analytics**
 

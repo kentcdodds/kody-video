@@ -10,8 +10,8 @@ import type { ClipRecord, Project, ProjectAudioRecord } from './types'
 
 /**
  * Single-file project backup, used both as a safety net and to move a
- * project between origins (e.g. kody-video.pages.dev → kody.video, whose
- * browser storage is separate).
+ * project between devices or browser origins (storage is per-origin — e.g.
+ * an older deploy → kody.video).
  *
  * Format: `KODYVID1` magic, u32 big-endian JSON manifest length, UTF-8 JSON
  * manifest, then every clip's media bytes concatenated in manifest order,
