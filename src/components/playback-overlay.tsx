@@ -345,12 +345,8 @@ export function PlaybackOverlay(handle: Handle<PlaybackOverlayProps>) {
         // The clip's own sound glides toward ITS OWN level — independent
         // of the music (no ducking, no complement), exactly like the
         // export's clip envelope.
-        clipMix =
-          clipMix === null
-            ? segment
-              ? clipSoundVolume(segment.clip)
-              : 1
-            : glide(clipMix, segment ? clipSoundVolume(segment.clip) : 1)
+        const clipTarget = segment ? clipSoundVolume(segment.clip) : 1
+        clipMix = clipMix === null ? clipTarget : glide(clipMix, clipTarget)
         video.volume = normalizedElementVolume(clipMix, clipScale)
       }
       // Test observability for the applied normalization scales.

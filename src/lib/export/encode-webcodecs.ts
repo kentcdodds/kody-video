@@ -355,15 +355,21 @@ export async function exportWithWebCodecs(
         const musicVolume = clipMusicVolume(segment.clip)
         const clipVolume = clipSoundVolume(segment.clip)
         // Whole-clip peak (not just this trim window) so a clip's
-        // loudness doesn't change with where it is trimmed.
+        // loudness doesn't change with where it is trimmed. The persisted
+        // measurement (same decode + scan at the same rate) is preferred —
+        // it skips a per-segment full scan and keeps the export's gain
+        // identical to what the previews played.
         const foregroundScale = normalizationScale(
-          sourceChannels ? channelPeak(sourceChannels) : 0,
+          segment.clip.audioPeak ?? (sourceChannels ? channelPeak(sourceChannels) : 0),
         )
         // The slice's real span (joints shift it by half a crossfade).
         const sliceDurationMs = (sliceChannels[0]!.length / AUDIO_SAMPLE_RATE) * 1000
         const nextPlanned = plan.segments[segmentIndex + 1]
+        // Ramp halves clamp to the REAL clamped durations on both known
+        // sides; only the exit peeks at the next clip's PLANNED duration
+        // (its real one isn't measured yet).
         const entryHalfMs = previousSegment
-          ? boundaryRampHalfMs(previousSegment.durationMs, plannedDurationsMs[segmentIndex])
+          ? boundaryRampHalfMs(previousSegment.durationMs, segmentMs)
           : 0
         const exitHalfMs = nextPlanned
           ? boundaryRampHalfMs(segmentMs, plannedDurationsMs[segmentIndex + 1])

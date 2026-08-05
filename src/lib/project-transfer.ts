@@ -39,6 +39,9 @@ interface ManifestClip {
   clipVolume?: number
   /** Background-music level override (0–1) while this clip plays. */
   musicVolume?: number
+  /** Measured whole-clip audio peak (0–1) — restored so imported clips
+   * skip the normalization re-measure on their first load. */
+  audioPeak?: number
   /** Byte length of this clip's media in the blob section. */
   byteLength: number
 }
@@ -109,6 +112,7 @@ export function serializeProject(
       locationAccuracyM: clip.locationAccuracyM,
       clipVolume: clip.clipVolume,
       musicVolume: clip.musicVolume,
+      audioPeak: clip.audioPeak,
       byteLength: clip.blob.size,
     })),
   }
@@ -223,6 +227,10 @@ export async function parseProjectBackup(file: Blob): Promise<ParsedBackup> {
       // Old backups carried an `audioVolume` mix share instead — ignored.
       clipVolume: typeof clip.clipVolume === 'number' ? clip.clipVolume : undefined,
       musicVolume: typeof clip.musicVolume === 'number' ? clip.musicVolume : undefined,
+      audioPeak:
+        typeof clip.audioPeak === 'number' && Number.isFinite(clip.audioPeak)
+          ? Math.max(0, Math.min(1, clip.audioPeak))
+          : undefined,
       blob: file.slice(offset, offset + clip.byteLength, mimeType),
     })
     offset += clip.byteLength
@@ -310,6 +318,7 @@ export async function importProjectBackup(
         locationAccuracyM: clip.locationAccuracyM,
         clipVolume: clip.clipVolume,
         musicVolume: clip.musicVolume,
+        audioPeak: clip.audioPeak,
       })
       // Restore trims (addClip resets them to the full clip).
       const trimmed = await updateClipTrim(added.id, clip.trimStartMs, clip.trimEndMs)

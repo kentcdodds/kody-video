@@ -356,6 +356,9 @@ export interface AddClipInput {
   /** Per-clip volume overrides — used when importing backups. */
   clipVolume?: number
   musicVolume?: number
+  /** Measured whole-clip audio peak — used when importing backups so the
+   * clip skips the normalization re-measure on its first load. */
+  audioPeak?: number
 }
 
 /**
@@ -400,6 +403,9 @@ export async function addClip(input: AddClipInput): Promise<ClipRecord> {
   }
   if (input.musicVolume !== undefined && clampVolume(input.musicVolume) < 1) {
     clip.musicVolume = clampVolume(input.musicVolume)
+  }
+  if (input.audioPeak !== undefined && Number.isFinite(input.audioPeak)) {
+    clip.audioPeak = Math.max(0, Math.min(1, input.audioPeak))
   }
 
   const tx = db.transaction(['clips', 'projects'], 'readwrite')

@@ -2,6 +2,8 @@ import type { Handle } from 'remix/ui'
 import { on, ref } from 'remix/ui'
 import { reorderClips } from '../lib/storage'
 import {
+  clipMusicVolume,
+  clipSoundVolume,
   effectiveDurationMs,
   formatDuration,
   type ClipId,
@@ -336,12 +338,15 @@ export function Timeline(handle: Handle<TimelineProps>) {
                 role="option"
                 aria-selected={selected}
                 aria-label={`Clip ${index + 1}, ${formatDuration(effectiveDurationMs(clip))}${
+                  // Presence checks stay on the raw fields (override vs
+                  // default); displayed values go through the clamped
+                  // accessors playback uses.
                   clip.clipVolume !== undefined
-                    ? `, clip sound ${Math.round(clip.clipVolume * 100)}%`
+                    ? `, clip sound ${Math.round(clipSoundVolume(clip) * 100)}%`
                     : ''
                 }${
                   props.showAudioBadges && clip.musicVolume !== undefined
-                    ? `, music ${Math.round(clip.musicVolume * 100)}%`
+                    ? `, music ${Math.round(clipMusicVolume(clip) * 100)}%`
                     : ''
                 }`}
                 data-clip-id={clip.id}
@@ -384,12 +389,12 @@ export function Timeline(handle: Handle<TimelineProps>) {
                 <span className="clip-dur">{formatDuration(effectiveDurationMs(clip))}</span>
                 {props.showAudioBadges && clip.musicVolume !== undefined ? (
                   <span className="clip-audio-badge" aria-hidden="true">
-                    ♪ {Math.round(clip.musicVolume * 100)}%
+                    ♪ {Math.round(clipMusicVolume(clip) * 100)}%
                   </span>
                 ) : null}
                 {clip.clipVolume !== undefined ? (
                   <span className="clip-volume-badge" aria-hidden="true">
-                    clip {Math.round(clip.clipVolume * 100)}%
+                    clip {Math.round(clipSoundVolume(clip) * 100)}%
                   </span>
                 ) : null}
               </button>

@@ -341,15 +341,16 @@ describe('createBackgroundMixer', () => {
 
   it('keeps the clip at its own level when the playlist runs out', async () => {
     const mixer = createBackgroundMixer(
-      sourceOf([[new Float32Array([0, 0])]]), // 2 frames of silent music
+      sourceOf([[new Float32Array([0.4, 0.4])]]), // 2 frames of music
       10,
     )
     const slice = [new Float32Array(6).fill(0.6)]
     await mixer.mixInto(slice, 0, envelopes(0.8, 0.5))
-    // The clip side holds 0.5 throughout — music ending changes nothing on
-    // the clip's side (the levels are independent).
+    // While the track plays: clip 0.6·0.5 + music 0.4·0.8 = 0.62. After the
+    // playlist runs out only the clip envelope applies — music ending
+    // changes nothing on the clip's side (the levels are independent).
     expect(Array.from(slice[0]).map((v) => Number(v.toFixed(2)))).toEqual([
-      0.3, 0.3, 0.3, 0.3, 0.3, 0.3,
+      0.62, 0.62, 0.3, 0.3, 0.3, 0.3,
     ])
   })
 

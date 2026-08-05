@@ -93,7 +93,7 @@ describe('project backup round trip', () => {
   it('round-trips the music playlist, fades, and per-clip volumes', async () => {
     await markWatermarkRemoved('cs_test_transfer')
     const clips = [
-      fakeClip('clip_a', 'AAAA', { clipVolume: 0.3, musicVolume: 0.8 }),
+      fakeClip('clip_a', 'AAAA', { clipVolume: 0.3, musicVolume: 0.8, audioPeak: 0.45 }),
       fakeClip('clip_b', 'BBBB'),
     ]
     const backup = serializeProject(
@@ -113,8 +113,12 @@ describe('project backup round trip', () => {
     expect(await parsed.audio!.tracks[1].blob.text()).toBe('MORESONG')
     expect(parsed.clips[0].clipVolume).toBe(0.3)
     expect(parsed.clips[0].musicVolume).toBe(0.8)
+    // The normalization measurement travels too — imported clips skip the
+    // re-measure on their first load.
+    expect(parsed.clips[0].audioPeak).toBe(0.45)
     expect(parsed.clips[1].clipVolume).toBeUndefined()
     expect(parsed.clips[1].musicVolume).toBeUndefined()
+    expect(parsed.clips[1].audioPeak).toBeUndefined()
     // Clip bytes stay aligned with the trailing audio section present.
     expect(await parsed.clips[1].blob.text()).toBe('BBBB')
 
@@ -128,6 +132,7 @@ describe('project backup round trip', () => {
     const imported = await getClipsForProject(project.id)
     expect(imported[0].clipVolume).toBe(0.3)
     expect(imported[0].musicVolume).toBe(0.8)
+    expect(imported[0].audioPeak).toBe(0.45)
     expect(imported[1].clipVolume).toBeUndefined()
     expect(imported[1].musicVolume).toBeUndefined()
   })

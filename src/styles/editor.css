@@ -710,11 +710,15 @@
 }
 
 /* Per-clip volume badges on timeline tiles: music top-left, own sound
-   top-right (only overrides are shown). */
+   top-right (only overrides are shown). Capped to half the tile so both
+   badges fit side by side even on minimum-width tiles. */
 .clip-thumb .clip-audio-badge,
 .clip-thumb .clip-volume-badge {
   position: absolute;
   top: 4px;
+  max-width: calc(50% - 6px);
+  overflow: hidden;
+  text-overflow: ellipsis;
   font-size: 0.62rem;
   color: #fff;
   background: rgba(0, 0, 0, 0.55);
