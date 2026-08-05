@@ -568,7 +568,7 @@ export function drawWatermark(
     ctx.measureText(domain).width,
   )
 
-  ctx.globalAlpha = 0.5
+  ctx.globalAlpha = 0.72
 
   ctx.save()
   ctx.beginPath()
@@ -581,8 +581,11 @@ export function drawWatermark(
   ctx.textAlign = 'center'
   ctx.textBaseline = 'middle'
   ctx.fillStyle = '#fff'
-  ctx.shadowColor = 'rgba(0, 0, 0, 0.6)'
-  ctx.shadowBlur = Math.round(size * 0.12)
+  // Soft drop under the domain so it stays readable on bright frames.
+  ctx.shadowColor = 'rgba(0, 0, 0, 0.55)'
+  ctx.shadowBlur = Math.max(2, Math.round(size * 0.05))
+  ctx.shadowOffsetX = 0
+  ctx.shadowOffsetY = Math.max(1, Math.round(size * 0.035))
   ctx.fillText(domain, textX, textY)
 
   ctx.restore()
