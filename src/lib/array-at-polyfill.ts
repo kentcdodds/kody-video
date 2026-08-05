@@ -13,7 +13,12 @@ export function installArrayAtPolyfill(): void {
 
   Object.defineProperty(Array.prototype, 'at', {
     value: function at(this: ArrayLike<unknown>, index: number): unknown {
-      const length = this.length >>> 0
+      // LengthOfArrayLike / ToLength: clamp to [0, Number.MAX_SAFE_INTEGER].
+      const rawLength = Number(this.length)
+      const length =
+        !Number.isFinite(rawLength) || rawLength <= 0
+          ? 0
+          : Math.min(Math.trunc(rawLength), Number.MAX_SAFE_INTEGER)
       const relative = Math.trunc(index) || 0
       const k = relative >= 0 ? relative : length + relative
       if (k < 0 || k >= length) return undefined
