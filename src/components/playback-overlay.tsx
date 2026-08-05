@@ -142,11 +142,15 @@ export function PlaybackOverlay(handle: Handle<PlaybackOverlayProps>) {
     if (musicTrackIndex !== target.index) {
       // Metadata durations can run slightly past the decoded length, so a
       // just-ended track briefly still "covers" the playhead — moving back
-      // to it would restart it. Only genuine backward skips switch back.
+      // to it mid-playback would restart it. The guard protects that
+      // playback continuity only: once the current element has ENDED there
+      // is nothing to protect (and play() on it would restart it from 0),
+      // so a backward skip switches to the covering track instead.
       const boundaryMs = props.audio.tracks
         .slice(0, target.index + 1)
         .reduce((sum, track) => sum + track.durationMs, 0)
-      const nearHandOff = target.index < musicTrackIndex && boundaryMs - positionMs < 1500
+      const nearHandOff =
+        target.index < musicTrackIndex && boundaryMs - positionMs < 1500 && !audio.ended
       if (!nearHandOff) {
         musicTrackIndex = target.index
         audio.src = urlForTrack(target.index)
