@@ -245,6 +245,22 @@ export function AboutPage(handle: Handle) {
           </section>
 
           <section className="about-section">
+            <h2>See it in action</h2>
+            <p>
+              Kent demos the whole flow — record, arrange, share — in a minute and a half:{' '}
+              <a
+                href="https://youtube.com/shorts/JaUdPTHHk7A"
+                target="_blank"
+                rel="noreferrer noopener"
+              >
+                watch the tour on YouTube
+              </a>
+              . The same video plays right in the quick-start card the first time you open the
+              camera.
+            </p>
+          </section>
+
+          <section className="about-section">
             <h2>Inspired by OK Video</h2>
             <p>
               This app exists because of{' '}
@@ -276,7 +292,8 @@ export function AboutPage(handle: Handle) {
               storage until you export and share them yourself. The app&rsquo;s only own network
               traffic: Stripe checkout and its purchase verification if you buy the watermark
               removal, anonymous crash reports (error and stack trace only — never your media) when
-              something breaks, and cookieless page-view counts via Fathom Analytics.
+              something breaks, cookieless page-view counts via Fathom Analytics, and the tour
+              video streaming from this app&rsquo;s own domain if you tap play on it.
             </p>
           </section>
 

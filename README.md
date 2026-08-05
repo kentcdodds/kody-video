@@ -271,6 +271,9 @@ under `/api/` so no service worker or cached shell can interfere:
   production hostnames — dev and tests never report). Export and import
   failures the UI surfaces as friendly messages are also captured, tagged
   with the failing step, so real-device bugs surface.
+- The onboarding tour video streams from `media.kody.video` (an R2 bucket
+  behind the app's own zone — no third-party player, no tracking) and only
+  when the user taps play on it.
 
 ## Scripts
 

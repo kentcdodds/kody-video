@@ -9,6 +9,19 @@ test.describe('home & app shell', () => {
     await expect(overlay).toBeVisible()
     await expect(overlay).toContainText('Hold to record')
     await expect(overlay).toContainText('Tap Go')
+
+    // Tour teaser swaps to an inline player that streams from media.kody.video.
+    const tourTeaser = overlay.getByRole('button', { name: /watch the tour/i })
+    await expect(tourTeaser).toBeVisible()
+    await tourTeaser.click()
+    const tourVideo = overlay.locator('video.onboarding-tour-video')
+    await expect(tourVideo).toBeVisible()
+    await expect(tourVideo).toHaveAttribute(
+      'src',
+      /^https:\/\/media\.kody\.video\//,
+    )
+    await expect(tourTeaser).toBeHidden()
+
     await page.getByRole('button', { name: 'Start recording' }).click()
     await expect(overlay).toBeHidden()
 
