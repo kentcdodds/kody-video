@@ -1,4 +1,12 @@
-# SPA fallback for client routes. Existing static files (including /assets/*,
-# /llms.txt, /robots.txt, /sitemap.xml) are served from the build output and
-# are not rewritten.
+# Rules apply only when no static file matches (existing /assets/*, /llms.txt,
+# /robots.txt, /sitemap.xml are served from the build output and never
+# rewritten).
+#
+# Missing /assets/* must NOT fall through to the SPA fallback: clients holding
+# a previous deploy's shell import retired hashed chunks, and HTML answered as
+# JavaScript kills the boot with no recovery. Serve a real JS module that
+# self-heals the client instead (see public/assets-recover.js).
+/assets/*    /assets-recover.js    200
+
+# SPA fallback for client routes.
 /*    /index.html   200
