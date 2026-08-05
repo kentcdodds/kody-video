@@ -122,12 +122,15 @@
         margin-left: auto;
         margin-right: auto;
       }
+      /* Below #app (z-index 1) so in-app overlays (e.g. the update toast)
+         can paint above the LCP brand. Transparent #app regions still let
+         this hero show through on the home route. */
       #boot-hero {
         position: absolute;
         top: calc(12px + var(--safe-top));
         left: 0;
         right: 0;
-        z-index: 2;
+        z-index: 0;
         display: flex;
         flex-direction: column;
         align-items: center;

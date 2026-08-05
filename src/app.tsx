@@ -55,10 +55,12 @@ export function App(handle: Handle) {
       />
       {needRefresh ? (
         <div className="update-toast" role="status">
-          <span>A new version of Kody Video is ready</span>
-          <button type="button" mix={on('click', applyUpdate)}>
-            Update
-          </button>
+          <span>
+            <button type="button" mix={on('click', applyUpdate)}>
+              Update
+            </button>{' '}
+            available
+          </span>
         </div>
       ) : null}
     </div>
