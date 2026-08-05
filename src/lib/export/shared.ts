@@ -504,7 +504,7 @@ export function loadWatermarkImage(): Promise<HTMLImageElement | null> {
   })
 }
 
-/** The domain shown next to the watermark mark. */
+/** The domain shown under the watermark mark. */
 export function watermarkDomain(): string {
   const host = typeof location !== 'undefined' ? location.hostname : ''
   // Dev servers and IPs shouldn't end up stamped on anyone's video.
@@ -514,36 +514,76 @@ export function watermarkDomain(): string {
   return host
 }
 
-/** Stamp the Kody Video mark + domain in the bottom-right corner of a frame. */
+/** Geometry for the stacked mark-above-domain watermark in the bottom-right. */
+export function watermarkLayout(
+  width: number,
+  height: number,
+  textWidth: number,
+): {
+  size: number
+  fontSize: number
+  radius: number
+  markX: number
+  markY: number
+  textX: number
+  textY: number
+} {
+  const size = Math.round(Math.min(width, height) * 0.11)
+  const margin = Math.round(size * 0.35)
+  const fontSize = Math.max(10, Math.round(size * 0.38))
+  const gap = Math.round(size * 0.14)
+  const stackWidth = Math.max(size, textWidth)
+  const right = width - margin
+  const bottom = height - margin
+  // Right-align the wider of mark/text; center the narrower on that axis.
+  const markX = Math.round(right - stackWidth / 2 - size / 2)
+  const markY = bottom - size - gap - fontSize
+  return {
+    size,
+    fontSize,
+    radius: Math.round(size * 0.22),
+    markX,
+    markY,
+    textX: markX + size / 2,
+    textY: markY + size + gap + fontSize / 2,
+  }
+}
+
+/** Stamp the Kody Video mark above the domain in the bottom-right corner. */
 export function drawWatermark(
   ctx: CanvasRenderingContext2D,
   image: HTMLImageElement,
   width: number,
   height: number,
 ): void {
-  const size = Math.round(Math.min(width, height) * 0.11)
-  const margin = Math.round(size * 0.35)
-  const x = width - size - margin
-  const y = height - size - margin
-  const radius = Math.round(size * 0.22)
+  const domain = watermarkDomain()
+  const sizeProbe = Math.round(Math.min(width, height) * 0.11)
+  const fontSizeProbe = Math.max(10, Math.round(sizeProbe * 0.38))
 
   ctx.save()
+  ctx.font = `600 ${fontSizeProbe}px 'DM Sans', system-ui, sans-serif`
+  const { size, fontSize, radius, markX, markY, textX, textY } = watermarkLayout(
+    width,
+    height,
+    ctx.measureText(domain).width,
+  )
+
   ctx.globalAlpha = 0.5
 
   ctx.save()
   ctx.beginPath()
-  ctx.roundRect(x, y, size, size, radius)
+  ctx.roundRect(markX, markY, size, size, radius)
   ctx.clip()
-  ctx.drawImage(image, x, y, size, size)
+  ctx.drawImage(image, markX, markY, size, size)
   ctx.restore()
 
-  ctx.font = `600 ${Math.max(10, Math.round(size * 0.38))}px 'DM Sans', system-ui, sans-serif`
-  ctx.textAlign = 'right'
+  ctx.font = `600 ${fontSize}px 'DM Sans', system-ui, sans-serif`
+  ctx.textAlign = 'center'
   ctx.textBaseline = 'middle'
   ctx.fillStyle = '#fff'
   ctx.shadowColor = 'rgba(0, 0, 0, 0.6)'
   ctx.shadowBlur = Math.round(size * 0.12)
-  ctx.fillText(watermarkDomain(), x - Math.round(size * 0.22), y + Math.round(size / 2))
+  ctx.fillText(domain, textX, textY)
 
   ctx.restore()
 }

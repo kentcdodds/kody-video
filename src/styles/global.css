@@ -412,6 +412,36 @@ a {
   line-height: 1.5;
 }
 
+.watermark-prefs {
+  margin-top: 14px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+}
+
+.watermark-keep-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: var(--ink-muted);
+  cursor: pointer;
+}
+
+.watermark-keep-toggle input[type='checkbox'] {
+  width: 16px;
+  height: 16px;
+  accent-color: var(--accent);
+  margin: 0;
+}
+
+.watermark-prefs .watermark-note {
+  margin: 0;
+  text-align: center;
+}
+
 .link-button {
   padding: 0;
   color: var(--accent);

@@ -4,6 +4,12 @@ import { ref } from 'remix/ui'
 interface ExportOverlayProps {
   projectName: string
   progress: number
+  /**
+   * True when this export stamps the Kody mark. Engines draw it onto every
+   * encoded frame before mirroring to the preview canvas, so the live
+   * preview matches the final video.
+   */
+  watermarked: boolean
   /** Bound to the canvas the export engines mirror sampled frames onto. */
   bindPreviewCanvas: (canvas: HTMLCanvasElement | null) => void
 }
@@ -15,7 +21,7 @@ interface ExportOverlayProps {
  */
 export function ExportOverlay(handle: Handle<ExportOverlayProps>) {
   return () => {
-    const { projectName, progress } = handle.props
+    const { projectName, progress, watermarked } = handle.props
     const percent = Math.round(progress * 100)
     return (
       <div className="export-overlay" role="dialog" aria-label="Exporting video">
@@ -30,7 +36,10 @@ export function ExportOverlay(handle: Handle<ExportOverlayProps>) {
         </div>
         <div className="export-overlay-info">
           <h2>Exporting your video…</h2>
-          <p className="muted">{projectName} — keep the app open</p>
+          <p className="muted">
+            {projectName} — keep the app open
+            {watermarked ? ' · includes the Kody mark' : ''}
+          </p>
           <div className="progress-bar" aria-label="Export progress">
             <span style={{ width: `${percent}%` }} />
           </div>

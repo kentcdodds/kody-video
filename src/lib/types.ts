@@ -107,6 +107,11 @@ export interface AppMeta {
   /** One-time "Remove Watermark" purchase (verified via Stripe). */
   watermarkRemoved?: boolean
   purchaseSessionId?: string | null
+  /**
+   * Plus opt-in: keep stamping the Kody mark on exports even after purchase.
+   * Default off — Plus removes the watermark unless the user chooses this.
+   */
+  keepWatermark?: boolean
   /** Opt-in: tag new clips with device location. */
   locationTaggingEnabled?: boolean
   /** The persisted last export (OPFS-backed), recoverable after the share
