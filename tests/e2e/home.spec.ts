@@ -37,9 +37,16 @@ test.describe('home & app shell', () => {
       .toBeGreaterThan(0)
     await expect(teaser).toBeHidden()
 
-    // Dismissal persists across reloads.
+    // Dismissal persists across SPA navigation (cached home data) …
     await card.getByRole('button', { name: 'Dismiss tour' }).click()
     await expect(card).toBeHidden()
+    await page.getByRole('link', { name: 'About Kody Video' }).click()
+    await expect(page.locator('.about-screen')).toBeVisible()
+    await page.goBack()
+    await expect(page.locator('.project-slots')).toBeVisible()
+    await expect(page.locator('.tour-card')).toBeHidden()
+
+    // … and across full reloads (persisted meta).
     await page.reload()
     await expect(page.locator('.project-slots')).toBeVisible()
     await expect(page.locator('.tour-card')).toBeHidden()
