@@ -133,11 +133,10 @@ export async function exportRealtime(
       clipGain.gain.value = 1
       clipGain.connect(dest)
       let stopped = false
-      /** True once a track actually started — the FILM-start fade rides the
-       * master gain glide, so only tracks starting mid-film fade themselves
-       * in (matches the mixer's trackStartFrame > 0 gate, even when skipped
-       * tracks leave the first playable one at a later index). */
-      let anyTrackStarted = false
+      /** Output position where the next track starts (the kept windows
+       * played so far) — the realtime mirror of the mixer's
+       * trackStartFrame, used to gate interior fades the same way. */
+      let playlistPositionMs = 0
       let activeSource: AudioBufferSourceNode | null = null
       const playFrom = async (index: number): Promise<void> => {
         if (stopped || !audioContext) return
@@ -171,15 +170,18 @@ export async function exportRealtime(
         const normalize = audioContext.createGain()
         normalize.gain.value = trackGain
         const now = audioContext.currentTime
-        // Interior fades: the film-start fade rides the master gain glide
-        // below, so a track fade-in only applies mid-film; a fade-out past
-        // the film's end simply never gets heard.
-        if (anyTrackStarted && playback.fadeIn) {
+        const trackStartMs = playlistPositionMs
+        playlistPositionMs += keptSec * 1000
+        // Interior fades only, matching the WebCodecs mixer: the
+        // film-start fade rides the master gain glide below, so a track
+        // fade-in applies only mid-film — and a track the film cuts off
+        // fades via the scheduled film-end fade instead of its own.
+        if (playback.fadeIn && trackStartMs > 0) {
           const fadeSec = Math.min(FADE_IN_MS / 1000, keptSec / 2)
           normalize.gain.setValueAtTime(0, now)
           normalize.gain.linearRampToValueAtTime(trackGain, now + fadeSec)
         }
-        if (playback.fadeOut) {
+        if (playback.fadeOut && playlistPositionMs < plan.totalMs) {
           const fadeSec = Math.min(FADE_OUT_MS / 1000, keptSec / 2)
           normalize.gain.setValueAtTime(trackGain, now + keptSec - fadeSec)
           normalize.gain.linearRampToValueAtTime(0, now + keptSec)
@@ -190,7 +192,6 @@ export async function exportRealtime(
           void playFrom(index + 1)
         }
         activeSource = source
-        anyTrackStarted = true
         source.start(now, trimStartSec, keptSec)
       }
       // Deferred to the first painted segment: starting here would let the
