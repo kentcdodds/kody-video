@@ -243,7 +243,8 @@ a {
 /* Light-mode accent (#1f8a68) + --ink-strong (#102019) is ~3.9:1. Pure
    black on that green clears WCAG AA (4.5:1) without shifting the brand. */
 @media (prefers-color-scheme: light) {
-  .btn-primary {
+  .btn-primary,
+  .go-button {
     color: #000000;
   }
 }
@@ -761,12 +762,14 @@ a {
   margin: 0 0 14px;
 }
 
-/* Keyboard hints only make sense where a keyboard is likely present. */
+/* Keyboard hints only make sense where a keyboard is likely present.
+   Default ink is light — the record screen paints these over the dark stage.
+   Light-mode editor overrides live in editor.css (pale panel chrome). */
 .key-hints {
   display: none;
   padding: 4px 16px 10px;
   font-size: 11px;
-  color: var(--ink-soft, rgba(255, 255, 255, 0.55));
+  color: rgba(255, 255, 255, 0.72);
   text-align: center;
   user-select: none;
 }
@@ -774,11 +777,12 @@ a {
 .key-hints kbd {
   display: inline-block;
   padding: 1px 5px;
-  border: 1px solid var(--line);
+  border: 1px solid rgba(255, 255, 255, 0.28);
   border-radius: 5px;
   font-family: inherit;
   font-size: 10px;
-  background: rgba(127, 127, 127, 0.12);
+  color: rgba(255, 255, 255, 0.88);
+  background: rgba(255, 255, 255, 0.1);
 }
 
 @media (hover: hover) and (pointer: fine) {
