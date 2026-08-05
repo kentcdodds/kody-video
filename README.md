@@ -202,7 +202,10 @@ device: "Already paid?" on the export sheet or a locked slot's upsell.
 
 Projects are also created lazily — "New project" opens the camera at
 `/project/new` and nothing is persisted until the first clip is recorded, so
-backing out of an untouched project leaves no empty slot behind.
+backing out of an untouched project leaves no empty slot behind. The same
+holds after creation: a project exited while still in its default state (no
+clips, default name, no music) is silently deleted when the home screen
+loads, since keeping it would change nothing the user can see.
 
 Deployment requirement: set `STRIPE_SECRET_KEY` (a restricted key with
 Checkout Sessions read access is enough) on the Cloudflare Pages project.

@@ -202,11 +202,49 @@ export async function renameProject(id: ProjectId, name: string): Promise<Projec
 }
 
 export async function deleteProject(id: ProjectId): Promise<void> {
-  const db = await getDb()
-  const project = await db.get('projects', id)
-  if (!project) return
+  await deleteProjectRecords(id, { onlyIfPristine: false })
+}
 
+/** Matches names produced by defaultProjectName — a rename away from the
+ * default marks the project as meaningful. */
+const DEFAULT_PROJECT_NAME_PATTERN = /^Project \d+$/
+
+/**
+ * Delete the project only when it is still indistinguishable from a freshly
+ * created one: no clips, default name, no background music. Exiting such a
+ * project should leave nothing behind — deleting it changes nothing the user
+ * can see, so it happens silently. Any leftover undo snapshot (last clip
+ * deleted, never restored) goes with it. Returns true when it was deleted.
+ */
+export async function deleteProjectIfPristine(id: ProjectId): Promise<boolean> {
+  return deleteProjectRecords(id, { onlyIfPristine: true })
+}
+
+async function deleteProjectRecords(
+  id: ProjectId,
+  options: { onlyIfPristine: boolean },
+): Promise<boolean> {
+  const db = await getDb()
   const tx = db.transaction(['projects', 'clips', 'undo', 'meta', 'audio'], 'readwrite')
+  const project = await tx.objectStore('projects').get(id)
+  if (!project) {
+    await tx.done
+    return false
+  }
+  if (options.onlyIfPristine) {
+    // Checked inside the deleting transaction: a clip save racing this
+    // delete (exiting right as a take persists) serializes against it, so a
+    // fresh clip can never survive into a half-deleted project.
+    const audio = await tx.objectStore('audio').get(id)
+    const pristine =
+      project.clipIds.length === 0 &&
+      DEFAULT_PROJECT_NAME_PATTERN.test(project.name) &&
+      (!audio || audio.tracks.length === 0)
+    if (!pristine) {
+      await tx.done
+      return false
+    }
+  }
   // Read meta before queueing writes so a failed delete cannot reject while
   // we are still awaiting get — that would reintroduce the AbortError leak.
   const settings = await tx.objectStore('meta').get('settings')
@@ -235,6 +273,7 @@ export async function deleteProject(id: ProjectId): Promise<void> {
   if (dropsCachedExport && settings?.lastExport) {
     await removeExportEntry(settings.lastExport.opfsName).catch(() => undefined)
   }
+  return true
 }
 
 export async function touchProject(id: ProjectId): Promise<void> {

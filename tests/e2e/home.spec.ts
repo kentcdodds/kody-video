@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test'
-import { gotoHome, openNewProject, unlockPlus } from './helpers'
+import { gotoHome, openNewProject, recordClip, unlockPlus } from './helpers'
 
 test.describe('home & app shell', () => {
   test('onboarding shows on first camera open, dismisses for good', async ({ page }) => {
@@ -42,8 +42,10 @@ test.describe('home & app shell', () => {
     await unlockPlus(page)
     const outcome = await page.evaluate(async () => {
       const storage = await import('/src/lib/storage.ts')
+      // Custom names: projects still in their default state (empty, named
+      // "Project N") are auto-deleted when the home screen loads.
       for (let i = 1; i <= 6; i += 1) {
-        await storage.createProject(`Project ${i}`)
+        await storage.createProject(`Trip ${i}`)
       }
       try {
         await storage.createProject('One too many')
@@ -157,6 +159,28 @@ test.describe('lazy project creation', () => {
       return (await storage.listProjects()).length
     })
     expect(projects).toBe(0)
+    await expect(page.locator('.project-slot.filled')).toHaveCount(0)
+  })
+
+  test('exiting a project still in its default state auto-deletes it', async ({ page }) => {
+    await openNewProject(page)
+    // The first take persists the project…
+    await recordClip(page)
+    await page.waitForURL((url) => !url.pathname.endsWith('/project/new'))
+    // …but deleting it leaves the project exactly as a fresh one: no clips,
+    // default name. Exiting must remove it silently.
+    await page.getByRole('button', { name: 'Delete last clip' }).click()
+    await expect(page.locator('.toast')).toContainText('Last clip deleted')
+    await page.getByRole('link', { name: 'Back to projects' }).click()
+    await page.waitForURL(/\/$/)
+    await expect
+      .poll(async () =>
+        page.evaluate(async () => {
+          const storage = await import('/src/lib/storage.ts')
+          return (await storage.listProjects()).length
+        }),
+      )
+      .toBe(0)
     await expect(page.locator('.project-slot.filled')).toHaveCount(0)
   })
 })
