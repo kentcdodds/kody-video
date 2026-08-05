@@ -808,6 +808,41 @@
   color: var(--danger-ink);
 }
 
+/* Light mode: small labels and accent-on-mint chips need darker ink than the
+   shared tokens provide (~3.8:1 for accent text; disabled@0.38 disappears).
+   Key-hints also need dark ink here — the global style assumes a dark stage. */
+@media (prefers-color-scheme: light) {
+  .editor-action-label {
+    color: var(--ink);
+  }
+
+  .editor-action.prominent {
+    color: var(--ink-strong);
+  }
+
+  .editor-action.prominent .editor-action-label {
+    color: var(--ink-strong);
+  }
+
+  .editor-action:disabled {
+    opacity: 0.55;
+  }
+
+  .editor-screen .key-hints {
+    color: var(--ink-muted);
+  }
+
+  .editor-screen .key-hints kbd {
+    color: var(--ink);
+    border-color: var(--line);
+    background: color-mix(in srgb, var(--ink) 8%, transparent);
+  }
+
+  .editor-toolbar .btn-ghost:disabled {
+    opacity: 0.62;
+  }
+}
+
 .editor-toolbar .btn-ghost {
   display: inline-flex;
   align-items: center;
