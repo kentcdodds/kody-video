@@ -366,7 +366,8 @@ test.describe('background music', () => {
     await openPlusEditorWithClips(page, 1)
     // Quietly mastered song: peak ≈ 8000/32768 ≈ 0.24, so the export mixes
     // it ≈ 3.7× hotter (0.9 / 0.24) than the raw file plays. The preview
-    // must apply the same boost — element volume alone caps at 1×.
+    // carries the same boost in the music element's volume (0.25 share ×
+    // ≈3.7 ≈ 0.92) — without it the volume would sit at the bare 0.25.
     await addMusic(page, 'Add background music', makeWavFile('quiet-song.wav', 8, 8000))
 
     await page.getByRole('button', { name: 'Play project preview' }).click()
@@ -377,7 +378,12 @@ test.describe('background music', () => {
     await expect
       .poll(() => music.evaluate((el) => !(el as HTMLAudioElement).paused))
       .toBe(true)
-    // The music gain glides to the export's normalization boost once the
+    // Freeze the playhead so the short film can't end (and its fade-out
+    // window can't shrink the target) while the polls below run under load.
+    await overlay
+      .locator('.playback-video')
+      .evaluate((el) => (el as HTMLVideoElement).pause())
+    // The reported normalization scale reaches the export's boost once the
     // track is measured (decode runs in the background after open; generous
     // timeout — parallel workers can slow the decode considerably)…
     await expect
@@ -386,11 +392,52 @@ test.describe('background music', () => {
       })
       .toBeGreaterThan(3.3)
     expect(Number(await music.getAttribute('data-music-scale'))).toBeLessThanOrEqual(4)
-    // …while the fixture clips (video-only, no audio track) stay unscaled,
+    // …and the element volume glides to share × boost ≈ 0.92.
+    await expect
+      .poll(() => music.evaluate((el) => (el as HTMLAudioElement).volume), { timeout: 10_000 })
+      .toBeGreaterThan(0.85)
+    // The fixture clips (video-only, no audio track) stay unscaled,
     // exactly like the export mixes them.
     await expect(music).toHaveAttribute('data-clip-scale', '1')
 
     await overlay.getByRole('button', { name: 'Stop preview' }).click()
     await expect(overlay).toBeHidden()
+  })
+
+  test('editor clip preview plays the bed at the clip film position and level', async ({
+    page,
+  }) => {
+    // Two 3s clips; the LAST one is selected by default, so its film
+    // position starts at 3s — the bed must start 3s into the song, not at 0.
+    await openPlusEditorWithClips(page, 2)
+    await addMusic(page, 'Add background music', makeWavFile('quiet-song.wav', 8, 8000))
+
+    const stage = page.locator('.editor-clip-preview-wrap')
+    const music = stage.locator('audio')
+    await expect(music).toHaveCount(1)
+
+    await page.getByRole('button', { name: 'Play clip preview' }).click()
+    await expect
+      .poll(() => music.evaluate((el) => !(el as HTMLAudioElement).paused))
+      .toBe(true)
+    // Position: export-true playlist offset for clip 2 (≈3s into the song).
+    const startedAt = await music.evaluate((el) => (el as HTMLAudioElement).currentTime)
+    expect(startedAt).toBeGreaterThan(2.8)
+    expect(startedAt).toBeLessThan(4.5)
+    // Level: 0.25 share × ≈3.7 normalization boost ⇒ element volume ≈ 0.92.
+    await expect
+      .poll(() => music.evaluate((el) => (el as HTMLAudioElement).volume), { timeout: 30_000 })
+      .toBeGreaterThan(0.85)
+    // The clip's own sound ducks to the complement of the mix (fixture
+    // clips decode no audio, so their normalization scale stays 1).
+    await expect
+      .poll(() => stage.locator('video').evaluate((el) => (el as HTMLVideoElement).volume))
+      .toBeLessThan(0.8)
+
+    // When the clip stops (trim end or tap), the bed stops with it.
+    await stage.locator('video').evaluate((el) => (el as HTMLVideoElement).pause())
+    await expect
+      .poll(() => music.evaluate((el) => (el as HTMLAudioElement).paused))
+      .toBe(true)
   })
 })

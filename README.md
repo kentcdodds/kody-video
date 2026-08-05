@@ -45,7 +45,10 @@ For a phone on the same network, use your machine’s LAN URL over HTTPS, or tun
   changes glide across clip boundaries, and the music fades in/out at the
   start and end of the film (both toggleable, on by default). All of it —
   levels, normalization, fades, track hand-offs — plays the same in the
-  project preview as in the exported file
+  previews as in the exported file: the project preview runs the whole
+  film's bed, and the editor's clip stage plays the music under the
+  selected clip from its exact spot on the film's timeline (normalization
+  boosts cap at the browser's volume ceiling in previews)
 - Project preview playback: tap edges to skip clips, tap middle to stop
 - Up to **6** stable project slots (create / open / rename / delete, poster art from your clips)
 - Big Go CTA: on-device export to **one video file**, then Share (system sheet) or Save
