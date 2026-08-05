@@ -107,6 +107,14 @@ export function PlaybackOverlay(handle: Handle<PlaybackOverlayProps>) {
   const trackDurationMs = (track: ProjectAudioTrack): number =>
     measured.get(track.blob)?.decodedDurationMs ?? track.durationMs
 
+  /** A rejected play() surfaces the tap-to-play affordance only for
+   * autoplay-policy rejections. AbortError means the attempt was merely
+   * interrupted — a deliberate pause() or a source swap landing while the
+   * promise was still pending — and flashing "Tap to play" over the
+   * controls then is wrong (and blocks the button underneath). */
+  const rejectionNeedsTap = (error: unknown): boolean =>
+    !(error instanceof DOMException && error.name === 'AbortError')
+
   /** Synchronous, gesture-time nudge for a suspended context: Safari (and
    * iOS in particular) only honors resume() called from inside a
    * user-gesture handler — the async promise continuations where playback
@@ -246,14 +254,23 @@ export function PlaybackOverlay(handle: Handle<PlaybackOverlayProps>) {
       // Metadata durations can run slightly past the decoded length, so a
       // just-ended track briefly still "covers" the playhead — moving back
       // to it mid-playback would restart it. The guard protects that
-      // playback continuity only: once the current element has ENDED there
-      // is nothing to protect (and play() on it would restart it from 0),
+      // playback continuity only, and only while the covering track's REAL
+      // (decoded) length is unknown: once measured, every position mapped
+      // into the track is backed by real audio, so realigning to it is
+      // always safe (and export-true — the export is still playing that
+      // track's tail there). Once the current element has ENDED there is
+      // also nothing to protect (play() on it would restart it from 0),
       // so a backward skip switches to the covering track instead.
       const boundaryMs = props.audio.tracks
         .slice(0, target.index + 1)
         .reduce((sum, track) => sum + trackDurationMs(track), 0)
+      const overshootPossible =
+        measured.get(props.audio.tracks[target.index].blob)?.decodedDurationMs == null
       const nearHandOff =
-        target.index < musicTrackIndex && boundaryMs - positionMs < 1500 && !audio.ended
+        overshootPossible &&
+        target.index < musicTrackIndex &&
+        boundaryMs - positionMs < 1500 &&
+        !audio.ended
       if (!nearHandOff) {
         musicTrackIndex = target.index
         audio.src = urlForTrack(target.index)
@@ -429,7 +446,8 @@ export function PlaybackOverlay(handle: Handle<PlaybackOverlayProps>) {
         void video
           .play()
           .then(() => playMusic())
-          .catch(() => {
+          .catch((error: unknown) => {
+            if (!rejectionNeedsTap(error)) return
             needsTap = true
             void handle.update()
           })
@@ -468,7 +486,8 @@ export function PlaybackOverlay(handle: Handle<PlaybackOverlayProps>) {
         playMusic()
         void handle.update()
       })
-      .catch(() => {
+      .catch((error: unknown) => {
+        if (!rejectionNeedsTap(error)) return
         needsTap = true
         void handle.update()
       })
@@ -506,7 +525,8 @@ export function PlaybackOverlay(handle: Handle<PlaybackOverlayProps>) {
               playMusic()
               void handle.update()
             })
-            .catch(() => {
+            .catch((error: unknown) => {
+              if (!rejectionNeedsTap(error)) return
               needsTap = true
               void handle.update()
             })

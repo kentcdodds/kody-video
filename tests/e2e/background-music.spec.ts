@@ -378,10 +378,11 @@ test.describe('background music', () => {
       .poll(() => music.evaluate((el) => !(el as HTMLAudioElement).paused))
       .toBe(true)
     // The music gain glides to the export's normalization boost once the
-    // track is measured (decode runs in the background after open)…
+    // track is measured (decode runs in the background after open; generous
+    // timeout — parallel workers can slow the decode considerably)…
     await expect
       .poll(async () => Number((await music.getAttribute('data-music-scale')) ?? '0'), {
-        timeout: 15_000,
+        timeout: 30_000,
       })
       .toBeGreaterThan(3.3)
     expect(Number(await music.getAttribute('data-music-scale'))).toBeLessThanOrEqual(4)
