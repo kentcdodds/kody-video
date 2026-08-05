@@ -433,10 +433,12 @@ export function RecordScreen(handle: Handle<RecordScreenProps>) {
     // succession) must not re-enter and double-save the clip.
     if (endInFlight) return
     if (!recorder.isRecording && !recording) {
-      // Pointer released while mic grant was still in flight.
+      // Pointer released while mic grant was still in flight. Keep the
+      // just-acquired mic warm — an aborted press is usually followed by
+      // the real one.
       pointerId = null
       keyboardTake = false
-      camera.releaseMic()
+      camera.releaseMic({ keepWarm: true })
       return
     }
     endInFlight = true
@@ -494,7 +496,9 @@ export function RecordScreen(handle: Handle<RecordScreenProps>) {
       if (!recorder.isRecording && !beginInFlight) {
         micMonitor?.stop()
         micMonitor = null
-        camera.releaseMic()
+        // Warm release: the next take reuses this mic instead of paying a
+        // fresh acquisition's silent ramp-up at its head.
+        camera.releaseMic({ keepWarm: true })
         releaseWakeLock()
         // A quick next hold already replaced the mirror via
         // startThumbMirror — only tear it down when this take is the last.
