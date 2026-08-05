@@ -321,6 +321,10 @@
   left: 50%;
   transform: translateX(-50%);
   z-index: 3;
+  /* Center-anchored pill: labels flip between widths ("1×" / "1.1×"), so
+     without a floor both edges breathe on every 0.1× step of a drag. */
+  min-width: calc(4.5ch + 28px);
+  text-align: center;
   padding: 6px 14px;
   border-radius: 999px;
   background: rgba(0, 0, 0, 0.55);

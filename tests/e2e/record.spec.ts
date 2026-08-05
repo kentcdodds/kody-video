@@ -84,6 +84,73 @@ test.describe('camera & hold-to-record', () => {
     await expect(pill).toBeHidden()
   })
 
+  test('mid-take re-renders never blank the REC timer or zoom HUD', async ({ page }) => {
+    // The fake camera exposes no zoom range — shim one in so drag-to-zoom
+    // (and its HUD) engages like on a real phone.
+    await page.addInitScript(() => {
+      const original = MediaStreamTrack.prototype.getCapabilities
+      MediaStreamTrack.prototype.getCapabilities = function () {
+        const caps = (original ? original.call(this) : {}) as MediaTrackCapabilities &
+          Record<string, unknown>
+        if (this.kind === 'video') {
+          caps.zoom = { min: 1, max: 8, step: 0.1 }
+        }
+        return caps
+      }
+    })
+    await openNewProject(page)
+    await pressStageUntilRecording(page)
+
+    // Regression guard: both readouts update their text imperatively. A
+    // re-render while recording used to bulk-clear them (the reconciler
+    // wipes children of childless vnodes), collapsing the pills — visible
+    // jitter. Record every mutation that leaves either readout empty.
+    await page.evaluate(() => {
+      const empties: string[] = []
+      const watch = (selector: string) => {
+        const el = document.querySelector(selector)
+        if (!el) {
+          empties.push(`${selector} missing`)
+          return
+        }
+        const observer = new MutationObserver(() => {
+          if ((el.textContent ?? '').trim() === '') empties.push(selector)
+        })
+        observer.observe(el, { childList: true, characterData: true, subtree: true })
+      }
+      watch('.record-pill .record-elapsed')
+      watch('.zoom-hud')
+      ;(window as Window & { __emptyTextEvents?: string[] }).__emptyTextEvents = empties
+    })
+
+    // Drift past the drag-zoom dead zone, then jiggle like a real thumb.
+    const box = await page.locator('.record-stage').boundingBox()
+    if (!box) throw new Error('no stage')
+    const centerX = box.x + box.width / 2
+    const centerY = box.y + box.height / 2
+    await page.mouse.move(centerX, centerY - 40, { steps: 8 })
+    const hud = page.locator('.zoom-hud')
+    await expect(hud).toHaveClass(/is-visible/)
+    await expect(hud).toHaveText(/\d(\.\d)?×/)
+    for (let i = 0; i < 14; i += 1) {
+      await page.mouse.move(centerX + (i % 2 ? 2 : -2), centerY - 40 - (i % 3), { steps: 2 })
+      await page.waitForTimeout(250)
+    }
+
+    // The fake mic is silent, so the warning re-renders the screen mid-take —
+    // proof the take actually survived at least one re-render.
+    await expect(page.locator('.record-screen')).toContainText(/mic isn/i, {
+      timeout: 10_000,
+    })
+    await expect(page.locator('.record-pill .record-elapsed')).toHaveText(/\d+\.\ds/)
+    await expect(hud).toHaveText(/\d(\.\d)?×/)
+    const emptyEvents = await page.evaluate(
+      () => (window as Window & { __emptyTextEvents?: string[] }).__emptyTextEvents,
+    )
+    expect(emptyEvents).toEqual([])
+    await page.mouse.up()
+  })
+
   test('a very short tap does not create an empty clip', async ({ page }) => {
     await openNewProject(page)
     const stage = page.locator('.record-stage')

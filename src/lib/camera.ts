@@ -143,7 +143,10 @@ export interface Camera {
   start: () => Promise<void>
   flip: () => Promise<void>
   stop: () => void
-  setZoom: (value: number) => void
+  /** `silent` skips the owning component's re-render sync — for zoom driven
+   * from inside an active take, where nothing that reads `camera.zoom` is on
+   * screen and any re-render competes with the preview and encoder. */
+  setZoom: (value: number, options?: { silent?: boolean }) => void
   setTorch: (on: boolean) => Promise<void>
   enableMic: () => Promise<void>
   /** `keepWarm` defers the actual stop by MIC_KEEP_WARM_MS (take-end
@@ -503,7 +506,7 @@ export function createCamera(notify: () => void): Camera {
     }
   }
 
-  function setZoom(value: number): void {
+  function setZoom(value: number, options?: { silent?: boolean }): void {
     const track = camera.stream?.getVideoTracks()[0]
     const range = camera.zoom
     if (!track || !range) return
@@ -512,8 +515,12 @@ export function createCamera(notify: () => void): Camera {
     void track
       .applyConstraints({ advanced: [{ zoom: clamped } as MediaTrackConstraintSet] })
       .catch(() => undefined)
+    // Mid-take drag-to-zoom passes silent: the zoom chips it would sync are
+    // hidden while recording, and `camera.zoom` is already current for
+    // whatever re-render comes next (take end, snap-back).
+    if (options?.silent) return
     // Constraints apply immediately; the owning component syncs on a trailing
-    // timer so drag-to-zoom during a recording doesn't rerender per move.
+    // timer so a zoom ramp doesn't rerender per step.
     if (!zoomNotifyTimer) {
       zoomNotifyTimer = window.setTimeout(() => {
         zoomNotifyTimer = 0
