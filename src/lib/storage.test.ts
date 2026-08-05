@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it } from 'vitest'
 import {
   DB_NAME,
+  DB_VERSION,
   __resetDbForTests,
   addClip,
   addProjectAudioTrack,
@@ -12,6 +13,7 @@ import {
   duplicateClip,
   getClip,
   getClipsForProject,
+  getDb,
   getProjectAudio,
   getSettings,
   getUndoSnapshot,
@@ -47,6 +49,53 @@ describe('storage layer', () => {
     await setOnboardingDismissed(true)
 
     expect((await getSettings()).onboardingDismissed).toBe(true)
+  })
+
+  it('heals a DB left empty by a version-less open (diag-style)', async () => {
+    // /api/diag used to call indexedDB.open('kody-video') with no version.
+    // On a fresh origin that creates an empty version-1 database; the app's
+    // oldVersion-gated upgrade then only added 'audio' and getSettings threw
+    // NotFoundError for the missing 'meta' store.
+    const empty = await new Promise<IDBDatabase>((resolve, reject) => {
+      const req = indexedDB.open(DB_NAME)
+      req.onsuccess = () => resolve(req.result)
+      req.onerror = () => reject(req.error ?? new Error('open failed'))
+    })
+    expect(empty.version).toBe(1)
+    expect([...empty.objectStoreNames]).toEqual([])
+    empty.close()
+
+    const settings = await getSettings()
+    expect(settings.key).toBe('settings')
+    const db = await getDb()
+    expect(db.version).toBe(DB_VERSION)
+    expect([...db.objectStoreNames].sort()).toEqual([
+      'audio',
+      'clips',
+      'meta',
+      'projects',
+      'undo',
+    ])
+  })
+
+  it('heals a v2 DB that only has the audio store', async () => {
+    // Simulate the post-diag corrupt state: version 2, stores = ['audio'].
+    const corrupt = await new Promise<IDBDatabase>((resolve, reject) => {
+      const req = indexedDB.open(DB_NAME, 2)
+      req.onupgradeneeded = () => {
+        req.result.createObjectStore('audio', { keyPath: 'projectId' })
+      }
+      req.onsuccess = () => resolve(req.result)
+      req.onerror = () => reject(req.error ?? new Error('open failed'))
+    })
+    expect([...corrupt.objectStoreNames]).toEqual(['audio'])
+    corrupt.close()
+
+    await expect(getSettings()).resolves.toMatchObject({ key: 'settings' })
+    const db = await getDb()
+    expect(db.version).toBe(DB_VERSION)
+    expect(db.objectStoreNames.contains('meta')).toBe(true)
+    expect(db.objectStoreNames.contains('projects')).toBe(true)
   })
 
   it('defaults keepWatermark off and persists the Plus opt-in', async () => {
