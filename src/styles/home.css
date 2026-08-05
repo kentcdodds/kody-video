@@ -2,6 +2,25 @@
 
 .home-screen {
   gap: 0;
+  /* Anchor for the corner buttons. */
+  position: relative;
+}
+
+/* Install (left) / About (right) corner buttons: full 44px tap targets in
+   the dead space beside the centered hero art. */
+.home-corner {
+  position: absolute;
+  top: calc(12px + var(--safe-top));
+  z-index: 5;
+  color: var(--ink);
+}
+
+.home-corner-left {
+  left: 12px;
+}
+
+.home-corner-right {
+  right: 12px;
 }
 
 .home-hero {
@@ -423,17 +442,6 @@
   padding: 0 14px;
   border-radius: 999px;
   font-size: 0.88rem;
-}
-
-.home-privacy .link-button {
-  font-size: inherit;
-}
-
-.home-privacy a {
-  color: var(--accent);
-  font-weight: 600;
-  text-decoration: underline;
-  text-underline-offset: 2px;
 }
 
 /* About page */

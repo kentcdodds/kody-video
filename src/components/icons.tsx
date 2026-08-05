@@ -245,6 +245,28 @@ export function IconLock(handle: Handle<IconProps>) {
   )
 }
 
+/** Down arrow into a tray: install / download to this device. */
+export function IconDownload(handle: Handle<IconProps>) {
+  return () => (
+    <svg {...baseProps(handle.props.size ?? 22)}>
+      <path d="M12 3.5V14" />
+      <path d="M7.5 9.5L12 14l4.5-4.5" />
+      <path d="M4.5 16.5v2a2 2 0 002 2h11a2 2 0 002-2v-2" />
+    </svg>
+  )
+}
+
+/** Lowercase "i" in a circle: about / more information. */
+export function IconInfo(handle: Handle<IconProps>) {
+  return () => (
+    <svg {...baseProps(handle.props.size ?? 22)}>
+      <circle cx="12" cy="12" r="8.5" />
+      <path d="M12 11.25v5" />
+      <circle cx="12" cy="7.75" r="1.1" fill="currentColor" stroke="none" />
+    </svg>
+  )
+}
+
 /** Monitor with a record dot: screen recording. */
 export function IconScreen(handle: Handle<IconProps & { on?: boolean }>) {
   return () => (
