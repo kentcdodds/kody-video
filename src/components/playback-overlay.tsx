@@ -229,12 +229,17 @@ export function PlaybackOverlay(handle: Handle<PlaybackOverlayProps>) {
       if (video) {
         const musicHere =
           props.audio && !playlistDone ? trackAtMs(timelinePositionMs()) !== null : false
-        const clipTarget = musicHere ? 1 - target : 1
-        const nextClip = video.volume + (clipTarget - video.volume) * alpha
-        video.volume = Math.max(
-          0,
-          Math.min(1, Math.abs(nextClip - clipTarget) < 0.005 ? clipTarget : nextClip),
-        )
+        if (musicHere) {
+          // Exact mirror of the export blend: the clip's own sound always
+          // carries the complement of the music's CURRENT (gliding)
+          // volume — during the fade-in the clip starts at full and only
+          // comes down as the bed actually rises.
+          video.volume = Math.max(0, Math.min(1, 1 - el.volume))
+        } else {
+          // No music here (playlist over) — glide back up to full.
+          const nextClip = video.volume + (1 - video.volume) * alpha
+          video.volume = Math.min(1, nextClip > 0.995 ? 1 : nextClip)
+        }
       }
       raf = requestAnimationFrame(tick)
     }
