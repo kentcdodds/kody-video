@@ -123,9 +123,20 @@ test.describe('home & app shell', () => {
     await expect(report).toContainText(/Detected rear lenses: \d+/)
   })
 
+  test('corner buttons: About always, Install once the browser offers it', async ({ page }) => {
+    await gotoHome(page)
+    await expect(page.getByRole('link', { name: 'About Kody Video' })).toBeVisible()
+    // Headless Chromium never fires beforeinstallprompt on its own.
+    await expect(page.getByRole('button', { name: 'Install app' })).toHaveCount(0)
+    await page.evaluate(() => {
+      window.dispatchEvent(new Event('beforeinstallprompt'))
+    })
+    await expect(page.getByRole('button', { name: 'Install app' })).toBeVisible()
+  })
+
   test('about, privacy, and terms pages render', async ({ page }) => {
     await gotoHome(page)
-    await page.getByRole('link', { name: 'About' }).click()
+    await page.getByRole('link', { name: 'About Kody Video' }).click()
     await page.waitForURL(/\/about/)
     await expect(page.locator('body')).toContainText('Kody Video')
     await page.goto('/privacy')

@@ -4,7 +4,15 @@ import { BlobImage } from '../components/blob-image'
 import { BrandMark } from '../components/brand-mark'
 import { ConfirmSheet } from '../components/confirm-sheet'
 import { HomeOptionsSheet } from '../components/home-options-sheet'
-import { IconClose, IconLock, IconMore, IconPlus, IconShareIos } from '../components/icons'
+import {
+  IconClose,
+  IconDownload,
+  IconInfo,
+  IconLock,
+  IconMore,
+  IconPlus,
+  IconShareIos,
+} from '../components/icons'
 import { UpsellSheet } from '../components/upsell-sheet'
 import { RestoreSheet } from '../components/restore-sheet'
 import { RenameSheet } from '../components/rename-sheet'
@@ -216,6 +224,28 @@ export function HomePage(handle: Handle) {
 
     return (
       <div className="screen home-screen">
+        {/* Corner buttons: 44px tap targets clear of other controls — the
+            old footer text links were too small and crowded for thumbs. */}
+        {installable ? (
+          <button
+            type="button"
+            className="btn-icon home-corner home-corner-left"
+            aria-label="Install app"
+            mix={on('click', () => {
+              void promptInstall()
+            })}
+          >
+            <IconDownload />
+          </button>
+        ) : null}
+        <a
+          className="btn-icon home-corner home-corner-right"
+          href="/about"
+          aria-label="About Kody Video"
+        >
+          <IconInfo />
+        </a>
+
         {/* On mobile, the visible brand/LCP hero lives in index.html
             (#boot-hero) so first paint is not gated on JS — this block is a
             layout spacer there. Desktop hides #boot-hero and shows this. */}
@@ -388,22 +418,7 @@ export function HomePage(handle: Handle) {
           Clips stay on this phone until you share.
           {storage
             ? ` ${formatBytes(storage.usedBytes)} of ${formatBytes(storage.quotaBytes)} used.`
-            : ''}{' '}
-          <a href="/about">About</a>
-          {installable ? (
-            <>
-              {' · '}
-              <button
-                type="button"
-                className="link-button"
-                mix={on('click', () => {
-                  void promptInstall()
-                })}
-              >
-                Install app
-              </button>
-            </>
-          ) : null}
+            : ''}
         </p>
 
         <div className="home-footer">
