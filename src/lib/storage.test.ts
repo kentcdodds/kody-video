@@ -504,10 +504,11 @@ describe('storage layer', () => {
   it('does not leak AbortError unhandled rejections when a clip put fails', async () => {
     const project = await createProject('Fail put')
     const unhandled: unknown[] = []
-    const onUnhandled = (reason: unknown) => {
-      unhandled.push(reason)
+    const onUnhandled = (event: PromiseRejectionEvent) => {
+      unhandled.push(event.reason)
+      event.preventDefault()
     }
-    process.on('unhandledRejection', onUnhandled)
+    window.addEventListener('unhandledrejection', onUnhandled)
     try {
       // Functions are not structured-cloneable, so IndexedDB rejects the put.
       await expect(
@@ -520,6 +521,9 @@ describe('storage layer', () => {
         }),
       ).rejects.toBeTruthy()
       // Let any orphaned tx.done rejection surface if the leak regresses.
+      // Chromium fires unhandledrejection a task after the rejection, so
+      // yield through two macrotasks before judging.
+      await new Promise<void>((resolve) => setTimeout(resolve, 0))
       await new Promise<void>((resolve) => setTimeout(resolve, 0))
       const abortLeaks = unhandled.filter(
         (err) =>
@@ -527,7 +531,7 @@ describe('storage layer', () => {
       )
       expect(abortLeaks).toHaveLength(0)
     } finally {
-      process.off('unhandledRejection', onUnhandled)
+      window.removeEventListener('unhandledrejection', onUnhandled)
     }
   })
 })

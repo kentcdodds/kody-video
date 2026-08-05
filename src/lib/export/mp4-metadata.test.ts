@@ -1,7 +1,3 @@
-import { execFileSync } from 'node:child_process'
-import { existsSync, mkdtempSync, writeFileSync } from 'node:fs'
-import { tmpdir } from 'node:os'
-import { join } from 'node:path'
 import {
   BufferTarget,
   EncodedPacket,
@@ -10,9 +6,8 @@ import {
   Output,
 } from 'mediabunny'
 import { describe, expect, it } from 'vitest'
+import { commands } from 'vitest/browser'
 import { formatIso6709, injectMp4Metadata, type Mp4Chapter } from './mp4-metadata'
-
-const PLAYWRIGHT_FFMPEG = '/home/ubuntu/.cache/ms-playwright/ffmpeg-1011/ffmpeg-linux'
 
 const AVC_DESC = new Uint8Array([
   0x01, 0x42, 0x00, 0x1e, 0xff, 0xe1, 0x00, 0x08, 0x67, 0x42, 0x00, 0x1e, 0xda, 0x02, 0xd0,
@@ -104,28 +99,14 @@ function findBox(bytes: Uint8Array, type: number, start = 0, end = bytes.byteLen
   return listBoxes(bytes, start, end).find((b) => b.type === type) ?? null
 }
 
-function resolveFfmpeg(): string | null {
-  const candidates = [
-    PLAYWRIGHT_FFMPEG,
-    'ffmpeg',
-    '/usr/bin/ffmpeg',
-  ]
-  for (const bin of candidates) {
-    if (bin !== 'ffmpeg' && !existsSync(bin)) continue
-    try {
-      // Playwright's ffmpeg build is VP8/WebM-only; probe MP4 demux support.
-      const help = execFileSync(bin, ['-hide_banner', '-demuxers'], {
-        encoding: 'utf8',
-        stdio: ['ignore', 'pipe', 'pipe'],
-      })
-      if (/\bmov\b|\bmp4\b/i.test(help)) return bin
-    } catch {
-      // try next
-    }
+function toBase64(buffer: ArrayBuffer): string {
+  const bytes = new Uint8Array(buffer)
+  let binary = ''
+  const chunk = 0x8000
+  for (let i = 0; i < bytes.length; i += chunk) {
+    binary += String.fromCharCode(...bytes.subarray(i, i + chunk))
   }
-  // Spec asks us to skip when the playwright binary is missing; if it exists
-  // but cannot demux MP4, also skip rather than fail the suite.
-  return null
+  return btoa(binary)
 }
 
 describe('injectMp4Metadata', () => {
@@ -197,12 +178,6 @@ describe('injectMp4Metadata', () => {
   })
 
   it('is validated by ffmpeg when an MP4-capable binary is available', async () => {
-    const ffmpeg = resolveFfmpeg()
-    if (!ffmpeg) {
-      // Playwright build ships without an MP4 demuxer; skip rather than fail.
-      return
-    }
-
     const title = 'Morning Walk'
     const location = { lat: 37.7749, lng: -122.4194 }
     const injected = injectMp4Metadata(await buildTinyMp4(), {
@@ -213,19 +188,12 @@ describe('injectMp4Metadata', () => {
       location,
     })
 
-    const dir = mkdtempSync(join(tmpdir(), 'kody-mp4-meta-'))
-    const file = join(dir, 'export.mp4')
-    writeFileSync(file, Buffer.from(injected))
-
-    let stderr = ''
-    try {
-      execFileSync(ffmpeg, ['-hide_banner', '-i', file], {
-        encoding: 'utf8',
-        stdio: ['ignore', 'pipe', 'pipe'],
-      })
-    } catch (err) {
-      // ffmpeg -i exits non-zero without an output file; stderr still has the probe.
-      stderr = err && typeof err === 'object' && 'stderr' in err ? String((err as { stderr: unknown }).stderr) : ''
+    // ffmpeg runs on the Vitest server (Node), not in the browser — see
+    // src/test/ffmpeg-command.ts.
+    const stderr = await commands.probeMp4WithFfmpeg(toBase64(injected))
+    if (stderr === null) {
+      // No MP4-capable ffmpeg on the server; skip rather than fail.
+      return
     }
     expect(stderr).toMatch(/Chapters/i)
     expect(stderr).toContain(title)

@@ -1,9 +1,10 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
+import { pickRecordingMimeType, resetRecordingMimeTypeForTests } from './media'
 
 // The recording mime preference is cached at module scope (it runs inside
-// the pointerdown that starts every take), so each test re-imports a fresh
-// module instance via vi.resetModules — a top-level import would share one
-// cache across tests.
+// the pointerdown that starts every take); resetRecordingMimeTypeForTests
+// clears the cache between tests — the browser module graph cannot be
+// re-imported per test the way vi.resetModules allowed in Node.
 
 class FakeMediaRecorder {
   static probes: string[] = []
@@ -14,41 +15,36 @@ class FakeMediaRecorder {
   }
 }
 
-async function freshPickRecordingMimeType() {
-  vi.resetModules()
-  const media = await import('./media')
-  return media.pickRecordingMimeType
-}
-
 afterEach(() => {
   vi.unstubAllGlobals()
+  resetRecordingMimeTypeForTests()
   FakeMediaRecorder.probes = []
   FakeMediaRecorder.supported = new Set()
 })
 
 describe('pickRecordingMimeType', () => {
-  it('probes the platform once and serves later takes from the cache', async () => {
+  it('probes the platform once and serves later takes from the cache', () => {
     FakeMediaRecorder.supported = new Set(['video/webm;codecs=vp9,opus'])
     vi.stubGlobal('MediaRecorder', FakeMediaRecorder)
-    const pick = await freshPickRecordingMimeType()
+    resetRecordingMimeTypeForTests()
 
-    const first = pick()
+    const first = pickRecordingMimeType()
     const probesAfterFirst = FakeMediaRecorder.probes.length
     expect(first).toBe('video/webm;codecs=vp9,opus')
     expect(probesAfterFirst).toBeGreaterThan(0)
 
-    expect(pick()).toBe(first)
-    expect(pick()).toBe(first)
+    expect(pickRecordingMimeType()).toBe(first)
+    expect(pickRecordingMimeType()).toBe(first)
     expect(FakeMediaRecorder.probes.length).toBe(probesAfterFirst)
   })
 
-  it('caches the empty result when nothing is supported', async () => {
+  it('caches the empty result when nothing is supported', () => {
     vi.stubGlobal('MediaRecorder', FakeMediaRecorder)
-    const pick = await freshPickRecordingMimeType()
+    resetRecordingMimeTypeForTests()
 
-    expect(pick()).toBe('')
+    expect(pickRecordingMimeType()).toBe('')
     const probesAfterFirst = FakeMediaRecorder.probes.length
-    expect(pick()).toBe('')
+    expect(pickRecordingMimeType()).toBe('')
     expect(FakeMediaRecorder.probes.length).toBe(probesAfterFirst)
   })
 })
