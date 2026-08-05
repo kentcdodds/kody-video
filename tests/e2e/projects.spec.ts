@@ -66,7 +66,9 @@ test.describe('project slots', () => {
     await page.locator('.confirm-sheet').getByRole('button', { name: 'Delete' }).click()
     await expect(page.locator('.project-slot.filled')).toHaveCount(0)
 
-    await page.locator('.home-import input[type="file"]').setInputFiles(backupPath)
+    // Import lives on the About page now.
+    await page.goto('/about')
+    await page.locator('.about-import input[type="file"]').setInputFiles(backupPath)
     // Import navigates straight into the restored project.
     await page.waitForURL(/\/project\//, { timeout: 30_000 })
     const restored = await page.evaluate(async () => {
@@ -87,7 +89,8 @@ test.describe('project slots', () => {
     const backupPath = await (await downloadPromise).path()
 
     // Still at the free 1-project cap — importing a second must be refused.
-    await page.locator('.home-import input[type="file"]').setInputFiles(backupPath)
+    await page.goto('/about')
+    await page.locator('.about-import input[type="file"]').setInputFiles(backupPath)
     await expect(page.locator('.error-banner')).toContainText(/free plan|limit/i)
     const projects = await page.evaluate(async () => {
       const storage = await import('/src/lib/storage.ts')

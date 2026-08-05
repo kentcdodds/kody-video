@@ -354,27 +354,6 @@
   color: var(--ink-muted);
 }
 
-.home-footer {
-  display: flex;
-  gap: 10px;
-  margin-top: 8px;
-  flex: 0 0 auto;
-}
-
-.home-footer .btn {
-  flex: 1;
-}
-
-.home-footer .home-import {
-  flex: 0 0 auto;
-  cursor: pointer;
-}
-
-.home-footer .home-import.is-disabled {
-  opacity: 0.45;
-  pointer-events: none;
-}
-
 .home-notice {
   margin: 10px 0 0;
   padding: 10px 12px;
@@ -578,6 +557,16 @@
   margin: 0;
   color: var(--ink-muted);
   line-height: 1.55;
+}
+
+.about-import {
+  margin-top: 10px;
+  cursor: pointer;
+}
+
+.about-import.is-disabled {
+  opacity: 0.45;
+  pointer-events: none;
 }
 
 .camera-report {

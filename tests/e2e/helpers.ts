@@ -11,10 +11,10 @@ export async function gotoHome(page: Page): Promise<void> {
   })
 }
 
-/** Home → "New project" → camera preview streaming. */
+/** Home → empty "New project" slot → camera preview streaming. */
 export async function openNewProject(page: Page): Promise<void> {
   await gotoHome(page)
-  await page.getByRole('button', { name: 'New project', exact: true }).click()
+  await page.locator('.project-slot.empty').first().click()
   await page.waitForURL(/\/project\//)
   await waitForCameraReady(page)
 }
