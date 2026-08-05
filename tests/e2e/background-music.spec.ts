@@ -434,10 +434,25 @@ test.describe('background music', () => {
       .poll(() => stage.locator('video').evaluate((el) => (el as HTMLVideoElement).volume))
       .toBeLessThan(0.8)
 
-    // When the clip stops (trim end or tap), the bed stops with it.
-    await stage.locator('video').evaluate((el) => (el as HTMLVideoElement).pause())
+    // When the clip stops at its trim end, the bed stops with it.
+    await expect
+      .poll(() => stage.locator('video').evaluate((el) => (el as HTMLVideoElement).paused), {
+        timeout: 15_000,
+      })
+      .toBe(true)
     await expect
       .poll(() => music.evaluate((el) => (el as HTMLAudioElement).paused))
       .toBe(true)
+
+    // Replaying after the clip ended (currentTime parked at the trim end)
+    // must realign the bed to the clip's START position again — the seek
+    // to the trim start happens in the same gesture that starts the bed.
+    await page.getByRole('button', { name: 'Play clip preview' }).click()
+    await expect
+      .poll(() => music.evaluate((el) => !(el as HTMLAudioElement).paused))
+      .toBe(true)
+    const replayAt = await music.evaluate((el) => (el as HTMLAudioElement).currentTime)
+    expect(replayAt).toBeGreaterThan(2.8)
+    expect(replayAt).toBeLessThan(4.5)
   })
 })
