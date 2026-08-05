@@ -1,5 +1,5 @@
 import type { Handle } from 'remix/ui'
-import { on } from 'remix/ui'
+import { on, ref } from 'remix/ui'
 import { BrandMark } from './brand-mark'
 import { IconPlay } from './icons'
 
@@ -36,6 +36,7 @@ const steps = [
 
 export function OnboardingOverlay(handle: Handle<OnboardingOverlayProps>) {
   let tourPlaying = false
+  let tourVideo: HTMLVideoElement | null = null
   return () => (
     <div className="onboarding-overlay" role="dialog" aria-label="Kody Video quick start">
       <div className="onboarding-card">
@@ -57,21 +58,32 @@ export function OnboardingOverlay(handle: Handle<OnboardingOverlayProps>) {
             </li>
           ))}
         </ol>
-        {tourPlaying ? (
-          <video
-            className="onboarding-tour-video"
-            src={TOUR_VIDEO_URL}
-            poster={TOUR_POSTER_URL}
-            controls
-            autoPlay
-            playsInline
-          />
-        ) : (
+        {/* Mounted (hidden) before the teaser is tapped so play() can run
+            inside the tap's gesture — mobile browsers block unmuted playback
+            that starts after an async re-render. */}
+        <video
+          className={tourPlaying ? 'onboarding-tour-video' : 'visually-hidden'}
+          src={TOUR_VIDEO_URL}
+          poster={TOUR_POSTER_URL}
+          controls
+          playsInline
+          preload="none"
+          mix={ref((node, signal) => {
+            tourVideo = node as HTMLVideoElement
+            signal.addEventListener('abort', () => {
+              tourVideo = null
+            })
+          })}
+        />
+        {tourPlaying ? null : (
           <button
             type="button"
             className="onboarding-tour"
             mix={on('click', () => {
               tourPlaying = true
+              // In-gesture play() is what mobile autoplay policies require
+              // for sound. If it still rejects, the controls are visible.
+              void tourVideo?.play().catch(() => {})
               void handle.update()
             })}
           >
