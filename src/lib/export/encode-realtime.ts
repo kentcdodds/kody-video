@@ -1,5 +1,5 @@
 import { pickRecorderMimeType } from '../media'
-import { clipAudioVolume, resolveAudioTrackPlayback } from '../types'
+import { clipMusicVolume, clipSoundVolume, resolveAudioTrackPlayback } from '../types'
 import {
   FADE_IN_MS,
   FADE_OUT_MS,
@@ -104,18 +104,31 @@ export async function exportRealtime(
     dest = null
   }
 
+  // Clip audio flows through one gain node that glides toward each clip's
+  // own sound volume as the export reaches it — this engine paints in
+  // realtime, so Web Audio's own ramping does the work. Every clip is
+  // peak-normalized on the way in (per-segment gain), music or not.
+  /** Gain the clips' own audio plays through (each clip's sound volume). */
+  let clipMixGain: GainNode | null = null
+  if (audioContext && dest) {
+    try {
+      const clipGain = audioContext.createGain()
+      clipGain.gain.value = 1
+      clipGain.connect(dest)
+      clipMixGain = clipGain
+    } catch {
+      clipMixGain = null
+    }
+  }
+
   // Background music rides sequentially chained buffer sources behind a
   // gain node: each track starts when the previous one ends (nothing
-  // loops), and the gain glides toward each clip's music SHARE as the
-  // export reaches it — this engine paints in realtime, so Web Audio's own
-  // ramping does the work. Clip audio flows through a mirror gain node
-  // held at the complement (1 − share), so the two sides of the mix always
-  // sum to one. Tracks are peak-normalized via a per-source gain.
+  // loops), and the gain glides toward each clip's music volume as the
+  // export reaches it. Tracks are peak-normalized and carry their own
+  // volume via a per-source gain.
   let backgroundGain: GainNode | null = null
-  /** Complement gain the clips' own audio plays through (1 − music share). */
-  let clipMixGain: GainNode | null = null
   /** Set once the playlist has truly run out — later segments must stop
-   * scheduling the duck (the film's remainder is music-free). */
+   * scheduling music moves (the film's remainder is music-free). */
   const playlistState = { done: false }
   let startBackground: (() => void) | null = null
   let stopBackground: (() => void) | null = null
@@ -129,9 +142,6 @@ export async function exportRealtime(
       const gain = audioContext.createGain()
       gain.gain.value = 0
       gain.connect(dest)
-      const clipGain = audioContext.createGain()
-      clipGain.gain.value = 1
-      clipGain.connect(dest)
       let stopped = false
       /** Output position where the next track starts (the kept windows
        * played so far) — the realtime mirror of the mixer's
@@ -141,17 +151,16 @@ export async function exportRealtime(
       const playFrom = async (index: number): Promise<void> => {
         if (stopped || !audioContext) return
         if (index >= backgroundTracks.length) {
-          // Playlist over mid-film: the clip sound eases back to full and
-          // stays there for the rest of the film.
+          // Playlist over mid-film: the rest of the film is music-free
+          // (the clip sound rides its own gain, unaffected).
           playlistState.done = true
-          clipGain.gain.setTargetAtTime(1, audioContext.currentTime, 0.1)
           return
         }
         // Undecodable tracks are skipped; the next one starts in their place.
         const buffer = await decodeBackgroundAudio(backgroundTracks[index].blob)
         if (stopped) return
         if (!buffer) return playFrom(index + 1)
-        // Only the kept (trimmed) window plays, at the track's own level.
+        // Only the kept (trimmed) window plays, at the track's own volume.
         const playback = resolveAudioTrackPlayback(backgroundTracks[index], options.background!)
         const trimStartSec = Math.min(playback.trimStartMs / 1000, buffer.duration)
         const trimEndSec = Math.min(playback.trimEndMs / 1000, buffer.duration)
@@ -159,10 +168,10 @@ export async function exportRealtime(
         if (keptSec < 0.05) return playFrom(index + 1)
         const source = audioContext.createBufferSource()
         source.buffer = buffer
-        // Peak-normalize the track so the mix shares mean the same thing
+        // Peak-normalize the track so the volume dials mean the same thing
         // regardless of how hot the file is mastered (whole-file peak, so
         // loudness doesn't change with where the track is trimmed), then
-        // apply the track's level on top.
+        // apply the track's own volume on top.
         const channels = Array.from({ length: buffer.numberOfChannels }, (_, ch) =>
           buffer.getChannelData(ch),
         )
@@ -209,10 +218,8 @@ export async function exportRealtime(
         }
       }
       backgroundGain = gain
-      clipMixGain = clipGain
     } catch {
       backgroundGain = null
-      clipMixGain = null
       startBackground = null
       stopBackground = null
     }
@@ -264,34 +271,43 @@ export async function exportRealtime(
       try {
         const clamped = clampSegmentToMedia(segment, loaded.mediaDurationMs)
         if (!clamped) continue
-        if (backgroundGain && clipMixGain && audioContext && options.background) {
-          startBackground?.()
-          // A finished playlist means the rest of the film is music-free —
-          // re-scheduling the duck would leave clip audio quiet for nothing.
-          const share = playlistState.done
-            ? 0
-            : clipAudioVolume(segment.clip, options.background.defaultVolume)
+        if (audioContext) {
           const now = audioContext.currentTime
-          if (segmentIndex === 0 && !backgroundEdgeFades?.fadeIn) {
-            // No fade-in: the mix opens at the clip's shares directly.
-            backgroundGain.gain.setValueAtTime(share, now)
-            clipMixGain.gain.setValueAtTime(1 - share, now)
-          } else {
-            backgroundGain.gain.setTargetAtTime(share, now, 0.2)
-            clipMixGain.gain.setTargetAtTime(1 - share, now, 0.2)
+          // The clip's own sound glides toward this clip's volume (a step
+          // at the very first segment — nothing is sounding before it).
+          // Each bus is guarded on its own — a failed clip gain node must
+          // not leave the music bus unscheduled (parked at 0) too.
+          if (clipMixGain) {
+            const clipLevel = clipSoundVolume(segment.clip)
+            if (segmentIndex === 0) {
+              clipMixGain.gain.setValueAtTime(clipLevel, now)
+            } else {
+              clipMixGain.gain.setTargetAtTime(clipLevel, now, 0.2)
+            }
           }
-          // This engine paints in realtime, so the last segment's end lands
-          // roughly `segment length` from now — schedule the musical
-          // fade-out to finish there (clip sound rising back to full),
-          // shrinking it on short final clips (like the WebCodecs
-          // envelope) instead of dropping it.
-          const isLast = segmentIndex === plan.segments.length - 1
-          const segmentSec = (clamped.endMs - clamped.startMs) / 1000
-          if (isLast && backgroundEdgeFades?.fadeOut) {
-            const fadeSec = Math.min(1.2, segmentSec / 2)
-            if (fadeSec > 0.05) {
-              backgroundGain.gain.setTargetAtTime(0, now + segmentSec - fadeSec, fadeSec / 3)
-              clipMixGain.gain.setTargetAtTime(1, now + segmentSec - fadeSec, fadeSec / 3)
+          if (backgroundGain && options.background) {
+            startBackground?.()
+            // A finished playlist means the rest of the film is music-free —
+            // re-scheduling a music level would move a silent bus for nothing.
+            const musicLevel = playlistState.done ? 0 : clipMusicVolume(segment.clip)
+            if (segmentIndex === 0 && !backgroundEdgeFades?.fadeIn) {
+              // No fade-in: the music opens at the clip's level directly.
+              backgroundGain.gain.setValueAtTime(musicLevel, now)
+            } else {
+              backgroundGain.gain.setTargetAtTime(musicLevel, now, 0.2)
+            }
+            // This engine paints in realtime, so the last segment's end
+            // lands roughly `segment length` from now — schedule the
+            // musical fade-out to finish there, shrinking it on short
+            // final clips (like the WebCodecs envelope) instead of
+            // dropping it.
+            const isLast = segmentIndex === plan.segments.length - 1
+            const segmentSec = (clamped.endMs - clamped.startMs) / 1000
+            if (isLast && backgroundEdgeFades?.fadeOut) {
+              const fadeSec = Math.min(1.2, segmentSec / 2)
+              if (fadeSec > 0.05) {
+                backgroundGain.gain.setTargetAtTime(0, now + segmentSec - fadeSec, fadeSec / 3)
+              }
             }
           }
         }
@@ -303,8 +319,8 @@ export async function exportRealtime(
           canvas,
           ctx,
           audioContext,
-          // With music, clip audio joins the mix through the complement
-          // gain (and gets peak-normalized); without, straight to the mux.
+          // Clip audio joins the graph through the clip-volume gain and
+          // gets peak-normalized on the way in (music or not).
           clipDestination: clipMixGain ?? dest,
           normalizeClip: clipMixGain !== null,
           frameCounter,
@@ -330,12 +346,11 @@ export async function exportRealtime(
 
     // End-of-film safety ramp: with Fade out on it just finishes what the
     // scheduled fade started; with it off, a click-kill too short to hear
-    // as a fade (mirrors the WebCodecs edge ramp). The clip side rises to
-    // full in mirror, like the WebCodecs envelope's complement.
+    // as a fade (mirrors the WebCodecs edge ramp). The clip side keeps its
+    // own level — the sides are independent now.
     if (backgroundGain && audioContext) {
       const tau = backgroundEdgeFades?.fadeOut ? 0.06 : 0.008
       backgroundGain.gain.setTargetAtTime(0, audioContext.currentTime, tau)
-      clipMixGain?.gain.setTargetAtTime(1, audioContext.currentTime, tau)
     }
     // Hold the last frame briefly so the final GOP isn't truncated.
     await wait(180)
@@ -369,10 +384,10 @@ interface PaintSegmentArgs {
   canvas: HTMLCanvasElement
   ctx: CanvasRenderingContext2D
   audioContext: AudioContext | null
-  /** Where the clip's own audio joins the recording graph (the clip-mix
-   * complement gain when music is present, else the mux destination). */
+  /** Where the clip's own audio joins the recording graph (the clip-volume
+   * gain when the graph exists, else the mux destination). */
   clipDestination: AudioNode | null
-  /** Peak-normalize the clip audio (on whenever the project has music). */
+  /** Peak-normalize the clip audio (on whenever the graph exists). */
   normalizeClip: boolean
   frameCounter: { count: number }
   getPreviewCanvas?: () => HTMLCanvasElement | null
@@ -429,7 +444,7 @@ async function paintSegment({
           bufferSource.buffer = audioBuffer
           let clipOutput: AudioNode = bufferSource
           if (normalizeClip) {
-            // Peak-normalize so the mix shares mean the same thing however
+            // Peak-normalize so the volume dials mean the same thing however
             // hot (or quiet) the mic recording is.
             const channels = Array.from(
               { length: audioBuffer.numberOfChannels },

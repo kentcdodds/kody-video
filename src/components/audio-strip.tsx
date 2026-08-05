@@ -5,13 +5,13 @@ import { reportError } from '../lib/error-reporting'
 import {
   addProjectAudioFromFile,
   removeAudioTrack,
-  setClipAudioVolume,
-  setProjectAudioSettings,
+  setClipVolumes,
 } from '../lib/project-actions'
 import {
   audioTrackKeptMs,
   audioTrackLevel,
-  clipAudioVolume,
+  clipMusicVolume,
+  clipSoundVolume,
   formatDuration,
   projectAudioTotalDurationMs,
   type ClipId,
@@ -35,20 +35,30 @@ interface AudioStripProps {
   plus: boolean
   /** Open the Plus upsell sheet (owned by the page, like restore). */
   onUpsell: () => void
-  /** Open a track's detail view (trim, level, fades) — owned by the editor
+  /** Open a track's detail view (trim, volume, fades) — owned by the editor
    * screen, like the clip trim view. */
   onEditTrack: (trackId: string) => void
   showToast: (message: string) => void
   refresh: () => void
 }
 
+/** A pending slider value for one clip, mid-edit / awaiting the post-write
+ * refresh. */
+interface PendingClipVolume {
+  clipId: ClipId
+  volume: number
+}
+
 /**
- * Background-music panel under the timeline: build a playlist of tracks
- * (played one after the other until the film ends), set the default mix,
- * and dial the music volume for the selected clip. Tapping a track row
- * opens its detail view (trim, level, fades — the audio counterpart of the
- * clip trim view). Volume writes persist on slider release; the label
- * tracks the thumb live.
+ * Audio panel under the timeline: build a background-music playlist of
+ * tracks (played one after the other until the film ends) and dial the
+ * selected clip's levels — its own sound and the music under it, each an
+ * independent 0–100% volume (100% is the default; the music slider ducks
+ * the playing track's own volume). Tapping a track row opens its detail
+ * view (trim, volume, fades — the audio counterpart of the clip trim
+ * view), whose volume slider is where the music's base level lives.
+ * Volume writes persist on slider release; the label tracks the thumb
+ * live.
  */
 export function AudioStrip(handle: Handle<AudioStripProps>) {
   const { props } = handle
@@ -56,8 +66,8 @@ export function AudioStrip(handle: Handle<AudioStripProps>) {
   const fileInputRef: { current: HTMLInputElement | null } = { current: null }
   /** Slider values mid-edit / awaiting the post-write refresh — they keep
    * the controls steady until props catch up with what was persisted. */
-  let pendingDefault: number | null = null
-  let pendingClip: { clipId: ClipId; volume: number } | null = null
+  let pendingClipSound: PendingClipVolume | null = null
+  let pendingClipMusic: PendingClipVolume | null = null
 
   const setBusy = (next: boolean) => {
     busy = next
@@ -92,8 +102,8 @@ export function AudioStrip(handle: Handle<AudioStripProps>) {
       .then(() => props.refresh())
       .catch((err) => {
         reportError(err, 'project-audio')
-        pendingDefault = null
-        pendingClip = null
+        pendingClipSound = null
+        pendingClipMusic = null
         props.showToast('Could not save that change — try again')
         props.refresh()
         void handle.update()
@@ -118,22 +128,14 @@ export function AudioStrip(handle: Handle<AudioStripProps>) {
     })()
   }
 
-  const commitDefaultVolume = (volume: number) => {
-    const audio = props.audio
-    if (!audio) return
-    pendingDefault = volume
-    persist(setProjectAudioSettings(audio.projectId, { defaultVolume: volume }))
+  const commitClipSound = (clipId: ClipId, volume: number) => {
+    pendingClipSound = { clipId, volume }
+    persist(setClipVolumes(clipId, { clipVolume: volume }))
   }
 
-  const commitClipVolume = (clipId: ClipId, volume: number) => {
-    pendingClip = { clipId, volume }
-    persist(setClipAudioVolume(clipId, volume))
-  }
-
-  const resetClipVolume = (clipId: ClipId) => {
-    pendingClip = null
-    persist(setClipAudioVolume(clipId, null))
-    void handle.update()
+  const commitClipMusic = (clipId: ClipId, volume: number) => {
+    pendingClipMusic = { clipId, volume }
+    persist(setClipVolumes(clipId, { musicVolume: volume }))
   }
 
   return () => {
@@ -163,6 +165,46 @@ export function AudioStrip(handle: Handle<AudioStripProps>) {
       />
     )
 
+    // Drop the held control values once a refresh delivered them back (or
+    // the selection moved on).
+    if (
+      pendingClipSound !== null &&
+      (selectedClip?.id !== pendingClipSound.clipId ||
+        Math.abs(clipSoundVolume(selectedClip) - pendingClipSound.volume) < 0.005)
+    ) {
+      pendingClipSound = null
+    }
+    if (
+      pendingClipMusic !== null &&
+      (selectedClip?.id !== pendingClipMusic.clipId ||
+        Math.abs(clipMusicVolume(selectedClip) - pendingClipMusic.volume) < 0.005)
+    ) {
+      pendingClipMusic = null
+    }
+
+    const clipSound = selectedClip
+      ? (pendingClipSound?.volume ?? clipSoundVolume(selectedClip))
+      : 1
+    const clipMusic = selectedClip
+      ? (pendingClipMusic?.volume ?? clipMusicVolume(selectedClip))
+      : 1
+
+    // The clip's own sound volume applies with or without music (and on
+    // the free plan) — it is about the clip, not the playlist.
+    const clipSoundRow = selectedClip ? (
+      <VolumeRow
+        label={`Clip ${selectedIndex + 1} sound`}
+        ariaLabel={`Clip ${selectedIndex + 1} sound volume`}
+        volume={clipSound}
+        disabled={disabled || busy}
+        onPreview={(volume) => {
+          pendingClipSound = { clipId: selectedClip.id, volume }
+          void handle.update()
+        }}
+        onCommit={(volume) => commitClipSound(selectedClip.id, volume)}
+      />
+    ) : null
+
     if (!audio) {
       // Free plan: the button stays visible (discoverable) but opens the
       // Plus upsell instead of the file picker.
@@ -182,6 +224,7 @@ export function AudioStrip(handle: Handle<AudioStripProps>) {
                 <IconLock size={13} />
               </span>
             </button>
+            {clipSoundRow}
           </div>
         )
       }
@@ -198,33 +241,10 @@ export function AudioStrip(handle: Handle<AudioStripProps>) {
             <IconMusic size={18} />
             {busy ? 'Adding music…' : 'Add music'}
           </button>
+          {clipSoundRow}
         </div>
       )
     }
-
-    // Drop the held control values once a refresh delivered them back.
-    if (pendingDefault !== null && Math.abs(audio.defaultVolume - pendingDefault) < 0.005) {
-      pendingDefault = null
-    }
-    if (
-      pendingClip !== null &&
-      (selectedClip?.id !== pendingClip.clipId ||
-        (selectedClip.audioVolume !== undefined &&
-          Math.abs(selectedClip.audioVolume - pendingClip.volume) < 0.005))
-    ) {
-      pendingClip = null
-    }
-
-    const defaultVolume = pendingDefault ?? audio.defaultVolume
-    const clipOverridden = selectedClip
-      ? pendingClip?.clipId === selectedClip.id || selectedClip.audioVolume !== undefined
-      : false
-    // Follows the pending default too, so both rows agree mid-drag.
-    const clipVolume = selectedClip
-      ? pendingClip?.clipId === selectedClip.id
-        ? pendingClip.volume
-        : clipAudioVolume(selectedClip, defaultVolume)
-      : defaultVolume
 
     const musicMs = projectAudioTotalDurationMs(audio)
     const musicEndsEarly = props.projectDurationMs > 0 && musicMs < props.projectDurationMs
@@ -235,7 +255,7 @@ export function AudioStrip(handle: Handle<AudioStripProps>) {
         {audio.tracks.map((track, trackIndex) => {
           const keptMs = audioTrackKeptMs(track)
           const trimmed = keptMs < track.durationMs
-          const levelPct = Math.round(audioTrackLevel(track) * 100)
+          const volumePct = Math.round(audioTrackLevel(track) * 100)
           return (
             <div key={track.id} className="audio-track-row">
               <button
@@ -243,7 +263,7 @@ export function AudioStrip(handle: Handle<AudioStripProps>) {
                 className="audio-track-open"
                 disabled={disabled || busy}
                 aria-label={`Edit music track ${trackIndex + 1} (${track.name})`}
-                title="Trim, level, and fades"
+                title="Trim, volume, and fades"
                 mix={on('click', () => props.onEditTrack(track.id))}
               >
                 <span className="audio-track-icon" aria-hidden="true">
@@ -260,7 +280,7 @@ export function AudioStrip(handle: Handle<AudioStripProps>) {
                 <span className="audio-track-duration muted">
                   {formatDuration(keptMs)}
                   {trimmed ? ' kept' : ''}
-                  {levelPct < 100 ? ` · ${levelPct}%` : ''}
+                  {` · ${volumePct}%`}
                 </span>
               </button>
               <button
@@ -294,73 +314,55 @@ export function AudioStrip(handle: Handle<AudioStripProps>) {
           ) : null}
         </div>
 
+        {clipSoundRow}
         {selectedClip ? (
-          <MixRow
-            label={`Clip ${selectedIndex + 1}${clipOverridden ? '' : ' · default'}`}
-            ariaLabel={`Audio mix during clip ${selectedIndex + 1}`}
-            share={clipVolume}
+          <VolumeRow
+            label={`Clip ${selectedIndex + 1} music`}
+            ariaLabel={`Music volume during clip ${selectedIndex + 1}`}
+            volume={clipMusic}
             disabled={disabled || busy}
-            onPreview={(share) => {
-              pendingClip = { clipId: selectedClip.id, volume: share }
+            onPreview={(volume) => {
+              pendingClipMusic = { clipId: selectedClip.id, volume }
               void handle.update()
             }}
-            onCommit={(share) => commitClipVolume(selectedClip.id, share)}
-            onReset={clipOverridden ? () => resetClipVolume(selectedClip.id) : undefined}
+            onCommit={(volume) => commitClipMusic(selectedClip.id, volume)}
           />
         ) : null}
-
-        <MixRow
-          label="All clips"
-          ariaLabel="Default audio mix"
-          share={defaultVolume}
-          disabled={disabled || busy}
-          onPreview={(share) => {
-            pendingDefault = share
-            void handle.update()
-          }}
-          onCommit={(share) => commitDefaultVolume(share)}
-        />
       </div>
     )
   }
 }
 
-interface MixRowProps {
+interface VolumeRowProps {
   label: string
   ariaLabel: string
-  /** Music's share of the mix (0–1); the clip's own sound gets the rest. */
-  share: number
+  /** The level (0–1); 1 (100%) is the default and stores no override. */
+  volume: number
   disabled: boolean
   /** Live thumb move (label preview only — nothing persisted yet). */
-  onPreview: (share: number) => void
+  onPreview: (volume: number) => void
   /** Slider released — persist. */
-  onCommit: (share: number) => void
-  /** Present only when the row is overridable and currently overridden. */
-  onReset?: () => void
+  onCommit: (volume: number) => void
 }
 
-/** One balance slider: clip sound on the left, music on the right — drag
- * toward the side that should carry more of the mix. */
-function MixRow(handle: Handle<MixRowProps>) {
+/** One volume slider: 0% silences that side for this clip, 100% (default)
+ * plays it at its full mixed level. */
+function VolumeRow(handle: Handle<VolumeRowProps>) {
   return () => {
-    const { label, ariaLabel, share, disabled, onReset } = handle.props
-    const musicPct = Math.round(share * 100)
-    const clipPct = 100 - musicPct
+    const { label, ariaLabel, volume, disabled } = handle.props
+    const pct = Math.round(volume * 100)
     return (
-      <div className="audio-mix-row">
+      <div className="audio-volume-row">
         <span className="audio-volume-label">{label}</span>
-        <span className="audio-mix-side" aria-hidden="true">
-          Clip <strong>{clipPct}%</strong>
-        </span>
         <input
           type="range"
           min={0}
           max={100}
           step={5}
-          value={musicPct}
+          value={pct}
           disabled={disabled}
           aria-label={ariaLabel}
-          aria-valuetext={`${clipPct}% clip sound, ${musicPct}% music`}
+          aria-valuetext={`${pct}% volume`}
           mix={[
             on('input', (event) => {
               handle.props.onPreview(
@@ -374,20 +376,7 @@ function MixRow(handle: Handle<MixRowProps>) {
             }),
           ]}
         />
-        <span className="audio-mix-side" aria-hidden="true">
-          <strong>{musicPct}%</strong> Music
-        </span>
-        {onReset ? (
-          <button
-            type="button"
-            className="audio-volume-reset"
-            disabled={disabled}
-            aria-label="Reset this clip to the default audio mix"
-            mix={on('click', () => handle.props.onReset?.())}
-          >
-            Reset
-          </button>
-        ) : null}
+        <strong className="audio-volume-value">{pct}%</strong>
       </div>
     )
   }

@@ -35,8 +35,13 @@ interface ManifestClip {
   lat?: number
   lng?: number
   locationAccuracyM?: number
-  /** Background-music volume override (0–1) while this clip plays. */
-  audioVolume?: number
+  /** The clip's own (foreground) sound level override (0–1). */
+  clipVolume?: number
+  /** Background-music level override (0–1) while this clip plays. */
+  musicVolume?: number
+  /** Measured whole-clip audio peak (0–1) — restored so imported clips
+   * skip the normalization re-measure on their first load. */
+  audioPeak?: number
   /** Byte length of this clip's media in the blob section. */
   byteLength: number
 }
@@ -58,7 +63,6 @@ interface ManifestAudioTrack {
 }
 
 interface ManifestAudio {
-  defaultVolume: number
   fadeIn: boolean
   fadeOut: boolean
   tracks: ManifestAudioTrack[]
@@ -106,13 +110,14 @@ export function serializeProject(
       lat: clip.lat,
       lng: clip.lng,
       locationAccuracyM: clip.locationAccuracyM,
-      audioVolume: clip.audioVolume,
+      clipVolume: clip.clipVolume,
+      musicVolume: clip.musicVolume,
+      audioPeak: clip.audioPeak,
       byteLength: clip.blob.size,
     })),
   }
   if (audio && audio.tracks.length > 0) {
     manifest.audio = {
-      defaultVolume: audio.defaultVolume,
       fadeIn: audio.fadeIn,
       fadeOut: audio.fadeOut,
       tracks: audio.tracks.map((track) => ({
@@ -147,7 +152,6 @@ export function serializeProject(
 }
 
 export interface ParsedBackupAudio {
-  defaultVolume: number
   fadeIn: boolean
   fadeOut: boolean
   tracks: Array<Omit<ManifestAudioTrack, 'byteLength'> & { blob: Blob }>
@@ -220,7 +224,13 @@ export async function parseProjectBackup(file: Blob): Promise<ParsedBackup> {
       lat: clip.lat,
       lng: clip.lng,
       locationAccuracyM: clip.locationAccuracyM,
-      audioVolume: typeof clip.audioVolume === 'number' ? clip.audioVolume : undefined,
+      // Old backups carried an `audioVolume` mix share instead — ignored.
+      clipVolume: typeof clip.clipVolume === 'number' ? clip.clipVolume : undefined,
+      musicVolume: typeof clip.musicVolume === 'number' ? clip.musicVolume : undefined,
+      audioPeak:
+        typeof clip.audioPeak === 'number' && Number.isFinite(clip.audioPeak)
+          ? Math.max(0, Math.min(1, clip.audioPeak))
+          : undefined,
       blob: file.slice(offset, offset + clip.byteLength, mimeType),
     })
     offset += clip.byteLength
@@ -257,7 +267,6 @@ export async function parseProjectBackup(file: Blob): Promise<ParsedBackup> {
       offset += track.byteLength
     }
     audio = {
-      defaultVolume: manifestAudio.defaultVolume,
       fadeIn: manifestAudio.fadeIn !== false,
       fadeOut: manifestAudio.fadeOut !== false,
       tracks,
@@ -307,7 +316,9 @@ export async function importProjectBackup(
         lat: clip.lat,
         lng: clip.lng,
         locationAccuracyM: clip.locationAccuracyM,
-        audioVolume: clip.audioVolume,
+        clipVolume: clip.clipVolume,
+        musicVolume: clip.musicVolume,
+        audioPeak: clip.audioPeak,
       })
       // Restore trims (addClip resets them to the full clip).
       const trimmed = await updateClipTrim(added.id, clip.trimStartMs, clip.trimEndMs)
@@ -334,7 +345,6 @@ export async function importProjectBackup(
           durationMs: track.durationMs,
           name: track.name,
           // Playlist settings land with the first track; later adds keep them.
-          defaultVolume: parsed.audio.defaultVolume,
           fadeIn: parsed.audio.fadeIn,
           fadeOut: parsed.audio.fadeOut,
         })

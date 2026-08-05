@@ -560,8 +560,8 @@
   flex: 0 0 auto;
 }
 
-/* Balance slider: clip sound on the left, music on the right. */
-.audio-mix-row {
+/* Per-clip volume sliders: the clip's own sound and the music under it. */
+.audio-volume-row {
   display: flex;
   align-items: center;
   gap: 7px;
@@ -569,7 +569,7 @@
 }
 
 .audio-volume-label {
-  flex: 0 0 64px;
+  flex: 0 0 88px;
   font-size: 0.72rem;
   font-weight: 600;
   color: var(--ink-muted);
@@ -578,7 +578,7 @@
   white-space: nowrap;
 }
 
-.audio-mix-row input[type='range'] {
+.audio-volume-row input[type='range'] {
   flex: 1 1 auto;
   min-width: 40px;
   height: 26px;
@@ -586,33 +586,14 @@
   touch-action: pan-y;
 }
 
-.audio-mix-side {
-  flex: 0 0 auto;
-  font-size: 0.7rem;
-  color: var(--ink-muted);
-  font-variant-numeric: tabular-nums;
-  white-space: nowrap;
-}
-
-.audio-mix-side strong {
+.audio-volume-value {
+  flex: 0 0 38px;
+  text-align: right;
+  font-size: 0.72rem;
   color: var(--ink);
   font-weight: 700;
-}
-
-.audio-volume-reset {
-  flex: 0 0 auto;
-  min-height: 26px;
-  padding: 2px 10px;
-  border-radius: 999px;
-  font-size: 0.72rem;
-  font-weight: 600;
-  color: var(--accent);
-  background: color-mix(in srgb, var(--accent) 14%, transparent);
-}
-
-.audio-volume-reset:disabled {
-  opacity: 0.35;
-  cursor: not-allowed;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
 }
 
 /* Track rows open the audio detail view */
@@ -728,11 +709,16 @@
   margin-left: 0;
 }
 
-/* Per-clip music-volume badge on timeline tiles */
-.clip-thumb .clip-audio-badge {
+/* Per-clip volume badges on timeline tiles: music top-left, own sound
+   top-right (only overrides are shown). Capped to half the tile so both
+   badges fit side by side even on minimum-width tiles. */
+.clip-thumb .clip-audio-badge,
+.clip-thumb .clip-volume-badge {
   position: absolute;
-  left: 4px;
   top: 4px;
+  max-width: calc(50% - 6px);
+  overflow: hidden;
+  text-overflow: ellipsis;
   font-size: 0.62rem;
   color: #fff;
   background: rgba(0, 0, 0, 0.55);
@@ -740,6 +726,15 @@
   border-radius: 999px;
   font-variant-numeric: tabular-nums;
   pointer-events: none;
+  white-space: nowrap;
+}
+
+.clip-thumb .clip-audio-badge {
+  left: 4px;
+}
+
+.clip-thumb .clip-volume-badge {
+  right: 4px;
 }
 
 /* Bottom clip action bar */

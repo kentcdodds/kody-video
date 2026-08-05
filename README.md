@@ -32,25 +32,31 @@ For a phone on the same network, use your machine’s LAN URL over HTTPS, or tun
 - Self-timer for hands-free takes (tap to stop)
 - Recording feedback (REC pill + elapsed) with a page that does **not** re-render per frame — capture stays smooth
 - Editor: filmstrip timeline (thumbnails, width ∝ duration), drag to reorder, duplicate, delete w/ undo, **in-timeline trim with drag handles**, **add clips from your device/gallery**
+- **Per-clip audio levels**: every clip's audio is **peak-normalized** as a
+  post-recording step (measured once, persisted on the clip, backfilled
+  automatically when an older project loads), so takes recorded at
+  different distances play back at consistent loudness — in the previews
+  and in the export. Selecting a clip in the timeline shows a **Clip
+  sound** slider: the clip's own volume, 0–100% (default 100%), applied
+  with or without music
 - **Background music** (Plus): build a playlist of audio tracks that play one
   after the other under the film (nothing loops — a hint suggests adding
-  another track when the music ends before the film does). The mix is
-  **relative**: one balance slider per clip splits the audio between the
-  clip's own   sound (left) and the music (right) — 80% music means 20% clip
-  sound — so the blend can never clip, and both sources are
-  **peak-normalized** so the split means the same thing however hot either
-  recording is. Defaults to 25% music under every clip; tap a clip to set
-  its own balance (duck the music under speech, swell it for b-roll). Mix
-  changes glide across clip boundaries. Tapping a track row opens its
-  **detail view** (the audio counterpart of the clip trim view): trim the
-  track to a kept window over its waveform, set the track's level, and
-  toggle its fade in/out (on by default — each track eases in where it
-  starts and out where it ends, including the film's edges). All of it —
-  levels, normalization, fades, trims, track hand-offs — plays the same in
-  the previews as in the exported file: the project preview runs the whole
-  film's bed, and the editor's clip stage plays the music under the
-  selected clip from its exact spot on the film's timeline (normalization
-  boosts cap at the browser's volume ceiling in previews)
+  another track when the music ends before the film does). Each track
+  carries its own **volume** (default 25% — normalized music sits under
+  speech), set in the track's **detail view** (the audio counterpart of
+  the clip trim view: trim the track to a kept window over its waveform,
+  set its volume, and toggle its fade in/out — on by default; each track
+  eases in where it starts and out where it ends, including the film's
+  edges). The selected clip additionally gets a **Music** slider that
+  ducks the playing track's volume during that clip (0–100%, default
+  100%) — the clip's own sound and the music are independent dials, and
+  the blend hard-clamps rather than coupling them. Volume changes glide
+  across clip boundaries. All of it — volumes, normalization, fades,
+  trims, track hand-offs — plays the same in the previews as in the
+  exported file: the project preview runs the whole film's bed, and the
+  editor's clip stage plays the music under the selected clip from its
+  exact spot on the film's timeline (normalization boosts cap at the
+  browser's volume ceiling in previews)
 - Project preview playback: tap edges to skip clips, tap middle to stop
 - Up to **6** stable project slots (create / open / rename / delete, poster art from your clips)
 - Big Go CTA: on-device export to **one video file**, then Share (system sheet) or Save
@@ -137,7 +143,7 @@ before this feature simply lack the data and degrade gracefully.
 | clips    | Clip metadata, `Blob` media, filmstrip thumbnails     |
 | undo     | Last deleted clip per project (for Undo)              |
 | meta     | Settings (`maxProjects`, last opened id, onboarding)  |
-| audio    | Background-music playlist per project (blobs, volumes, per-track trims/levels/fades) |
+| audio    | Background-music playlist per project (blobs, per-track trims/volumes/fades) |
 
 Database name: `kody-video`. Blobs never leave the device unless the user explicitly shares/downloads.
 

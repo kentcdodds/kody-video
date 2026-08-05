@@ -7,7 +7,14 @@
  */
 
 import { getDb, getSettings } from '../storage'
-import type { ClipRecord, ProjectAudioRecord, ProjectId } from '../types'
+import {
+  audioTrackLevel,
+  clipMusicVolume,
+  clipSoundVolume,
+  type ClipRecord,
+  type ProjectAudioRecord,
+  type ProjectId,
+} from '../types'
 import { withExportCacheReserved } from './export-cache'
 import { readOpfsFile, removeExportEntry, streamToOpfsFile } from './opfs'
 import type { ExportResult } from './shared'
@@ -18,7 +25,7 @@ const LAST_EXPORT_PREFIX = 'last-export'
 export function exportSignature(
   clips: ClipRecord[],
   watermarked: boolean,
-  audio?: Pick<ProjectAudioRecord, 'tracks' | 'defaultVolume' | 'fadeIn' | 'fadeOut'> | null,
+  audio?: Pick<ProjectAudioRecord, 'tracks' | 'fadeIn' | 'fadeOut'> | null,
 ): string {
   return JSON.stringify({
     watermarked,
@@ -26,7 +33,10 @@ export function exportSignature(
       clip.id,
       clip.trimStartMs,
       clip.trimEndMs,
-      clip.audioVolume ?? null,
+      // Per-clip levels, resolved so an explicit value equal to the
+      // default signs identically to no value.
+      clipSoundVolume(clip),
+      clipMusicVolume(clip),
     ]),
     audio: audio
       ? {
@@ -37,11 +47,10 @@ export function exportSignature(
             // equal to the default signs identically to no value.
             track.trimStartMs ?? 0,
             track.trimEndMs ?? track.durationMs,
-            track.volume ?? 1,
+            audioTrackLevel(track),
             track.fadeIn ?? audio.fadeIn,
             track.fadeOut ?? audio.fadeOut,
           ]),
-          defaultVolume: audio.defaultVolume,
           fadeIn: audio.fadeIn,
           fadeOut: audio.fadeOut,
         }

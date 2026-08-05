@@ -1,22 +1,24 @@
 import { channelPeak, normalizationScale } from './export/background-audio'
 import { decodeBlobAudio } from './export/shared'
+import type { ClipMeta } from './types'
 
 /**
- * The export peak-normalizes both sides of the background-music mix (the
- * clip's own sound and each playlist track) before blending them by the
- * mix share — a quietly mastered song is boosted up to 4×. For the live
- * previews to play the music at the level (and hand tracks off at the
- * position) the export will render, they need the same measurements: this
- * module runs the export's own decode + exact peak scan per source blob,
- * cached so a preview reopen or playlist revisit never re-decodes.
+ * The export peak-normalizes every audio source (the clip's own sound and
+ * each playlist track) before applying its volume — a quietly mastered
+ * song or a soft mic take is boosted up to 4×. For the live previews to
+ * play at the levels (and hand tracks off at the positions) the export
+ * will render, they need the same measurements. Clips carry theirs
+ * persisted (`ClipMeta.audioPeak`, backfilled on project load); playlist
+ * tracks are measured here with the export's own decode + exact peak
+ * scan, cached per blob so a preview reopen never re-decodes.
  *
  * Levels are applied through plain element volumes, NOT a Web Audio
  * media-element graph: `createMediaElementSource` permanently captures an
  * element's output, and on WebKit/iOS a context that is not (yet) running
  * turns that into total silence with no way back. Element volume caps at
  * 1, so normalization boosts are clamped into the ceiling — the default
- * 25% music share times the maximum 4× boost lands exactly at 1.0, and
- * louder shares play at the ceiling (slightly under the export's level,
+ * 25% track volume times the maximum 4× boost lands exactly at 1.0, and
+ * louder settings play at the ceiling (slightly under the export's level,
  * but always audible everywhere).
  */
 
@@ -74,14 +76,16 @@ async function measure(blob: Blob): Promise<AudioNormalizationInfo> {
   }
 }
 
-/** Element volume for the music bed at one moment: the export's normalized
- * level (mix share × normalization boost), clamped to the volume ceiling. */
-export function musicElementVolume(mix: number, scale: number): number {
-  return Math.max(0, Math.min(1, mix * scale))
+/** Element volume for one source at one moment: the export's normalized
+ * level (gain × normalization boost), clamped to the volume ceiling. */
+export function normalizedElementVolume(gain: number, scale: number): number {
+  return Math.max(0, Math.min(1, gain * scale))
 }
 
-/** Element volume for the clip's own sound under the bed: the export's
- * normalized complement, clamped to the volume ceiling. */
-export function clipElementVolume(mix: number, scale: number): number {
-  return Math.max(0, Math.min(1, (1 - mix) * scale))
+/** The clip's normalization gain: derived from the persisted measurement
+ * when present (synchronous, export-exact), else from the in-memory
+ * measurement while it lands (1 until then). */
+export function clipAudioScale(clip: Pick<ClipMeta, 'audioPeak'> & { blob: Blob }): number {
+  if (clip.audioPeak !== undefined) return normalizationScale(clip.audioPeak)
+  return peekAudioNormalization(clip.blob)?.scale ?? 1
 }

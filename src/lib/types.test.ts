@@ -1,7 +1,10 @@
 import { describe, expect, it } from 'vitest'
 import {
+  DEFAULT_TRACK_VOLUME,
   audioTrackKeptMs,
   audioTrackLevel,
+  clipMusicVolume,
+  clipSoundVolume,
   effectiveDurationMs,
   formatDuration,
   projectAudioTotalDurationMs,
@@ -28,13 +31,13 @@ describe('duration helpers', () => {
 describe('audio track playback helpers', () => {
   const playlist = { fadeIn: true, fadeOut: false }
 
-  it('defaults to the whole track at full level with playlist fades', () => {
+  it('defaults to the whole track at the default volume with playlist fades', () => {
     const playback = resolveAudioTrackPlayback({ durationMs: 30_000 }, playlist)
     expect(playback).toEqual({
       trimStartMs: 0,
       trimEndMs: 30_000,
       keptMs: 30_000,
-      volume: 1,
+      volume: DEFAULT_TRACK_VOLUME,
       fadeIn: true,
       fadeOut: false,
     })
@@ -84,12 +87,22 @@ describe('audio track playback helpers', () => {
     expect(playback.trimEndMs).toBe(Infinity)
   })
 
-  it('clamps the level and treats junk as full volume', () => {
-    expect(audioTrackLevel({})).toBe(1)
+  it('clamps the volume and treats junk as the default', () => {
+    expect(audioTrackLevel({})).toBe(DEFAULT_TRACK_VOLUME)
     expect(audioTrackLevel({ volume: 0.4 })).toBe(0.4)
     expect(audioTrackLevel({ volume: 3 })).toBe(1)
     expect(audioTrackLevel({ volume: -1 })).toBe(0)
-    expect(audioTrackLevel({ volume: Number.NaN })).toBe(1)
+    expect(audioTrackLevel({ volume: Number.NaN })).toBe(DEFAULT_TRACK_VOLUME)
+  })
+
+  it('defaults both per-clip levels to full volume and clamps them', () => {
+    expect(clipSoundVolume({})).toBe(1)
+    expect(clipSoundVolume({ clipVolume: 0.3 })).toBe(0.3)
+    expect(clipSoundVolume({ clipVolume: 5 })).toBe(1)
+    expect(clipSoundVolume({ clipVolume: Number.NaN })).toBe(1)
+    expect(clipMusicVolume({})).toBe(1)
+    expect(clipMusicVolume({ musicVolume: 0.7 })).toBe(0.7)
+    expect(clipMusicVolume({ musicVolume: -2 })).toBe(0)
   })
 
   it('sums kept (trimmed) lengths for the playlist coverage', () => {

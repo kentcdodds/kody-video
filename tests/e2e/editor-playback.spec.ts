@@ -187,6 +187,23 @@ test.describe('editor', () => {
     expect(imported.mimeType).toMatch(/video\//)
     expect(imported.width).toBeGreaterThan(0)
     expect(imported.height).toBeGreaterThan(0)
+
+    // The post-import refresh auto-normalizes the new clip: its audio peak
+    // is measured and persisted by the loader backfill.
+    await expect
+      .poll(
+        () =>
+          page.evaluate(async () => {
+            const storage = await import('/src/lib/storage.ts')
+            const projects = await storage.listProjects()
+            const clips = await storage.getClipMetasForProject(projects[0]!.id)
+            return clips.every(
+              (clip: { audioPeak?: number }) => typeof clip.audioPeak === 'number',
+            )
+          }),
+        { timeout: 20_000 },
+      )
+      .toBe(true)
   })
 
   test('empty timeline offers Add clips from your device', async ({ page }) => {

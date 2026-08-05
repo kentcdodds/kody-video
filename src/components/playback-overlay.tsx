@@ -2,9 +2,9 @@ import type { Handle } from 'remix/ui'
 import { on, ref } from 'remix/ui'
 import { planExport } from '../lib/export'
 import {
-  clipElementVolume,
+  clipAudioScale,
   measureAudioNormalization,
-  musicElementVolume,
+  normalizedElementVolume,
   peekAudioNormalization,
 } from '../lib/preview-audio-normalization'
 import {
@@ -16,7 +16,12 @@ import {
   trackMusicGain,
   trackPlayback,
 } from '../lib/preview-music-bed'
-import { clipAudioVolume, type ClipRecord, type ProjectAudioRecord } from '../lib/types'
+import {
+  clipMusicVolume,
+  clipSoundVolume,
+  type ClipRecord,
+  type ProjectAudioRecord,
+} from '../lib/types'
 import { IconPlay } from './icons'
 import { isInteractiveTarget } from '../lib/keyboard'
 
@@ -77,19 +82,27 @@ export function PlaybackOverlay(handle: Handle<PlaybackOverlayProps>) {
    * metadata window says so. Cleared when a skip seeks music again. */
   let playlistDone = false
 
-  // Export-fidelity levels: the export peak-normalizes BOTH sources toward
-  // the same peak before blending by the mix share (a quietly mastered song
-  // is boosted up to 4×). The previews carry those measured scales through
+  // Export-fidelity levels: the export peak-normalizes EVERY source toward
+  // the same peak before applying its volume (a quietly mastered song is
+  // boosted up to 4×). The previews carry those measured scales through
   // plain element volumes, clamped to the ceiling of 1 — deliberately NOT
   // through a Web Audio media-element graph, whose captured elements go
   // permanently silent on WebKit/iOS whenever the context is not running.
   // See preview-audio-normalization.ts for the trade-off. Playlist
-  // geometry (trims, levels, interior fades) lives in preview-music-bed.ts,
-  // shared with the editor's clip stage.
+  // geometry (trims, volumes, interior fades) lives in
+  // preview-music-bed.ts, shared with the editor's clip stage.
 
-  /** Normalization gain the export applies to this source (1 until the
-   * background measurement lands). */
-  const scaleFor = (blob: Blob): number => peekAudioNormalization(blob)?.scale ?? 1
+  /** Normalization gain the export applies to a playlist track (1 until
+   * the background measurement lands). */
+  const trackScaleFor = (blob: Blob): number => peekAudioNormalization(blob)?.scale ?? 1
+
+  /** The current clip's element volume: its own sound level times its
+   * normalization gain (persisted measurement — export-exact). */
+  const clipElementVolumeNow = (): number => {
+    const segment = currentSegment()
+    if (!segment) return 1
+    return normalizedElementVolume(clipSoundVolume(segment.clip), clipAudioScale(segment.clip))
+  }
 
   /** A rejected play() surfaces the tap-to-play affordance only for
    * autoplay-policy rejections. AbortError means the attempt was merely
@@ -115,9 +128,8 @@ export function PlaybackOverlay(handle: Handle<PlaybackOverlayProps>) {
 
   const segmentMusicVolume = () => {
     const segment = currentSegment()
-    const track = props.audio
-    if (!segment || !track) return 0
-    return clipAudioVolume(segment.clip, track.defaultVolume) * fadeOutScale()
+    if (!segment || !props.audio) return 0
+    return clipMusicVolume(segment.clip) * fadeOutScale()
   }
 
   const filmTotalMs = () => {
@@ -244,14 +256,15 @@ export function PlaybackOverlay(handle: Handle<PlaybackOverlayProps>) {
     if (!track) return
     audioEl = el
     // No fade-in on the opening track means the music starts at the clip's
-    // mix level; otherwise the per-frame glide below fades it in from
-    // silence. `mix` is the export envelope's value (share × film-edge
-    // fades), tracked apart from the element volume so the normalization
-    // scales can multiply on top without distorting the glide.
+    // music level; otherwise the per-frame glide below fades it in from
+    // silence. `musicMix` is the export envelope's value (music volume ×
+    // film-edge fades), tracked apart from the element volume so the
+    // normalization scales can multiply on top without distorting the
+    // glide.
     const firstTrack = track.tracks[0]
     const opensWithFade = firstTrack ? trackPlayback(track, firstTrack).fadeIn : track.fadeIn
-    let mix = opensWithFade ? 0 : segmentMusicVolume()
-    el.volume = mix
+    let musicMix = opensWithFade ? 0 : segmentMusicVolume()
+    el.volume = musicMix
 
     // Measure every source up front, one decode at a time: the scales and
     // decoded track lengths should be ready by the time the playhead needs
@@ -274,14 +287,16 @@ export function PlaybackOverlay(handle: Handle<PlaybackOverlayProps>) {
       }
     })()
 
-    // Per-frame glide of BOTH sides of the mix: the export envelope value
-    // glides toward the current clip's share (0 where the playlist has run
-    // out), and each element's volume is its side of the blend times its
+    // Per-frame glide of BOTH sides of the mix: each envelope value glides
+    // toward the current clip's level (music: 0 where the playlist has run
+    // out), and each element's volume is its gliding level times its
     // source's normalization scale, clamped to the element ceiling.
     let last = performance.now()
     let raf = 0
     let reportedClipScale = ''
     let reportedMusicScale = ''
+    /** Gliding clip-sound level (null = snap to the first target). */
+    let clipMix: number | null = null
     const tick = (now: number) => {
       const dt = Math.min(100, now - last)
       last = now
@@ -307,29 +322,32 @@ export function PlaybackOverlay(handle: Handle<PlaybackOverlayProps>) {
       }
       const musicHere =
         !playlistDone && trackAtMs(timelinePositionMs()) !== null
-      const target = musicHere ? segmentMusicVolume() : 0
       const alpha = 1 - Math.exp(-dt / MUSIC_VOLUME_TAU_MS)
-      const next = mix + (target - mix) * alpha
-      mix = Math.abs(next - target) < 0.005 ? target : next
+      const glide = (current: number, target: number): number => {
+        const next = current + (target - current) * alpha
+        return Math.abs(next - target) < 0.005 ? target : next
+      }
+      musicMix = glide(musicMix, musicHere ? segmentMusicVolume() : 0)
       // The element's volume is the export's music-side gain: the gliding
-      // envelope × the track's normalization boost × the track's level and
-      // interior fades, clamped to the element ceiling.
+      // envelope × the track's normalization boost × the track's volume
+      // and interior fades, clamped to the element ceiling.
       const trackBlob = props.audio?.tracks[musicTrackIndex]?.blob
-      const musicScale = trackBlob ? scaleFor(trackBlob) : 1
+      const musicScale = trackBlob ? trackScaleFor(trackBlob) : 1
       const musicGain =
         props.audio && musicTrackIndex >= 0
           ? trackMusicGain(props.audio, musicTrackIndex, el.currentTime, filmTotalMs())
           : 1
-      el.volume = musicElementVolume(mix, musicScale * musicGain)
+      el.volume = normalizedElementVolume(musicMix, musicScale * musicGain)
       const video = videoEl
       const segment = currentSegment()
-      const clipScale = segment ? scaleFor(segment.clip.blob) : 1
+      const clipScale = segment ? clipAudioScale(segment.clip) : 1
       if (video) {
-        // The clip's own sound carries the complement of the CURRENT
-        // (gliding) mix — during the fade-in it starts at full and only
-        // comes down as the bed actually rises. After the playlist ends it
-        // keeps its normalization, exactly like the export's foreground.
-        video.volume = clipElementVolume(mix, clipScale)
+        // The clip's own sound glides toward ITS OWN level — independent
+        // of the music (no ducking, no complement), exactly like the
+        // export's clip envelope.
+        const clipTarget = segment ? clipSoundVolume(segment.clip) : 1
+        clipMix = clipMix === null ? clipTarget : glide(clipMix, clipTarget)
+        video.volume = normalizedElementVolume(clipMix, clipScale)
       }
       // Test observability for the applied normalization scales.
       const clipScaleText = String(clipScale)
@@ -380,6 +398,9 @@ export function PlaybackOverlay(handle: Handle<PlaybackOverlayProps>) {
     if (nextIndex === index) {
       const video = videoEl
       if (video) {
+        // Without music there is no per-frame tick — apply the clip's own
+        // level (and normalization) at each start.
+        if (!props.audio) video.volume = clipElementVolumeNow()
         video.currentTime = startSec()
         void video
           .play()
@@ -416,6 +437,9 @@ export function PlaybackOverlay(handle: Handle<PlaybackOverlayProps>) {
   }
 
   const startPlayback = (video: HTMLVideoElement) => {
+    // Without music there is no per-frame tick — apply the clip's own
+    // level (and normalization) at each segment start.
+    if (!props.audio) video.volume = clipElementVolumeNow()
     video.currentTime = startSec()
     void video
       .play()

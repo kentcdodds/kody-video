@@ -2,9 +2,9 @@ import type { Handle } from 'remix/ui'
 import { on, ref } from 'remix/ui'
 import { planExport } from '../lib/export'
 import {
-  clipElementVolume,
+  clipAudioScale,
   measureAudioNormalization,
-  musicElementVolume,
+  normalizedElementVolume,
   peekAudioNormalization,
 } from '../lib/preview-audio-normalization'
 import {
@@ -17,7 +17,12 @@ import {
 } from '../lib/preview-music-bed'
 import { BlobVideo } from './blob-video'
 import { IconPause, IconPlay } from './icons'
-import { clipAudioVolume, type ClipRecord, type ProjectAudioRecord } from '../lib/types'
+import {
+  clipMusicVolume,
+  clipSoundVolume,
+  type ClipRecord,
+  type ProjectAudioRecord,
+} from '../lib/types'
 
 /** Smoothing time constant for level moves (~settles in 3×) — matches the
  * project preview's glide feel. */
@@ -70,7 +75,8 @@ export function EditorClipPreview(handle: Handle<EditorClipPreviewProps>) {
 
   // Music bed under the clip. Plain element volumes carry the export's
   // normalization scales (see preview-audio-normalization.ts) — the music
-  // at share × scale, the clip's own sound at (1 − share) × its scale.
+  // at its clip-scaled volume × scale, the clip's own sound at its own
+  // volume × its scale (the two are independent).
   let musicEl: HTMLAudioElement | null = null
   /** Object URLs keyed by track BLOB — the stage outlives playlist edits
    * (it is keyed by clip id), so index-keyed URLs would go stale when a
@@ -162,9 +168,22 @@ export function EditorClipPreview(handle: Handle<EditorClipPreviewProps>) {
     if (wasAudible) playMusic()
   }
 
-  /** This clip's music share of the mix (its override or the default). */
-  const musicShare = (): number =>
-    props.audio ? clipAudioVolume(props.clip, props.audio.defaultVolume) : 0
+  /** The music's level while this clip plays (its duck, if any). */
+  const musicLevel = (): number => (props.audio ? clipMusicVolume(props.clip) : 0)
+
+  /** The clip's own element volume: its sound level × normalization. */
+  const clipElementVolumeNow = (): number =>
+    normalizedElementVolume(clipSoundVolume(props.clip), clipAudioScale(props.clip))
+
+  /** Without music there is no per-frame tick — apply the clip's own
+   * level (and normalization) directly whenever it may have changed. The
+   * gate matches the music element's mount condition (tracks present):
+   * only a MOUNTED bed runs the tick that owns the volume instead. */
+  const applyClipVolume = () => {
+    const video = media
+    if (!video || (props.audio?.tracks.length ?? 0) > 0) return
+    video.volume = clipElementVolumeNow()
+  }
 
   /** Put the bed at the export-true position for the current video time and
    * start it (no-op when there is no music to play there). */
@@ -320,28 +339,25 @@ export function EditorClipPreview(handle: Handle<EditorClipPreviewProps>) {
       // live playlist coverage (the playhead can pass the last decoded
       // sample before the `ended` handler runs — no bed past the playlist,
       // like the export) AND a playing element (a rejected music play()
-      // must not leave the clip ducked under silence).
+      // must not leave a stale level standing).
       const musicHere =
         !musicExhausted && position !== null && trackAtMs(position) !== null && !el.paused
-      const mix = musicHere ? musicShare() * fadeScaleAt(position) : 0
+      const mix = musicHere ? musicLevel() * fadeScaleAt(position) : 0
       // The element's volume is the export's music-side gain: envelope ×
-      // normalization boost × the track's level and interior fades.
+      // normalization boost × the track's volume and interior fades.
       const trackBlob = props.audio?.tracks[musicTrackIndex]?.blob
       const musicScale = trackBlob ? (peekAudioNormalization(trackBlob)?.scale ?? 1) : 1
       const musicGain =
         props.audio && musicTrackIndex >= 0
           ? trackMusicGain(props.audio, musicTrackIndex, el.currentTime, filmTotalMs())
           : 1
-      musicVol = glide(musicVol, musicElementVolume(mix, musicScale * musicGain))
+      musicVol = glide(musicVol, normalizedElementVolume(mix, musicScale * musicGain))
       el.volume = musicVol
       const video = media
       if (video) {
-        const clipScale = peekAudioNormalization(props.clip.blob)?.scale ?? 1
-        // The clip's own sound stays coupled to the SAME gliding mix, like
-        // the project preview and the export's playlist-end ease: it
-        // carries the normalized complement under a sounding bed and
-        // returns to its normalized full level exactly as the mix falls.
-        clipVol = glide(clipVol, clipElementVolume(mix, clipScale))
+        // The clip's own sound holds ITS OWN level — independent of the
+        // music (no ducking, no complement), exactly like the export.
+        clipVol = glide(clipVol, clipElementVolumeNow())
         video.volume = clipVol
       }
       raf = requestAnimationFrame(tick)
@@ -384,6 +400,7 @@ export function EditorClipPreview(handle: Handle<EditorClipPreviewProps>) {
     media = video
     explicitSeek = false
     pendingSeekSec = null
+    applyClipVolume()
     const apiRef = props.apiRef
     if (!apiRef) return
     apiRef.current = {
@@ -449,6 +466,8 @@ export function EditorClipPreview(handle: Handle<EditorClipPreviewProps>) {
     const endSec = clip.trimEndMs / 1000
     const remountKey = `${clip.id}:${clip.blob.size}:${clip.blob.type}:${clip.trimStartMs}:${clip.trimEndMs}`
     const hasMusic = (props.audio?.tracks.length ?? 0) > 0
+    // A volume edit re-renders the stage without remounting — follow it.
+    applyClipVolume()
 
     return (
       <div className="editor-clip-preview-wrap">

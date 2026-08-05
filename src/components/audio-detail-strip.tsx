@@ -36,10 +36,12 @@ interface AudioDetailStripProps {
 /**
  * Detail view for ONE background-music track, opened from its playlist row
  * — the audio counterpart of the clip TrimStrip. Trim handles bound the
- * kept window over a waveform, the level slider scales the track's side of
- * the mix, and the fade toggles ease the track in/out where it starts and
- * ends. Everything is a local draft until Done persists it (Cancel or
- * Escape discards); the preview button auditions the kept window live.
+ * kept window over a waveform, the volume slider sets the music's level
+ * under the clips while this track plays (clips can duck it further with
+ * their own music slider), and the fade toggles ease the track in/out
+ * where it starts and ends. Everything is a local draft until Done
+ * persists it (Cancel or Escape discards); the preview button auditions
+ * the kept window live.
  */
 export function AudioDetailStrip(handle: Handle<AudioDetailStripProps>) {
   const { props } = handle
@@ -322,15 +324,15 @@ export function AudioDetailStrip(handle: Handle<AudioDetailStripProps>) {
             Preview
           </button>
           <div className="audio-detail-level">
-            <span className="audio-volume-label">Level</span>
+            <span className="audio-volume-label">Volume</span>
             <input
               type="range"
               min={0}
               max={100}
               step={5}
               value={levelPct}
-              aria-label="Track level"
-              aria-valuetext={`${levelPct}% level`}
+              aria-label="Track volume"
+              aria-valuetext={`${levelPct}% volume`}
               mix={[
                 on('input', (event) => {
                   volume = Number((event.currentTarget as HTMLInputElement).value) / 100
