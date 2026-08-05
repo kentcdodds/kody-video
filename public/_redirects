@@ -1,4 +1,14 @@
-# SPA fallback for client routes. Existing static files (including /assets/*,
-# /llms.txt, /robots.txt, /sitemap.xml) are served from the build output and
-# are not rewritten.
-/*    /index.html   200
+# SPA rewrites for the app's client routes ONLY (see src/app.tsx). Everything
+# else that misses a static file gets public/404.html with a real 404 status.
+#
+# This is deliberate and load-bearing: a catch-all /* rewrite used to answer
+# missing /assets/* chunk URLs with index.html as HTTP 200. During a deploy's
+# edge-propagation window that let browsers (and the service worker's install
+# precache) cache HTML bodies under hashed .js/.css URLs — poisoning clients
+# so the app could never boot again (2026-08-05 incident). A 404 can never be
+# cached as a module, and a failed service worker install cleanly retries.
+/project/*    /index.html   200
+/unlocked     /index.html   200
+/about        /index.html   200
+/privacy      /index.html   200
+/terms        /index.html   200
