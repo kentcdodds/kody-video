@@ -72,19 +72,21 @@ describe('storage layer', () => {
     const db = await getDb()
     const originalTransaction = db.transaction.bind(db)
     let metaProbes = 0
-    db.transaction = ((storeNames: string | string[], mode?: IDBTransactionMode) => {
+    db.transaction = ((...args: Parameters<typeof db.transaction>) => {
+      const storeNames = args[0]
+      const mode = args[1]
       const names = Array.isArray(storeNames) ? storeNames : [storeNames]
       // getDb() probes with transaction('meta'); let that succeed, then close
       // before the real getSettings read — the TOCTOU CodeRabbit flagged.
       if (names.length === 1 && names[0] === 'meta' && mode === undefined) {
         metaProbes += 1
         if (metaProbes === 1) {
-          const tx = originalTransaction(storeNames, mode)
+          const tx = originalTransaction(...args)
           db.close()
           return tx
         }
       }
-      return originalTransaction(storeNames, mode)
+      return originalTransaction(...args)
     }) as typeof db.transaction
 
     await expect(getSettings()).resolves.toMatchObject({ key: 'settings' })
