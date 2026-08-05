@@ -73,7 +73,6 @@ export function HomePage(handle: Handle) {
   let busy = false
   let notice: string | null = null
   let showInstallHint = shouldShowIosInstallHint()
-  let tourCardHidden = false
   let upselling = false
   let restoring = false
   let installPopoverOpen = false
@@ -391,10 +390,13 @@ export function HomePage(handle: Handle) {
           </div>
         ) : null}
 
-        {projects.length === 0 && !data.tourCardDismissed && !tourCardHidden ? (
+        {projects.length === 0 && !data.tourCardDismissed ? (
           <TourCard
             onDismiss={() => {
-              tourCardHidden = true
+              // Mutate the loaded data (it is also the module-level
+              // lastHomeData cache) so a remount before the async persist
+              // lands doesn't resurrect the card.
+              data!.tourCardDismissed = true
               void setTourCardDismissed(true)
               void handle.update()
             }}
