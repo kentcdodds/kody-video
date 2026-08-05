@@ -35,6 +35,15 @@ jobs:
       - name: Install Playwright Chromium
         run: npx playwright install --with-deps chromium
 
+      # The preview-audio e2e tests need a running audio server: without an
+      # output device Chromium keeps realtime AudioContexts suspended and the
+      # music-normalization assertions never see their gains apply.
+      - name: Start PulseAudio (null sink)
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq pulseaudio
+          pulseaudio --start --exit-idle-time=-1
+
       - name: E2E tests
         run: npm run test:e2e
 
