@@ -309,67 +309,99 @@ export function AudioStrip(handle: Handle<AudioStripProps>) {
         </div>
 
         {selectedClip ? (
-          <div className="audio-volume-row">
-            <span className="audio-volume-label">
-              Clip {selectedIndex + 1}
-              {clipOverridden ? '' : ' · default'}
-            </span>
-            <input
-              type="range"
-              min={0}
-              max={100}
-              step={5}
-              value={Math.round(clipVolume * 100)}
-              disabled={disabled || busy}
-              aria-label={`Music volume during clip ${selectedIndex + 1}`}
-              mix={[
-                on('input', (event) => {
-                  const volume = Number((event.currentTarget as HTMLInputElement).value) / 100
-                  pendingClip = { clipId: selectedClip.id, volume }
-                  void handle.update()
-                }),
-                on('change', (event) => {
-                  const volume = Number((event.currentTarget as HTMLInputElement).value) / 100
-                  commitClipVolume(selectedClip.id, volume)
-                }),
-              ]}
-            />
-            <span className="audio-volume-value">{Math.round(clipVolume * 100)}%</span>
-            <button
-              type="button"
-              className="audio-volume-reset"
-              disabled={disabled || busy || !clipOverridden}
-              aria-label="Reset this clip to the default music volume"
-              mix={on('click', () => resetClipVolume(selectedClip.id))}
-            >
-              Reset
-            </button>
-          </div>
+          <MixRow
+            label={`Clip ${selectedIndex + 1}${clipOverridden ? '' : ' · default'}`}
+            ariaLabel={`Audio mix during clip ${selectedIndex + 1}`}
+            share={clipVolume}
+            disabled={disabled || busy}
+            onPreview={(share) => {
+              pendingClip = { clipId: selectedClip.id, volume: share }
+              void handle.update()
+            }}
+            onCommit={(share) => commitClipVolume(selectedClip.id, share)}
+            onReset={clipOverridden ? () => resetClipVolume(selectedClip.id) : undefined}
+          />
         ) : null}
 
-        <div className="audio-volume-row">
-          <span className="audio-volume-label">All clips</span>
-          <input
-            type="range"
-            min={0}
-            max={100}
-            step={5}
-            value={Math.round(defaultVolume * 100)}
-            disabled={disabled || busy}
-            aria-label="Default music volume"
-            mix={[
-              on('input', (event) => {
-                pendingDefault = Number((event.currentTarget as HTMLInputElement).value) / 100
-                void handle.update()
-              }),
-              on('change', (event) => {
-                const volume = Number((event.currentTarget as HTMLInputElement).value) / 100
-                commitDefaultVolume(volume)
-              }),
-            ]}
-          />
-          <span className="audio-volume-value">{Math.round(defaultVolume * 100)}%</span>
-        </div>
+        <MixRow
+          label="All clips"
+          ariaLabel="Default audio mix"
+          share={defaultVolume}
+          disabled={disabled || busy}
+          onPreview={(share) => {
+            pendingDefault = share
+            void handle.update()
+          }}
+          onCommit={(share) => commitDefaultVolume(share)}
+        />
+      </div>
+    )
+  }
+}
+
+interface MixRowProps {
+  label: string
+  ariaLabel: string
+  /** Music's share of the mix (0–1); the clip's own sound gets the rest. */
+  share: number
+  disabled: boolean
+  /** Live thumb move (label preview only — nothing persisted yet). */
+  onPreview: (share: number) => void
+  /** Slider released — persist. */
+  onCommit: (share: number) => void
+  /** Present only when the row is overridable and currently overridden. */
+  onReset?: () => void
+}
+
+/** One balance slider: clip sound on the left, music on the right — drag
+ * toward the side that should carry more of the mix. */
+function MixRow(handle: Handle<MixRowProps>) {
+  return () => {
+    const { label, ariaLabel, share, disabled, onReset } = handle.props
+    const musicPct = Math.round(share * 100)
+    const clipPct = 100 - musicPct
+    return (
+      <div className="audio-mix-row">
+        <span className="audio-volume-label">{label}</span>
+        <span className="audio-mix-side" aria-hidden="true">
+          Clip <strong>{clipPct}%</strong>
+        </span>
+        <input
+          type="range"
+          min={0}
+          max={100}
+          step={5}
+          value={musicPct}
+          disabled={disabled}
+          aria-label={ariaLabel}
+          aria-valuetext={`${clipPct}% clip sound, ${musicPct}% music`}
+          mix={[
+            on('input', (event) => {
+              handle.props.onPreview(
+                Number((event.currentTarget as HTMLInputElement).value) / 100,
+              )
+            }),
+            on('change', (event) => {
+              handle.props.onCommit(
+                Number((event.currentTarget as HTMLInputElement).value) / 100,
+              )
+            }),
+          ]}
+        />
+        <span className="audio-mix-side" aria-hidden="true">
+          <strong>{musicPct}%</strong> Music
+        </span>
+        {onReset ? (
+          <button
+            type="button"
+            className="audio-volume-reset"
+            disabled={disabled}
+            aria-label="Reset this clip to the default audio mix"
+            mix={on('click', () => handle.props.onReset?.())}
+          >
+            Reset
+          </button>
+        ) : null}
       </div>
     )
   }

@@ -21,7 +21,9 @@ import { isIosBrowser } from '../platform'
 import type { ClipRecord } from '../types'
 import {
   boundaryRampHalfMs,
+  channelPeak,
   createBackgroundMixer,
+  normalizationScale,
   planSegmentGain,
   segmentVolume,
   type BackgroundAudio,
@@ -188,13 +190,15 @@ export async function exportWithWebCodecs(
   const chapters: Mp4Chapter[] = []
 
   // Background music: playlist tracks are decoded lazily (one at a time,
-  // released as the timeline passes them) and mixed into each segment's
-  // audio slice under a per-segment gain envelope — per-clip volumes with
-  // ramped transitions, plus the optional fade-in/fade-out. Envelopes are
-  // built from each segment's REAL (clamped) duration as it is mixed, so
-  // ramps and fades stay on their clips even when clamping shifts the
-  // timeline; only ramp-length clamping peeks at the next clip's planned
-  // duration.
+  // released as the timeline passes them) and BLENDED with each segment's
+  // audio slice under a per-segment mix envelope — the per-clip value is
+  // the music's share of the mix, the clip's own sound gets the
+  // complement, and both sources are peak-normalized first so the shares
+  // mean the same thing regardless of how hot either recording is.
+  // Envelopes are built from each segment's REAL (clamped) duration as it
+  // is mixed, so ramps and fades stay on their clips even when clamping
+  // shifts the timeline; only ramp-length clamping peeks at the next
+  // clip's planned duration.
   const backgroundMixer =
     background && background.tracks.length > 0
       ? createBackgroundMixer(
@@ -206,9 +210,18 @@ export async function exportWithWebCodecs(
                 AUDIO_SAMPLE_RATE,
               )
               if (!buffer) return null
-              return Array.from({ length: buffer.numberOfChannels }, (_, ch) =>
-                buffer.getChannelData(ch),
+              const channels = Array.from(
+                { length: buffer.numberOfChannels },
+                (_, ch) => buffer.getChannelData(ch),
               )
+              // Normalize the track in place (the decode is private).
+              const scale = normalizationScale(channelPeak(channels))
+              if (scale !== 1) {
+                for (const data of channels) {
+                  for (let i = 0; i < data.length; i += 1) data[i] *= scale
+                }
+              }
+              return channels
             },
           },
           AUDIO_SAMPLE_RATE,
@@ -271,8 +284,12 @@ export async function exportWithWebCodecs(
         if (backgroundMixer && background) {
           const volume = segmentVolume(segment, background.defaultVolume)
           const nextPlanned = plan.segments[segmentIndex + 1]
+          const sliceChannels = Array.from(
+            { length: slice.numberOfChannels },
+            (_, ch) => slice.getChannelData(ch),
+          )
           await backgroundMixer.mixInto(
-            Array.from({ length: slice.numberOfChannels }, (_, ch) => slice.getChannelData(ch)),
+            sliceChannels,
             // Frames already written = the real position of this slice, even
             // when clamping shortened an earlier segment.
             Math.round(state.outputOffsetSec * AUDIO_SAMPLE_RATE),
@@ -299,6 +316,17 @@ export async function exportWithWebCodecs(
                 : undefined,
               fades: background,
             }),
+            // Whole-clip peak (not just this trim window) so a clip's
+            // loudness doesn't change with where it is trimmed.
+            normalizationScale(
+              buffer
+                ? channelPeak(
+                    Array.from({ length: buffer.numberOfChannels }, (_, ch) =>
+                      buffer.getChannelData(ch),
+                    ),
+                  )
+                : 0,
+            ),
           )
           previousMixed = { volume, durationMs: segmentMs }
         }

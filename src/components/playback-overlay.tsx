@@ -185,7 +185,10 @@ export function PlaybackOverlay(handle: Handle<PlaybackOverlayProps>) {
     // per-frame glide below fades it in from silence.
     el.volume = track.fadeIn ? 0 : segmentMusicVolume()
 
-    // Per-frame volume glide toward the current clip's target.
+    // Per-frame glide of BOTH sides of the mix: the music toward the
+    // current clip's share, the clip's own sound toward the complement
+    // (1 − share) — mirroring the export blend. Where the playlist has run
+    // out, the clip glides back to full volume.
     let last = performance.now()
     let raf = 0
     const tick = (now: number) => {
@@ -195,6 +198,16 @@ export function PlaybackOverlay(handle: Handle<PlaybackOverlayProps>) {
       const alpha = 1 - Math.exp(-dt / MUSIC_VOLUME_TAU_MS)
       const next = el.volume + (target - el.volume) * alpha
       el.volume = Math.abs(next - target) < 0.005 ? target : next
+      const video = videoEl
+      if (video) {
+        const musicHere = props.audio ? trackAtMs(timelinePositionMs()) !== null : false
+        const clipTarget = musicHere ? 1 - target : 1
+        const nextClip = video.volume + (clipTarget - video.volume) * alpha
+        video.volume = Math.max(
+          0,
+          Math.min(1, Math.abs(nextClip - clipTarget) < 0.005 ? clipTarget : nextClip),
+        )
+      }
       raf = requestAnimationFrame(tick)
     }
     raf = requestAnimationFrame(tick)

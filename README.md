@@ -34,13 +34,17 @@ For a phone on the same network, use your machine’s LAN URL over HTTPS, or tun
 - Recording feedback (REC pill + elapsed) with a page that does **not** re-render per frame — capture stays smooth
 - Editor: filmstrip timeline (thumbnails, width ∝ duration), drag to reorder, duplicate, delete w/ undo, **in-timeline trim with drag handles**, **add clips from your device/gallery**
 - **Background music** (Plus): build a playlist of audio tracks that play one
-  after the other under the film at a background-friendly default volume
-  (nothing loops — a hint suggests adding another track when the music ends
-  before the film does); tap any clip to set the music volume just for that
-  clip (duck it under speech, swell it for b-roll), volume changes glide
-  across clip boundaries, and the music fades in/out at the start and end of
-  the film (both toggleable, on by default) — in the preview and in the
-  exported file
+  after the other under the film (nothing loops — a hint suggests adding
+  another track when the music ends before the film does). The mix is
+  **relative**: one balance slider per clip splits the audio between the
+  clip's own sound (left) and the music (right) — 80% music means 20% clip
+  sound — so the blend can never clip, and exports **peak-normalize** both
+  sources so the split means the same thing however hot either recording
+  is. Defaults to 25% music under every clip; tap a clip to set its own
+  balance (duck the music under speech, swell it for b-roll). Mix changes
+  glide across clip boundaries, and the music fades in/out at the start and
+  end of the film (both toggleable, on by default) — in the preview and in
+  the exported file
 - Project preview playback: tap edges to skip clips, tap middle to stop
 - Up to **6** stable project slots (create / open / rename / delete, poster art from your clips)
 - Big Go CTA: on-device export to **one video file**, then Share (system sheet) or Save
