@@ -359,4 +359,38 @@ test.describe('background music', () => {
     await overlay.getByRole('button', { name: 'Stop preview' }).click()
     await expect(overlay).toBeHidden()
   })
+
+  test('preview plays the music at the export level: peak normalization applies', async ({
+    page,
+  }) => {
+    await openPlusEditorWithClips(page, 1)
+    // Quietly mastered song: peak ≈ 8000/32768 ≈ 0.24, so the export mixes
+    // it ≈ 3.7× hotter (0.9 / 0.24) than the raw file plays. The preview
+    // must apply the same boost — element volume alone caps at 1×.
+    await addMusic(page, 'Add background music', makeWavFile('quiet-song.wav', 8, 8000))
+
+    await page.getByRole('button', { name: 'Play project preview' }).click()
+    const overlay = page.locator('.playback-overlay')
+    await expect(overlay).toBeVisible()
+
+    const music = overlay.locator('audio')
+    await expect
+      .poll(() => music.evaluate((el) => !(el as HTMLAudioElement).paused))
+      .toBe(true)
+    // The music gain glides to the export's normalization boost once the
+    // track is measured (decode runs in the background after open; generous
+    // timeout — parallel workers can slow the decode considerably)…
+    await expect
+      .poll(async () => Number((await music.getAttribute('data-music-scale')) ?? '0'), {
+        timeout: 30_000,
+      })
+      .toBeGreaterThan(3.3)
+    expect(Number(await music.getAttribute('data-music-scale'))).toBeLessThanOrEqual(4)
+    // …while the fixture clips (video-only, no audio track) stay unscaled,
+    // exactly like the export mixes them.
+    await expect(music).toHaveAttribute('data-clip-scale', '1')
+
+    await overlay.getByRole('button', { name: 'Stop preview' }).click()
+    await expect(overlay).toBeHidden()
+  })
 })

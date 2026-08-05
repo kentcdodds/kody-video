@@ -363,7 +363,7 @@ function audioBufferPeak(buffer: AudioBuffer): number {
  * of containers — all one path); the result is resampled when the source
  * rate differs. Returns null when there is no decodable audio.
  */
-async function decodeBlobAudio(blob: Blob, sampleRate: number): Promise<AudioBuffer | null> {
+export async function decodeBlobAudio(blob: Blob, sampleRate: number): Promise<AudioBuffer | null> {
   const input = new Input({ source: new BlobSource(blob), formats: ALL_FORMATS })
   const track = await input.getPrimaryAudioTrack()
   if (!track || !(await track.canDecode())) return null

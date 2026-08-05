@@ -37,14 +37,15 @@ For a phone on the same network, use your machine’s LAN URL over HTTPS, or tun
   after the other under the film (nothing loops — a hint suggests adding
   another track when the music ends before the film does). The mix is
   **relative**: one balance slider per clip splits the audio between the
-  clip's own sound (left) and the music (right) — 80% music means 20% clip
-  sound — so the blend can never clip, and exports **peak-normalize** both
-  sources so the split means the same thing however hot either recording
-  is. Defaults to 25% music under every clip; tap a clip to set its own
-  balance (duck the music under speech, swell it for b-roll). Mix changes
-  glide across clip boundaries, and the music fades in/out at the start and
-  end of the film (both toggleable, on by default) — in the preview and in
-  the exported file
+  clip's own   sound (left) and the music (right) — 80% music means 20% clip
+  sound — so the blend can never clip, and both sources are
+  **peak-normalized** so the split means the same thing however hot either
+  recording is. Defaults to 25% music under every clip; tap a clip to set
+  its own balance (duck the music under speech, swell it for b-roll). Mix
+  changes glide across clip boundaries, and the music fades in/out at the
+  start and end of the film (both toggleable, on by default). All of it —
+  levels, normalization, fades, track hand-offs — plays the same in the
+  project preview as in the exported file
 - Project preview playback: tap edges to skip clips, tap middle to stop
 - Up to **6** stable project slots (create / open / rename / delete, poster art from your clips)
 - Big Go CTA: on-device export to **one video file**, then Share (system sheet) or Save
