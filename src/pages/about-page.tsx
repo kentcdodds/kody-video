@@ -255,8 +255,8 @@ export function AboutPage(handle: Handle) {
               >
                 watch the tour on YouTube
               </a>
-              . The same video plays right in the quick-start card the first time you open the
-              camera. Want a real result straight out of the app? Here&rsquo;s{' '}
+              . The same video plays right on the home screen when you&rsquo;re new here. Want a
+              real result straight out of the app? Here&rsquo;s{' '}
               <a
                 href="https://x.com/kentcdodds/status/2084891368724533456"
                 target="_blank"

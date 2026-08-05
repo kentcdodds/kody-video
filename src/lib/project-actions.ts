@@ -70,6 +70,8 @@ export interface HomeLoaderData {
   exportCacheBytes: number
   /** True when the one-time Kody Video Plus purchase is unlocked. */
   plus: boolean
+  /** Home "Watch the tour" card dismissed (first-timer teaser). */
+  tourCardDismissed: boolean
 }
 
 export async function loadHomePage(): Promise<HomeLoaderData> {
@@ -79,7 +81,13 @@ export async function loadHomePage(): Promise<HomeLoaderData> {
     estimateExportCacheBytes(),
     getSettings(),
   ])
-  return { projects, storage, exportCacheBytes, plus: settings.watermarkRemoved === true }
+  return {
+    projects,
+    storage,
+    exportCacheBytes,
+    plus: settings.watermarkRemoved === true,
+    tourCardDismissed: settings.tourCardDismissed === true,
+  }
 }
 
 export async function loadHomeProjects(): Promise<ProjectSummary[]> {

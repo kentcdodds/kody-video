@@ -741,24 +741,38 @@
   font-size: 0.88rem;
 }
 
-.onboarding-tour {
+.onboarding-card .btn {
+  width: 100%;
+}
+
+/* First-timer tour card (home) */
+
+.tour-card {
+  position: relative;
+  margin: 10px 0 0;
+  padding: 8px 44px 8px 8px;
+  border-radius: 16px;
+  border: 1px solid color-mix(in srgb, var(--accent) 45%, transparent);
+  background: var(--accent-soft);
+}
+
+.tour-card-teaser {
   display: grid;
   grid-template-columns: 44px 1fr 24px;
   gap: 12px;
   align-items: center;
   width: 100%;
-  margin: 0 0 16px;
-  padding: 8px 12px 8px 8px;
-  border-radius: 16px;
-  border: 1px solid color-mix(in srgb, var(--accent) 45%, transparent);
-  background: var(--accent-soft);
+  margin: 0;
+  padding: 0;
+  border: none;
+  background: transparent;
   color: inherit;
   font: inherit;
   text-align: left;
   cursor: pointer;
 }
 
-.onboarding-tour img {
+.tour-card-teaser img {
   width: 44px;
   height: 78px;
   object-fit: cover;
@@ -766,22 +780,41 @@
   display: block;
 }
 
-.onboarding-tour svg {
+.tour-card-teaser svg {
   color: var(--accent);
 }
 
-.onboarding-tour-video {
+.tour-card-copy {
+  display: block;
+}
+
+.tour-card-copy strong {
+  display: block;
+  font-size: 0.95rem;
+}
+
+.tour-card-copy span {
+  display: block;
+  margin-top: 2px;
+  color: var(--ink-muted);
+  line-height: 1.35;
+  font-size: 0.85rem;
+}
+
+.tour-card-video {
   display: block;
   width: min(100%, 236px);
   aspect-ratio: 9 / 16;
-  margin: 0 auto 16px;
-  border-radius: 16px;
+  margin: 0 auto;
+  border-radius: 12px;
   background: var(--stage-bg);
   object-fit: contain;
 }
 
-.onboarding-card .btn {
-  width: 100%;
+.tour-card-dismiss {
+  position: absolute;
+  top: 8px;
+  right: 8px;
 }
 
 @media (max-height: 720px) {
