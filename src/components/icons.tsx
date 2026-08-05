@@ -32,10 +32,10 @@ export function IconBack(handle: Handle<IconProps>) {
 export function IconFlip(handle: Handle<IconProps>) {
   return () => (
     <svg {...baseProps(handle.props.size ?? 22)}>
-      <path d="M16 4l3 3-3 3" />
-      <path d="M4 11V9a4 4 0 014-4h11" />
-      <path d="M8 20l-3-3 3-3" />
-      <path d="M20 13v2a4 4 0 01-4 4H5" />
+      <path d="M16.5 3L19 5.5 16.5 8" />
+      <path d="M4.5 11V9a3.5 3.5 0 013.5-3.5H19" />
+      <path d="M7.5 21L5 18.5 7.5 16" />
+      <path d="M19.5 13v2a3.5 3.5 0 01-3.5 3.5H5" />
     </svg>
   )
 }
