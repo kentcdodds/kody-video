@@ -66,6 +66,7 @@ export function OnboardingOverlay(handle: Handle<OnboardingOverlayProps>) {
           src={TOUR_VIDEO_URL}
           poster={TOUR_POSTER_URL}
           controls
+          tabIndex={0}
           playsInline
           preload="none"
           mix={ref((node, signal) => {
@@ -85,6 +86,11 @@ export function OnboardingOverlay(handle: Handle<OnboardingOverlayProps>) {
               // for sound. If it still rejects, the controls are visible.
               void tourVideo?.play().catch(() => {})
               void handle.update()
+              // The activated teaser button is about to disappear — hand
+              // keyboard focus to the player so its controls stay reachable.
+              requestAnimationFrame(() => {
+                tourVideo?.focus()
+              })
             })}
           >
             <img src={TOUR_POSTER_URL} alt="" width={44} height={78} />
