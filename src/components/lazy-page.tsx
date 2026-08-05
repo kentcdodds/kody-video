@@ -48,7 +48,19 @@ export function lazyPage(
     } catch {
       return false
     }
-    location.reload()
+    // A failed chunk URL can be HTTP-cache poisoning (an SPA-fallback HTML
+    // body cached under the .js URL during a deploy window), which a plain
+    // reload re-reads from cache. cache:'reload' replaces the poisoned
+    // entries before reloading; best-effort with a short deadline so the
+    // reload is never held hostage by a slow network.
+    const message = err instanceof Error ? err.message : String(err)
+    const chunkUrl = message.match(/https?:\/\/\S+\/assets\/\S+?\.js/)?.[0]
+    const reprime = Promise.allSettled(
+      ['/', ...(chunkUrl ? [chunkUrl] : [])].map((url) => fetch(url, { cache: 'reload' })),
+    )
+    void Promise.race([reprime, new Promise((resolve) => setTimeout(resolve, 3000))]).then(() => {
+      location.reload()
+    })
     return true
   }
 

@@ -49,30 +49,60 @@ export default defineConfig({
           .replace(/<noscript><link rel="stylesheet"[^>]*><\/noscript>/g, '')
         return withoutCssLinks.replace(
           /<script type="module" crossorigin src="([^"]+)"><\/script>/,
-          // The entry import must self-heal: a client that kept the previous
-          // shell (installed PWA resuming across a deploy) boots a retired
-          // hashed entry URL, and the SPA fallback answers it with HTML —
-          // import() then fails and the app never mounts (home shows the
-          // static hero and no projects). One guarded recovery drops the
-          // stale service worker + caches and reloads for the fresh shell;
-          // lazy-page.tsx already does this for route chunks (#110), the
-          // eager boot import was the remaining hole.
+          // The entry import must self-heal. Two failure classes, both seen
+          // in production on 2026-08-05:
+          //  1. A client kept the previous shell (installed PWA resuming
+          //     across a deploy) and boots a retired hashed entry URL; the
+          //     SPA fallback answers it with HTML, so import() dies on the
+          //     MIME type and the app never mounts.
+          //  2. HTTP-cache poisoning: during a deploy's edge-propagation
+          //     window a hashed sub-chunk URL can answer with the SPA
+          //     fallback HTML; the browser caches that body under the .js
+          //     URL and 304 revalidation re-blesses it forever, so every
+          //     boot fails on the same poisoned import.
+          // Recovery: drop service workers + Cache Storage, then re-fetch
+          // the shell and its whole asset graph with cache:"reload" (which
+          // replaces poisoned HTTP-cache entries), and reload the page. A
+          // timestamp cooldown (not a one-shot flag) keeps deploy-window
+          // failures from hot-looping while still retrying a bit later.
+          // lazy-page.tsx applies the same idea to route chunks.
           `<script type="module">
             const src = "$1";
-            const KEY = "kody:boot-entry-reload";
+            const AT_KEY = "kody:boot-recover-at";
+            const COOLDOWN_MS = 45000;
             const boot = () => {
               import(src).then(() => {
-                try { sessionStorage.removeItem(KEY); } catch {}
+                try { sessionStorage.removeItem(AT_KEY); } catch {}
               }).catch(async () => {
                 try {
-                  if (sessionStorage.getItem(KEY)) return;
-                  sessionStorage.setItem(KEY, "1");
+                  const last = Number(sessionStorage.getItem(AT_KEY) ?? "0");
+                  if (Date.now() - last < COOLDOWN_MS) return;
+                  sessionStorage.setItem(AT_KEY, String(Date.now()));
                 } catch { return; }
                 try {
                   const regs = await (navigator.serviceWorker?.getRegistrations?.() ?? []);
                   await Promise.all(regs.map((reg) => reg.unregister()));
                   const keys = await (self.caches?.keys?.() ?? []);
                   await Promise.all(keys.map((key) => caches.delete(key)));
+                } catch {}
+                try {
+                  const seen = new Set();
+                  const queue = ["/", src];
+                  while (queue.length && seen.size < 40) {
+                    const url = queue.shift();
+                    if (seen.has(url)) continue;
+                    seen.add(url);
+                    try {
+                      const res = await fetch(url, { cache: "reload" });
+                      const type = res.headers.get("content-type") ?? "";
+                      if (/javascript|html/.test(type)) {
+                        const text = await res.text();
+                        for (const match of text.matchAll(/assets\\/[A-Za-z0-9_.-]+\\.(?:js|css|woff2)/g)) {
+                          queue.push("/" + match[0]);
+                        }
+                      }
+                    } catch {}
+                  }
                 } catch {}
                 location.reload();
               });

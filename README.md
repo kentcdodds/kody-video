@@ -239,6 +239,17 @@ backup/import to move them to [kody.video](https://kody.video).
 Email [team@kody.video](mailto:team@kody.video) or open a GitHub issue (the
 in-app About page has a link that pre-fills device details).
 
+If the app opens to just the Kody hero with no project slots (a stale or
+poisoned cached shell), two always-fresh pages ship with the app — served
+under `/api/` so no service worker or cached shell can interfere:
+
+- [kody.video/api/diag](https://kody.video/api/diag) — on-device, read-only
+  diagnostics: confirms your projects/clips are present in IndexedDB, checks
+  the cached vs network shell, and probes whether the app can mount.
+- [kody.video/api/recover](https://kody.video/api/recover) — one-tap repair:
+  drops the service worker and cached app files and re-primes them fresh.
+  Never touches IndexedDB, so projects and clips are safe.
+
 ## Privacy
 
 - No accounts, no cookies, no cross-site tracking.

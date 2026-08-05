@@ -40,9 +40,30 @@ const PAGE = `<!doctype html>
         const keys = await (self.caches?.keys?.() ?? [])
         await Promise.all(keys.map((key) => caches.delete(key)))
         try {
-          sessionStorage.removeItem('kody:boot-entry-reload')
+          sessionStorage.removeItem('kody:boot-recover-at')
           sessionStorage.removeItem('kody:lazy-chunk-reload')
         } catch {}
+        // Re-prime the HTTP cache across the app's whole asset graph:
+        // cache:'reload' replaces any poisoned entries (SPA-fallback HTML
+        // cached under hashed .js/.css URLs during a deploy window).
+        status.textContent = 'Refreshing the app files…'
+        const seen = new Set()
+        const queue = ['/']
+        while (queue.length && seen.size < 40) {
+          const url = queue.shift()
+          if (seen.has(url)) continue
+          seen.add(url)
+          try {
+            const res = await fetch(url, { cache: 'reload' })
+            const type = res.headers.get('content-type') ?? ''
+            if (/javascript|html/.test(type)) {
+              const text = await res.text()
+              for (const match of text.matchAll(/assets\\/[A-Za-z0-9_.-]+\\.(?:js|css|woff2)/g)) {
+                queue.push('/' + match[0])
+              }
+            }
+          } catch {}
+        }
         status.textContent = 'Done - taking you back to the app...'
         setTimeout(() => location.replace('/'), 900)
       } catch (err) {
