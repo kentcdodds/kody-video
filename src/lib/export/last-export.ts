@@ -30,7 +30,17 @@ export function exportSignature(
     ]),
     audio: audio
       ? {
-          tracks: audio.tracks.map((track) => [track.id, track.durationMs]),
+          tracks: audio.tracks.map((track) => [
+            track.id,
+            track.durationMs,
+            // Per-track playback settings, resolved so an explicit value
+            // equal to the default signs identically to no value.
+            track.trimStartMs ?? 0,
+            track.trimEndMs ?? track.durationMs,
+            track.volume ?? 1,
+            track.fadeIn ?? audio.fadeIn,
+            track.fadeOut ?? audio.fadeOut,
+          ]),
           defaultVolume: audio.defaultVolume,
           fadeIn: audio.fadeIn,
           fadeOut: audio.fadeOut,

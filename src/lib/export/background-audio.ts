@@ -1,4 +1,8 @@
-import { clipAudioVolume } from '../types'
+import {
+  clipAudioVolume,
+  resolveAudioTrackPlayback,
+  type AudioTrackPlaybackFields,
+} from '../types'
 import type { PlannedSegment } from './plan'
 
 /**
@@ -52,11 +56,43 @@ export function normalizationScale(peak: number): number {
   return Math.min(MAX_NORMALIZATION_BOOST, NORMALIZED_PEAK / peak)
 }
 
+export interface BackgroundAudioTrack extends AudioTrackPlaybackFields {
+  blob: Blob
+}
+
 export interface BackgroundAudio {
-  tracks: Array<{ blob: Blob }>
+  tracks: BackgroundAudioTrack[]
   defaultVolume: number
+  /** Playlist-level fade defaults for tracks without their own flags. */
   fadeIn: boolean
   fadeOut: boolean
+}
+
+/**
+ * Film-edge fades for the share envelope, read from the tracks that
+ * actually play at the film's edges: the first track's fade-in opens the
+ * film, and the fade-out belongs to whichever track the film's end cuts
+ * off. When the playlist runs out before the film ends there is no music
+ * at the film's end to fade (the playlist-end ramp already eased the clip
+ * sound back), so fadeOut is false.
+ */
+export function filmEdgeFades(
+  background: BackgroundAudio,
+  filmDurationMs: number,
+): BackgroundFades {
+  const first = background.tracks[0]
+  const fadeIn = first ? resolveAudioTrackPlayback(first, background).fadeIn : false
+  let cursor = 0
+  let fadeOut = false
+  for (const track of background.tracks) {
+    const playback = resolveAudioTrackPlayback(track, background)
+    if (filmDurationMs <= cursor + playback.keptMs) {
+      fadeOut = playback.fadeOut
+      break
+    }
+    cursor += playback.keptMs
+  }
+  return { fadeIn, fadeOut }
 }
 
 export interface GainPoint {
@@ -153,11 +189,31 @@ export function gainAtMs(points: GainPoint[], tMs: number): number {
   return points[points.length - 1].volume
 }
 
+/** How one playlist track sits in the music side of the mix. */
+export interface TrackMixPlayback {
+  /** Track level (0–1) — scales the music's contribution only; the clip
+   * side keeps its complement of the share. */
+  volume: number
+  /** Ease this track in where it starts mid-film (the film-start fade
+   * lives in the share envelope instead). */
+  fadeIn: boolean
+  /** Ease this track out where it ends before the film does (a film-end
+   * cut fades via the share envelope instead). */
+  fadeOut: boolean
+}
+
 export interface SequentialBackgroundSource {
   trackCount: number
-  /** Decode track `index` into per-channel data; null = undecodable (the
-   * track is skipped and the next one starts in its place). */
+  /** Decode track `index` into per-channel data (already trimmed to its
+   * kept window); null = undecodable (the track is skipped and the next
+   * one starts in its place). */
   getTrack: (index: number) => Promise<Float32Array[] | null>
+  /** Per-track level + interior fades; absent = unity, no fades. */
+  getTrackPlayback?: (index: number) => TrackMixPlayback
+  /** Film length in output frames — a track whose end lands at or past it
+   * is cut by the film (its own fade-out is skipped; the share envelope's
+   * film-edge fade covers that cut). */
+  totalFrames?: number
 }
 
 export interface BackgroundMixer {
@@ -196,6 +252,32 @@ export function createBackgroundMixer(
    * the foreground ramps from (1 − that share) back to full from here. */
   let exhaustedAtFrame: number | null = null
   let shareAtExhaustion = 0
+  /** The current track's level and precomputed fade windows (in frames of
+   * the track's own timeline; 0 = that fade is off). */
+  let trackVolume = 1
+  let fadeInFrames = 0
+  let fadeOutFrames = 0
+
+  const framesOf = (ms: number) => Math.max(1, Math.round((ms / 1000) * sampleRate))
+
+  const applyTrackPlayback = () => {
+    const playback = source.getTrackPlayback?.(trackIndex)
+    const trackFrames = current![0].length
+    trackVolume = playback?.volume ?? 1
+    // The film-start fade lives in the share envelope — a track fade-in on
+    // top of it would fade twice — so it only applies to tracks that start
+    // mid-film. Same for a film-end cut and the track fade-out.
+    const endsBeforeFilm =
+      source.totalFrames === undefined || trackStartFrame + trackFrames < source.totalFrames
+    fadeInFrames =
+      playback?.fadeIn && trackStartFrame > 0
+        ? Math.min(framesOf(FADE_IN_MS), Math.floor(trackFrames / 2))
+        : 0
+    fadeOutFrames =
+      playback?.fadeOut && endsBeforeFilm
+        ? Math.min(framesOf(FADE_OUT_MS), Math.floor(trackFrames / 2))
+        : 0
+  }
 
   /** Advance until the current track covers `frame` (false = playlist over). */
   const ensureTrackFor = async (frame: number): Promise<boolean> => {
@@ -214,6 +296,7 @@ export function createBackgroundMixer(
       const next = await source.getTrack(trackIndex)
       if (next && next.length > 0 && next[0].length > 0) {
         current = next
+        applyTrackPlayback()
       }
     }
   }
@@ -273,9 +356,21 @@ export function createBackgroundMixer(
         }
         shareAtExhaustion = share
         const sourceIndex = outFrame - trackStartFrame
+        // The music side alone carries the track's level and fades — the
+        // clip keeps the complement of the SHARE, so a quiet track never
+        // makes the clip louder or softer.
+        let musicGain = trackVolume
+        if (fadeInFrames > 0 && sourceIndex < fadeInFrames) {
+          musicGain *= sourceIndex / fadeInFrames
+        }
+        const tailFrames = track[0].length - sourceIndex
+        if (fadeOutFrames > 0 && tailFrames < fadeOutFrames) {
+          musicGain *= tailFrames / fadeOutFrames
+        }
         for (let ch = 0; ch < channels.length; ch += 1) {
           channels[ch][i] = clamp(
-            channels[ch][i] * foregroundScale * (1 - share) + sources[ch][sourceIndex] * share,
+            channels[ch][i] * foregroundScale * (1 - share) +
+              sources[ch][sourceIndex] * share * musicGain,
           )
         }
       }
