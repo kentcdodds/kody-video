@@ -49,9 +49,34 @@ export default defineConfig({
           .replace(/<noscript><link rel="stylesheet"[^>]*><\/noscript>/g, '')
         return withoutCssLinks.replace(
           /<script type="module" crossorigin src="([^"]+)"><\/script>/,
+          // The entry import must self-heal: a client that kept the previous
+          // shell (installed PWA resuming across a deploy) boots a retired
+          // hashed entry URL, and the SPA fallback answers it with HTML —
+          // import() then fails and the app never mounts (home shows the
+          // static hero and no projects). One guarded recovery drops the
+          // stale service worker + caches and reloads for the fresh shell;
+          // lazy-page.tsx already does this for route chunks (#110), the
+          // eager boot import was the remaining hole.
           `<script type="module">
             const src = "$1";
-            const boot = () => { import(src); };
+            const KEY = "kody:boot-entry-reload";
+            const boot = () => {
+              import(src).then(() => {
+                try { sessionStorage.removeItem(KEY); } catch {}
+              }).catch(async () => {
+                try {
+                  if (sessionStorage.getItem(KEY)) return;
+                  sessionStorage.setItem(KEY, "1");
+                } catch { return; }
+                try {
+                  const regs = await (navigator.serviceWorker?.getRegistrations?.() ?? []);
+                  await Promise.all(regs.map((reg) => reg.unregister()));
+                  const keys = await (self.caches?.keys?.() ?? []);
+                  await Promise.all(keys.map((key) => caches.delete(key)));
+                } catch {}
+                location.reload();
+              });
+            };
             requestAnimationFrame(() => requestAnimationFrame(boot));
           </script>`,
         )
