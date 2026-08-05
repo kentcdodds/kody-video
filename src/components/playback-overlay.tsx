@@ -153,8 +153,19 @@ export function PlaybackOverlay(handle: Handle<PlaybackOverlayProps>) {
         audio.currentTime = target.offsetMs / 1000
         playlistDone = false
       }
-    } else if (Math.abs(audio.currentTime - target.offsetMs / 1000) > 0.35) {
-      audio.currentTime = target.offsetMs / 1000
+      return true
+    }
+    const expectedSec = target.offsetMs / 1000
+    // Positions inside a finished track's metadata overshoot have no
+    // decoded audio behind them — playing there would RESTART the ended
+    // element (play() on an ended media element seeks back to 0).
+    const decodedEndSec = Number.isFinite(audio.duration) ? audio.duration : Infinity
+    if (playlistDone && expectedSec >= decodedEndSec - 0.05) {
+      return false
+    }
+    if (Math.abs(audio.currentTime - expectedSec) > 0.35) {
+      audio.currentTime = expectedSec
+      // A genuine seek into real decoded audio — music is live again.
       playlistDone = false
     }
     return true
