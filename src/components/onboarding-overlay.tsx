@@ -17,7 +17,7 @@ const steps = [
   },
   {
     title: 'Fix mistakes fast',
-    body: 'Backspace deletes the last clip (with Undo). Scissors opens the editor to trim or reorder.',
+    body: 'Backspace deletes the last clip (with Undo). Timeline opens the editor to trim or reorder.',
   },
   {
     title: 'Tap Go',

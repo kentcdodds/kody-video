@@ -1,6 +1,13 @@
 import { pickRecorderMimeType } from '../media'
-import { clipAudioVolume } from '../types'
-import { channelPeak, normalizationScale, type BackgroundAudio } from './background-audio'
+import { clipAudioVolume, resolveAudioTrackPlayback } from '../types'
+import {
+  FADE_IN_MS,
+  FADE_OUT_MS,
+  channelPeak,
+  filmEdgeFades,
+  normalizationScale,
+  type BackgroundAudio,
+} from './background-audio'
 import { clampSegmentToMedia, type ExportPlan } from './plan'
 import {
   PREVIEW_EVERY_N_FRAMES,
@@ -113,6 +120,10 @@ export async function exportRealtime(
   let startBackground: (() => void) | null = null
   let stopBackground: (() => void) | null = null
   const backgroundTracks = options.background?.tracks ?? []
+  /** Film-edge fades come from the tracks at the film's edges. */
+  const backgroundEdgeFades = options.background
+    ? filmEdgeFades(options.background, plan.totalMs)
+    : null
   if (backgroundTracks.length > 0 && audioContext && dest) {
     try {
       const gain = audioContext.createGain()
@@ -122,6 +133,10 @@ export async function exportRealtime(
       clipGain.gain.value = 1
       clipGain.connect(dest)
       let stopped = false
+      /** Output position where the next track starts (the kept windows
+       * played so far) — the realtime mirror of the mixer's
+       * trackStartFrame, used to gate interior fades the same way. */
+      let playlistPositionMs = 0
       let activeSource: AudioBufferSourceNode | null = null
       const playFrom = async (index: number): Promise<void> => {
         if (stopped || !audioContext) return
@@ -136,22 +151,48 @@ export async function exportRealtime(
         const buffer = await decodeBackgroundAudio(backgroundTracks[index].blob)
         if (stopped) return
         if (!buffer) return playFrom(index + 1)
+        // Only the kept (trimmed) window plays, at the track's own level.
+        const playback = resolveAudioTrackPlayback(backgroundTracks[index], options.background!)
+        const trimStartSec = Math.min(playback.trimStartMs / 1000, buffer.duration)
+        const trimEndSec = Math.min(playback.trimEndMs / 1000, buffer.duration)
+        const keptSec = Math.max(0, trimEndSec - trimStartSec)
+        if (keptSec < 0.05) return playFrom(index + 1)
         const source = audioContext.createBufferSource()
         source.buffer = buffer
         // Peak-normalize the track so the mix shares mean the same thing
-        // regardless of how hot the file is mastered.
+        // regardless of how hot the file is mastered (whole-file peak, so
+        // loudness doesn't change with where the track is trimmed), then
+        // apply the track's level on top.
         const channels = Array.from({ length: buffer.numberOfChannels }, (_, ch) =>
           buffer.getChannelData(ch),
         )
+        const trackGain = normalizationScale(channelPeak(channels)) * playback.volume
         const normalize = audioContext.createGain()
-        normalize.gain.value = normalizationScale(channelPeak(channels))
+        normalize.gain.value = trackGain
+        const now = audioContext.currentTime
+        const trackStartMs = playlistPositionMs
+        playlistPositionMs += keptSec * 1000
+        // Interior fades only, matching the WebCodecs mixer: the
+        // film-start fade rides the master gain glide below, so a track
+        // fade-in applies only mid-film — and a track the film cuts off
+        // fades via the scheduled film-end fade instead of its own.
+        if (playback.fadeIn && trackStartMs > 0) {
+          const fadeSec = Math.min(FADE_IN_MS / 1000, keptSec / 2)
+          normalize.gain.setValueAtTime(0, now)
+          normalize.gain.linearRampToValueAtTime(trackGain, now + fadeSec)
+        }
+        if (playback.fadeOut && playlistPositionMs < plan.totalMs) {
+          const fadeSec = Math.min(FADE_OUT_MS / 1000, keptSec / 2)
+          normalize.gain.setValueAtTime(trackGain, now + keptSec - fadeSec)
+          normalize.gain.linearRampToValueAtTime(0, now + keptSec)
+        }
         source.connect(normalize)
         normalize.connect(gain)
         source.onended = () => {
           void playFrom(index + 1)
         }
         activeSource = source
-        source.start()
+        source.start(now, trimStartSec, keptSec)
       }
       // Deferred to the first painted segment: starting here would let the
       // music advance through clip preload before any frame is recorded.
@@ -231,7 +272,7 @@ export async function exportRealtime(
             ? 0
             : clipAudioVolume(segment.clip, options.background.defaultVolume)
           const now = audioContext.currentTime
-          if (segmentIndex === 0 && !options.background.fadeIn) {
+          if (segmentIndex === 0 && !backgroundEdgeFades?.fadeIn) {
             // No fade-in: the mix opens at the clip's shares directly.
             backgroundGain.gain.setValueAtTime(share, now)
             clipMixGain.gain.setValueAtTime(1 - share, now)
@@ -246,7 +287,7 @@ export async function exportRealtime(
           // envelope) instead of dropping it.
           const isLast = segmentIndex === plan.segments.length - 1
           const segmentSec = (clamped.endMs - clamped.startMs) / 1000
-          if (isLast && options.background.fadeOut) {
+          if (isLast && backgroundEdgeFades?.fadeOut) {
             const fadeSec = Math.min(1.2, segmentSec / 2)
             if (fadeSec > 0.05) {
               backgroundGain.gain.setTargetAtTime(0, now + segmentSec - fadeSec, fadeSec / 3)
@@ -292,7 +333,7 @@ export async function exportRealtime(
     // as a fade (mirrors the WebCodecs edge ramp). The clip side rises to
     // full in mirror, like the WebCodecs envelope's complement.
     if (backgroundGain && audioContext) {
-      const tau = options.background?.fadeOut ? 0.06 : 0.008
+      const tau = backgroundEdgeFades?.fadeOut ? 0.06 : 0.008
       backgroundGain.gain.setTargetAtTime(0, audioContext.currentTime, tau)
       clipMixGain?.gain.setTargetAtTime(1, audioContext.currentTime, tau)
     }

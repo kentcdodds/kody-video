@@ -1,5 +1,6 @@
 import type { Handle } from 'remix/ui'
 import { on } from 'remix/ui'
+import * as popover from 'remix/ui/popover'
 import { BlobImage } from '../components/blob-image'
 import { BrandMark } from '../components/brand-mark'
 import { ConfirmSheet } from '../components/confirm-sheet'
@@ -16,27 +17,17 @@ import {
 import { UpsellSheet } from '../components/upsell-sheet'
 import { RestoreSheet } from '../components/restore-sheet'
 import { RenameSheet } from '../components/rename-sheet'
+import { StorageMeter } from '../components/storage-meter'
 import { downloadBlob, shareOrDownload } from '../lib/media'
 import { loadHomePage, type HomeLoaderData, type ProjectSummary } from '../lib/project-actions'
-import {
-  BackupFormatError,
-  importProjectBackup,
-  parseProjectBackup,
-  projectBackupFilename,
-  serializeProject,
-} from '../lib/project-transfer'
+import { projectBackupFilename, serializeProject } from '../lib/project-transfer'
 import { deleteProject, getClipsForProject, getProjectAudio, renameProject } from '../lib/storage'
 import { clearExportCache } from '../lib/export/export-cache'
 import { reportError } from '../lib/error-reporting'
 import { canPromptInstall, promptInstall, subscribeInstallPrompt } from '../lib/install-prompt'
 import { dismissIosInstallHint, shouldShowIosInstallHint } from '../lib/install-hint'
 import { navigate } from '../router'
-import {
-  formatBytes,
-  formatStoragePercent,
-  requestPersistentStorage,
-  storageSeverity,
-} from '../lib/storage-space'
+import { formatBytes, formatStoragePercent, storageSeverity } from '../lib/storage-space'
 import {
   FREE_PROJECTS,
   MAX_PROJECTS,
@@ -69,10 +60,10 @@ export function HomePage(handle: Handle) {
   let deleting: ProjectSummary | null = null
   let busy = false
   let notice: string | null = null
-  let importProgress: string | null = null
   let showInstallHint = shouldShowIosInstallHint()
   let upselling = false
   let restoring = false
+  let installPopoverOpen = false
   // Prefetched when the options sheet opens so the Save-backup tap keeps its
   // user activation (Web Share needs it; an IndexedDB read can outlive it).
   let prefetchedClips: {
@@ -159,45 +150,16 @@ export function HomePage(handle: Handle) {
           await downloadBlob(backup, filename)
           notice =
             `Backup (${sizeLabel}) saved to your downloads — too large for the share sheet. ` +
-            'Open kody.video and tap Import to restore it.'
+            'Open kody.video → About → Import a backup to restore it.'
         } else {
           const outcome = await shareOrDownload(backup, filename)
           if (outcome !== 'cancelled') {
-            notice = `Backup (${sizeLabel}) saved. Open kody.video (or any Kody Video) and tap Import to restore it.`
+            notice = `Backup (${sizeLabel}) saved. Open kody.video (or any Kody Video) → About → Import a backup to restore it.`
           }
         }
       } catch (err) {
         error = err instanceof Error ? err.message : 'Could not create the backup'
       } finally {
-        busy = false
-        void handle.update()
-      }
-    })()
-  }
-
-  const importBackup = (file: File) => {
-    void (async () => {
-      busy = true
-      error = null
-      notice = null
-      importProgress = 'Reading backup…'
-      void handle.update()
-      try {
-        const parsed = await parseProjectBackup(file)
-        const project = await importProjectBackup(parsed, (done, total) => {
-          importProgress = `Importing clip ${Math.min(done + 1, total)} of ${total}…`
-          void handle.update()
-        })
-        requestPersistentStorage()
-        // Land directly in the imported project — unambiguous success, and
-        // no dependence on the list revalidating behind the scenes.
-        navigate(`/project/${project.id}`)
-      } catch (err) {
-        // Wrong/damaged file picked = expected user input, not a crash.
-        if (!(err instanceof BackupFormatError)) reportError(err, 'import')
-        error = err instanceof Error ? err.message : 'Could not import that file'
-      } finally {
-        importProgress = null
         busy = false
         void handle.update()
       }
@@ -218,7 +180,6 @@ export function HomePage(handle: Handle) {
 
     const slots = Array.from({ length: MAX_PROJECTS }, (_, index) => projects[index] ?? null)
     const projectLimit = plus ? MAX_PROJECTS : FREE_PROJECTS
-    const atCap = projects.length >= projectLimit
     const severity = storage ? storageSeverity(storage.ratio) : 'ok'
     const oldestProject = projects[0] ?? null
 
@@ -227,16 +188,70 @@ export function HomePage(handle: Handle) {
         {/* Corner buttons: 44px tap targets clear of other controls — the
             old footer text links were too small and crowded for thumbs. */}
         {installable ? (
-          <button
-            type="button"
-            className="btn-icon home-corner home-corner-left"
-            aria-label="Install app"
-            mix={on('click', () => {
-              void promptInstall()
-            })}
-          >
-            <IconDownload />
-          </button>
+          // A bare download glyph is ambiguous — tapping it opens a small
+          // anchored popover that says what installing gets you, with the
+          // actual Install action behind a clearly labeled button.
+          <popover.Context>
+            <button
+              type="button"
+              className="btn-icon home-corner home-corner-left"
+              aria-label="Install app"
+              mix={[
+                popover.anchor({ placement: 'bottom-start', offsetY: 8 }),
+                popover.focusOnHide(),
+                on('click', () => {
+                  // Explicit toggle (with closeOnAnchorClick: false below):
+                  // a second tap on the corner button dismisses the popover.
+                  installPopoverOpen = !installPopoverOpen
+                  void handle.update()
+                }),
+              ]}
+            >
+              <IconDownload />
+            </button>
+            <div
+              className="install-popover"
+              role="dialog"
+              aria-label="Install Kody Video"
+              mix={popover.surface({
+                open: installPopoverOpen,
+                // The anchor's own click handler owns toggling; letting the
+                // surface also request close on anchor taps double-handles
+                // the same click.
+                closeOnAnchorClick: false,
+                onHide: () => {
+                  installPopoverOpen = false
+                  void handle.update()
+                },
+              })}
+            >
+              <strong>Install Kody Video</strong>
+              <p>
+                Full screen, works offline, and your clips are safer from browser storage cleanup.
+              </p>
+              <button
+                type="button"
+                className="btn btn-primary install-popover-action"
+                mix={[
+                  popover.focusOnShow(),
+                  on('click', (event) => {
+                    // Hide the native popover synchronously — its toggle
+                    // events release the scroll lock and restore focus —
+                    // because consuming the one-shot install event unmounts
+                    // this subtree without ever firing those events. Then
+                    // prompt in the same tick: Chromium wants prompt()
+                    // during the tap's transient user activation.
+                    ;(event.currentTarget as HTMLElement).closest<HTMLElement>('[popover]')?.hidePopover()
+                    installPopoverOpen = false
+                    void promptInstall()
+                    void handle.update()
+                  }),
+                ]}
+              >
+                Install
+              </button>
+            </div>
+          </popover.Context>
         ) : null}
         <a
           className="btn-icon home-corner home-corner-right"
@@ -270,18 +285,14 @@ export function HomePage(handle: Handle) {
         {isLegacyOrigin() ? (
           <div className="home-migrate">
             <strong>Kody Video has moved to <a href="https://kody.video">kody.video</a>.</strong>{' '}
-            Projects live in this browser per-site, so use ⋯ → Save backup here, then Import them
-            over there. This address keeps working but won&rsquo;t get updates.
+            Projects live in this browser per-site, so use ⋯ → Save backup here, then import them
+            over there (About → Import a backup). This address keeps working but won&rsquo;t get
+            updates.
           </div>
         ) : null}
 
         {error ? <div className="error-banner">{error}</div> : null}
         {notice ? <p className="home-notice">{notice}</p> : null}
-        {importProgress ? (
-          <p className="home-notice" role="status" aria-live="polite">
-            {importProgress} Keep this tab open.
-          </p>
-        ) : null}
 
         {storage && severity !== 'ok' ? (
           <div
@@ -415,63 +426,9 @@ export function HomePage(handle: Handle) {
         </section>
 
         <p className="home-privacy">
-          Clips stay on this phone until you share.
-          {storage
-            ? ` ${formatBytes(storage.usedBytes)} of ${formatBytes(storage.quotaBytes)} used.`
-            : ''}
+          <span>Clips stay on this phone until you share.</span>
+          {storage ? <StorageMeter storage={storage} /> : null}
         </p>
-
-        <div className="home-footer">
-          {atCap && !plus ? (
-            <button
-              type="button"
-              className="btn btn-primary"
-              mix={on('click', () => {
-                upselling = true
-                void handle.update()
-              })}
-            >
-              Get more projects
-            </button>
-          ) : (
-            <button
-              type="button"
-              className="btn btn-primary"
-              disabled={busy || atCap}
-              mix={on('click', openNewProject)}
-            >
-              {atCap ? `Limit ${MAX_PROJECTS}` : 'New project'}
-            </button>
-          )}
-          <label
-            className={`btn btn-ghost home-import${busy ? ' is-disabled' : ''}`}
-            mix={on('click', (event) => {
-              if (!atCap) return
-              event.preventDefault()
-              if (!plus) {
-                upselling = true
-                void handle.update()
-                return
-              }
-              error = `Project limit reached (${MAX_PROJECTS}). Delete a project before importing.`
-              void handle.update()
-            })}
-          >
-            Import
-            <input
-              type="file"
-              accept=".kodyvideo,application/octet-stream"
-              className="visually-hidden"
-              disabled={busy}
-              mix={on('change', (event) => {
-                const input = event.currentTarget as HTMLInputElement
-                const file = input.files?.[0]
-                input.value = ''
-                if (file) importBackup(file)
-              })}
-            />
-          </label>
-        </div>
 
         {menuProject ? (
           <HomeOptionsSheet

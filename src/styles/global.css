@@ -94,6 +94,16 @@ body,
   height: 100%;
 }
 
+/* Keep the frame centered: must mirror the index.html critical CSS — this
+   stylesheet loads after it, and the margin: 0 reset above would otherwise
+   win over the critical margin auto and pin the app to the left. */
+#root {
+  width: min(480px, 100%);
+  max-width: 480px;
+  margin-left: auto;
+  margin-right: auto;
+}
+
 body {
   font-family: var(--font-body);
   color: var(--ink);
@@ -400,6 +410,36 @@ a {
   font-size: 0.85rem;
   color: var(--ink-muted);
   line-height: 1.5;
+}
+
+.watermark-prefs {
+  margin-top: 14px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+}
+
+.watermark-keep-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: var(--ink-muted);
+  cursor: pointer;
+}
+
+.watermark-keep-toggle input[type='checkbox'] {
+  width: 16px;
+  height: 16px;
+  accent-color: var(--accent);
+  margin: 0;
+}
+
+.watermark-prefs .watermark-note {
+  margin: 0;
+  text-align: center;
 }
 
 .link-button {
@@ -755,6 +795,9 @@ a {
 @media (min-width: 720px) {
   body {
     overflow: auto;
+    /* BFC so #root's 24px margins can't collapse through the 100%-tall body
+       and add phantom scrollable space below the fold. */
+    display: flow-root;
   }
 
   /* Chrome lives on #root (also reserved in index.html critical CSS) so the
@@ -763,6 +806,9 @@ a {
     margin-top: 24px;
     margin-bottom: 24px;
     height: min(920px, calc(100dvh - 48px));
+    /* The base min-height: 100% would beat the height above and push the
+       frame's bottom edge below the fold. */
+    min-height: 0;
     border-radius: 28px;
     border: 1px solid var(--line);
     box-shadow: var(--shadow);

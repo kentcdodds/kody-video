@@ -8,6 +8,7 @@ import {
   ProjectLimitError,
   deleteClip,
   deleteProject,
+  deleteProjectIfPristine,
   duplicateClip,
   getClip,
   getClipsForProject,
@@ -19,9 +20,11 @@ import {
   removeProjectAudioTrack,
   renameProject,
   setOnboardingDismissed,
+  setKeepWatermark,
   toStoredBlob,
   undoDeleteLastClip,
   updateClipAudioVolume,
+  updateProjectAudioTrack,
   updateClipTrim,
   updateProjectAudioSettings,
 } from './storage'
@@ -44,6 +47,14 @@ describe('storage layer', () => {
     await setOnboardingDismissed(true)
 
     expect((await getSettings()).onboardingDismissed).toBe(true)
+  })
+
+  it('defaults keepWatermark off and persists the Plus opt-in', async () => {
+    expect((await getSettings()).keepWatermark).toBeUndefined()
+    await setKeepWatermark(true)
+    expect((await getSettings()).keepWatermark).toBe(true)
+    await setKeepWatermark(false)
+    expect((await getSettings()).keepWatermark).toBe(false)
   })
 
   it('gates the second project behind the Plus purchase', async () => {
@@ -88,6 +99,108 @@ describe('storage layer', () => {
     await deleteProject(project.id)
     expect(await listProjects()).toHaveLength(0)
     expect(await getClip(clip.id)).toBeUndefined()
+  })
+
+  it('deleteProjectIfPristine removes an untouched default-state project', async () => {
+    const project = await createProject()
+    expect(project.name).toBe('Project 1')
+
+    expect(await deleteProjectIfPristine(project.id)).toBe(true)
+    expect(await listProjects()).toHaveLength(0)
+    expect((await getSettings()).lastOpenedProjectId).toBeNull()
+    // Already gone — a second attempt is a no-op.
+    expect(await deleteProjectIfPristine(project.id)).toBe(false)
+  })
+
+  it('deleteProjectIfPristine drops an emptied project with its undo snapshot', async () => {
+    const project = await createProject()
+    const clip = await addClip({
+      projectId: project.id,
+      blob: fakeBlob('only-take'),
+      mimeType: 'video/webm',
+      durationMs: 800,
+    })
+    await deleteClip(clip.id)
+    expect(await getUndoSnapshot(project.id)).toBeTruthy()
+
+    expect(await deleteProjectIfPristine(project.id)).toBe(true)
+    expect(await listProjects()).toHaveLength(0)
+    expect(await getUndoSnapshot(project.id)).toBeUndefined()
+  })
+
+  it('deleteProjectIfPristine keeps projects with clips', async () => {
+    const project = await createProject()
+    await addClip({
+      projectId: project.id,
+      blob: fakeBlob('keeper'),
+      mimeType: 'video/webm',
+      durationMs: 800,
+    })
+
+    expect(await deleteProjectIfPristine(project.id)).toBe(false)
+    expect(await listProjects()).toHaveLength(1)
+  })
+
+  it('deleteProjectIfPristine keeps renamed projects', async () => {
+    const project = await createProject()
+    await renameProject(project.id, 'Ski trip')
+
+    expect(await deleteProjectIfPristine(project.id)).toBe(false)
+    expect((await listProjects())[0]?.name).toBe('Ski trip')
+  })
+
+  it('deleteProjectIfPristine keeps a project renamed to a default-shaped name', async () => {
+    const project = await createProject()
+    await renameProject(project.id, 'Project 2')
+
+    expect(await deleteProjectIfPristine(project.id)).toBe(false)
+    expect((await listProjects())[0]?.name).toBe('Project 2')
+  })
+
+  it('deleteProjectIfPristine keeps a project created with a default-shaped name', async () => {
+    const project = await createProject('Project 2')
+
+    expect(await deleteProjectIfPristine(project.id)).toBe(false)
+    expect(await listProjects()).toHaveLength(1)
+  })
+
+  it('deleteProjectIfPristine keeps projects with background music', async () => {
+    await markWatermarkRemoved('cs_test_storage')
+    const project = await createProject()
+    await addProjectAudioTrack({
+      projectId: project.id,
+      blob: new Blob(['song'], { type: 'audio/mpeg' }),
+      mimeType: 'audio/mpeg',
+      durationMs: 30_000,
+      name: 'song.mp3',
+    })
+
+    expect(await deleteProjectIfPristine(project.id)).toBe(false)
+    expect(await listProjects()).toHaveLength(1)
+  })
+
+  it('stores a default trim-out at the requested point, clamped to the media', async () => {
+    const project = await createProject('Grace')
+    // Recordings pass the release point; the media runs a stop-grace longer.
+    const clip = await addClip({
+      projectId: project.id,
+      blob: fakeBlob('graced'),
+      mimeType: 'video/webm',
+      durationMs: 2200,
+      trimEndMs: 2000,
+    })
+    expect(clip.trimStartMs).toBe(0)
+    expect(clip.trimEndMs).toBe(2000)
+    expect(clip.durationMs).toBe(2200)
+
+    const clamped = await addClip({
+      projectId: project.id,
+      blob: fakeBlob('clamped'),
+      mimeType: 'video/webm',
+      durationMs: 1000,
+      trimEndMs: 5000,
+    })
+    expect(clamped.trimEndMs).toBe(1000)
   })
 
   it('appends clips, trims, reorders, duplicates, deletes, and undoes', async () => {
@@ -232,6 +345,71 @@ describe('storage layer', () => {
     expect(audio?.tracks.map((track) => track.name)).toEqual(['other.wav'])
     await removeProjectAudioTrack(project.id, audio!.tracks[0].id)
     expect(await getProjectAudio(project.id)).toBeUndefined()
+  })
+
+  it('updates one track\u2019s playback settings with clamped trim and level', async () => {
+    await markWatermarkRemoved('cs_test_storage')
+    const project = await createProject('Track settings')
+    const record = await addProjectAudioTrack({
+      projectId: project.id,
+      blob: new Blob(['song'], { type: 'audio/mpeg' }),
+      mimeType: 'audio/mpeg',
+      durationMs: 30_000,
+      name: 'song.mp3',
+    })
+    const trackId = record.tracks[0].id
+
+    const updated = await updateProjectAudioTrack(project.id, trackId, {
+      trimStartMs: 2_000,
+      trimEndMs: 45_000,
+      volume: 0.6,
+      fadeIn: false,
+    })
+    expect(updated.tracks[0]).toMatchObject({
+      trimStartMs: 2_000,
+      trimEndMs: 30_000,
+      volume: 0.6,
+      fadeIn: false,
+    })
+    // Untouched fields survive; fadeOut still inherits from the playlist.
+    expect(updated.tracks[0].fadeOut).toBeUndefined()
+    expect(updated.defaultVolume).toBe(DEFAULT_AUDIO_VOLUME)
+
+    // Partial updates keep the other side of the trim window, and the end
+    // can never cross the start.
+    const nudged = await updateProjectAudioTrack(project.id, trackId, { trimEndMs: 1_000 })
+    expect(nudged.tracks[0].trimStartMs).toBe(2_000)
+    expect(nudged.tracks[0].trimEndMs).toBe(2_000)
+
+    // Non-finite trim requests keep the stored values — NaN never persists.
+    const junkTrim = await updateProjectAudioTrack(project.id, trackId, {
+      trimStartMs: Number.NaN,
+      trimEndMs: 10_000,
+    })
+    expect(junkTrim.tracks[0].trimStartMs).toBe(2_000)
+    expect(junkTrim.tracks[0].trimEndMs).toBe(10_000)
+    await updateProjectAudioTrack(project.id, trackId, { trimEndMs: 1_000 })
+
+    // The level clamps to 0–1 and junk falls back to full volume.
+    expect(
+      (await updateProjectAudioTrack(project.id, trackId, { volume: 7 })).tracks[0].volume,
+    ).toBe(1)
+    expect(
+      (await updateProjectAudioTrack(project.id, trackId, { volume: Number.NaN })).tracks[0]
+        .volume,
+    ).toBe(1)
+
+    // The settings persist.
+    const stored = await getProjectAudio(project.id)
+    expect(stored?.tracks[0]).toMatchObject({ trimStartMs: 2_000, trimEndMs: 2_000, volume: 1 })
+
+    await expect(
+      updateProjectAudioTrack(project.id, 'missing-track', { volume: 0.5 }),
+    ).rejects.toThrow(/track not found/i)
+    const empty = await createProject('No music yet')
+    await expect(
+      updateProjectAudioTrack(empty.id, trackId, { volume: 0.5 }),
+    ).rejects.toThrow(/no background music/i)
   })
 
   it('drops the audio playlist when the project is deleted', async () => {

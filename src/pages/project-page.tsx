@@ -9,7 +9,7 @@ import { RecordScreen, type ToastAction } from '../components/record-screen'
 import { createCamera } from '../lib/camera'
 import { RestoreSheet } from '../components/restore-sheet'
 import { UpsellSheet } from '../components/upsell-sheet'
-import { REMOVE_WATERMARK_LINK } from '../lib/entitlement'
+import { REMOVE_WATERMARK_LINK, shouldWatermarkExports } from '../lib/entitlement'
 import { buildClipsZip } from '../lib/clips-zip'
 import { clearExportMarker, markExportStarted, reportError } from '../lib/error-reporting'
 import { exportProject, type ExportResult } from '../lib/export'
@@ -24,7 +24,7 @@ import {
   shareFile,
 } from '../lib/media'
 import { loadProjectPage, type ProjectLoaderData } from '../lib/project-actions'
-import { createProject, setOnboardingDismissed } from '../lib/storage'
+import { createProject, setKeepWatermark, setOnboardingDismissed } from '../lib/storage'
 import { requestPersistentStorage } from '../lib/storage-space'
 import { navigate } from '../router'
 import { NEW_PROJECT_ID, type ProjectId } from '../lib/types'
@@ -128,6 +128,7 @@ export function ProjectPage(handle: Handle<ProjectPageProps>) {
           canUndo: false,
           onboardingDismissed: true,
           watermarkRemoved: false,
+          keepWatermark: false,
           storage: null,
           locationTaggingEnabled: false,
           error: err instanceof Error ? err.message : 'Could not load this project.',
@@ -215,7 +216,7 @@ export function ProjectPage(handle: Handle<ProjectPageProps>) {
       audioContext = undefined
     }
 
-    const watermarked = !data.watermarkRemoved
+    const watermarked = shouldWatermarkExports(data)
     const signature = exportSignature(clips, watermarked, audio)
     // Stop camera/mic immediately rather than waiting on record-screen
     // unmount. On iOS the combined mic+camera session can hold decoder
@@ -291,7 +292,15 @@ export function ProjectPage(handle: Handle<ProjectPageProps>) {
           background:
             audio && audio.tracks.length > 0
               ? {
-                  tracks: audio.tracks.map((track) => ({ blob: track.blob })),
+                  tracks: audio.tracks.map((track) => ({
+                    blob: track.blob,
+                    durationMs: track.durationMs,
+                    trimStartMs: track.trimStartMs,
+                    trimEndMs: track.trimEndMs,
+                    volume: track.volume,
+                    fadeIn: track.fadeIn,
+                    fadeOut: track.fadeOut,
+                  })),
                   defaultVolume: audio.defaultVolume,
                   fadeIn: audio.fadeIn,
                   fadeOut: audio.fadeOut,
@@ -488,6 +497,7 @@ export function ProjectPage(handle: Handle<ProjectPageProps>) {
           <ExportOverlay
             projectName={project.name}
             progress={exportState?.progress ?? 0}
+            watermarked={exportState?.watermarked === true}
             bindPreviewCanvas={bindPreviewCanvas}
           />
         ) : null}
@@ -499,7 +509,15 @@ export function ProjectPage(handle: Handle<ProjectPageProps>) {
             notice={exportState.notice}
             watermarked={exportState.watermarked}
             purchased={data.watermarkRemoved}
+            keepWatermark={data.keepWatermark}
             busy={exportActionCount > 0}
+            onKeepWatermarkChange={(keep) => {
+              data = { ...data!, keepWatermark: keep }
+              void handle.update()
+              void setKeepWatermark(keep).catch((err) => {
+                reportError(err, 'keep-watermark')
+              })
+            }}
             onRemoveWatermark={() => {
               window.open(REMOVE_WATERMARK_LINK, '_blank', 'noopener')
             }}
@@ -586,7 +604,11 @@ export function ProjectPage(handle: Handle<ProjectPageProps>) {
             onRestored={() => {
               restoring = false
               void handle.update()
-              showToast('Purchase restored — new exports are watermark-free')
+              showToast(
+                data?.keepWatermark
+                  ? 'Purchase restored — Plus unlocked (Kody mark still kept)'
+                  : 'Purchase restored — new exports are watermark-free',
+              )
               refresh()
             }}
           />

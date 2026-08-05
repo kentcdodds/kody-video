@@ -1,5 +1,5 @@
 import { test, expect, type Page } from '@playwright/test'
-import { openSeededProject, waitForCameraReady } from './helpers'
+import { gotoHome, openSeededProject, waitForCameraReady } from './helpers'
 
 async function exportReady(page: Page): Promise<void> {
   await expect(page.getByText('Done! Your video is ready')).toBeVisible({ timeout: 60_000 })
@@ -106,5 +106,92 @@ test.describe('Go / export', () => {
       return names
     })
     expect(cacheEntries).toHaveLength(1)
+  })
+
+  test('adjacent clips crossfade audio at the joint instead of dipping to silence', async ({
+    page,
+  }) => {
+    test.slow()
+    await gotoHome(page)
+
+    const measured = await page.evaluate(async () => {
+      const storage = await import('/src/lib/storage.ts')
+      const { exportProject } = await import('/src/lib/export/index.ts')
+      const { decodeBackgroundAudio } = await import('/src/lib/export/shared.ts')
+      const { makeTestClipBlob } = await import('/src/lib/testing/make-test-clip.ts')
+
+      // Two clips carrying steady sine tones at DIFFERENT frequencies: the
+      // joint between them is exactly where the old per-slice fade-to-zero
+      // produced an audible dip to silence.
+      const project = await storage.createProject()
+      for (const toneHz of [440, 880]) {
+        await storage.addClip({
+          projectId: project.id,
+          blob: await makeTestClipBlob(2000, toneHz),
+          mimeType: 'video/webm',
+          durationMs: 2000,
+          width: 320,
+          height: 568,
+        })
+      }
+      const clips = await storage.getClipsForProject(project.id)
+      const result = await exportProject(clips, { watermark: false })
+
+      const decoded = await decodeBackgroundAudio(result.blob, 48000)
+      if (!decoded) return null
+      const data = decoded.getChannelData(0)
+      const rms = (fromSec: number, toSec: number) => {
+        const from = Math.max(0, Math.floor(fromSec * decoded.sampleRate))
+        const to = Math.min(Math.floor(toSec * decoded.sampleRate), data.length)
+        let sum = 0
+        for (let i = from; i < to; i += 1) sum += data[i]! * data[i]!
+        return Math.sqrt(sum / Math.max(1, to - from))
+      }
+      // Dominant frequency proxy: sign changes per second (~2× frequency).
+      const crossingsPerSec = (fromSec: number, toSec: number) => {
+        const from = Math.max(1, Math.floor(fromSec * decoded.sampleRate))
+        const to = Math.min(Math.floor(toSec * decoded.sampleRate), data.length)
+        let crossings = 0
+        for (let i = from; i < to; i += 1) {
+          if (data[i - 1]! < 0 !== data[i]! < 0) crossings += 1
+        }
+        return crossings / Math.max(0.001, toSec - fromSec)
+      }
+      // The video cut sits at 2s − CROSSFADE_HALF_MS on the output
+      // timeline; scan 2ms windows across the whole joint region (which
+      // also covers 2.0s, where the OLD dip landed) for the quietest spot.
+      const jointSec = 1.99
+      let jointMin = Number.POSITIVE_INFINITY
+      for (let t = jointSec - 0.04; t <= jointSec + 0.04; t += 0.001) {
+        jointMin = Math.min(jointMin, rms(t - 0.001, t + 0.001))
+      }
+      return {
+        durationSec: decoded.duration,
+        clipA: rms(0.8, 1.6),
+        clipB: rms(2.4, 3.2),
+        clipAFreq: crossingsPerSec(0.8, 1.6) / 2,
+        clipBFreq: crossingsPerSec(2.4, 3.2) / 2,
+        jointMin,
+      }
+    })
+
+    expect(measured).not.toBeNull()
+    // Both clips' own audio made it through, in order.
+    expect(measured!.clipAFreq).toBeGreaterThan(340)
+    expect(measured!.clipAFreq).toBeLessThan(540)
+    expect(measured!.clipBFreq).toBeGreaterThan(700)
+    expect(measured!.clipBFreq).toBeLessThan(1060)
+    expect(measured!.clipA).toBeGreaterThan(0.1)
+    expect(measured!.clipB).toBeGreaterThan(0.1)
+    // THE crossfade contract: the joint never dips toward silence. The old
+    // fade-to-zero read ≈0.2× of the surrounding level here; the
+    // equal-power overlap holds ≈1×.
+    expect(measured!.jointMin).toBeGreaterThan(
+      Math.min(measured!.clipA, measured!.clipB) * 0.6,
+    )
+    // Each joint trades CROSSFADE_MS of timeline for the overlap (codec
+    // padding keeps this a sanity bound, not an exact one).
+    expect(measured!.durationSec).toBeGreaterThan(3.9)
+    expect(measured!.durationSec).toBeLessThan(4.05)
   })
 })

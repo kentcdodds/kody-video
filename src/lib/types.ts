@@ -7,6 +7,10 @@ export interface Project {
   createdAt: number
   updatedAt: number
   clipIds: ClipId[]
+  /** True while the name is still the generated "Project N" — cleared on
+   * rename, and never set for caller-chosen names, so a deliberate name
+   * (even one shaped like "Project 2") is never mistaken for the default. */
+  nameIsDefault?: boolean
 }
 
 export interface ClipMeta {
@@ -55,6 +59,17 @@ export interface ProjectAudioTrack {
   /** Display name (the picked file's name). */
   name: string
   addedAt: number
+  /** Kept range of the track (defaults to the whole file). Only this
+   * window plays; the next track starts where it ends. */
+  trimStartMs?: number
+  trimEndMs?: number
+  /** Track level (0–1) applied to the music side of the mix while this
+   * track plays (default 1 — the clip mix share is unaffected). */
+  volume?: number
+  /** Ease this track in/out where it starts/ends. Absent = inherit the
+   * playlist's fade flags (kept for records made before per-track fades). */
+  fadeIn?: boolean
+  fadeOut?: boolean
 }
 
 /**
@@ -68,18 +83,75 @@ export interface ProjectAudioRecord {
   /** Music's default share (0–1) of the audio mix for clips without a
    * per-clip override; clip sound gets the complement. */
   defaultVolume: number
-  /** Ease the music in at the start of the film (default on). */
+  /** Playlist-level fade defaults, inherited by tracks without their own
+   * fadeIn/fadeOut flags (records made before per-track fades). */
   fadeIn: boolean
-  /** Ease the music out at the end of the film (default on). */
   fadeOut: boolean
 }
 
 /** 25% music / 75% clip sound — sits under speech without drowning it. */
 export const DEFAULT_AUDIO_VOLUME = 0.25
 
+/** The fields that shape how one playlist track plays back. `durationMs`
+ * is optional so export-side track shapes (which may not know it) fit. */
+export interface AudioTrackPlaybackFields {
+  durationMs?: number
+  trimStartMs?: number
+  trimEndMs?: number
+  volume?: number
+  fadeIn?: boolean
+  fadeOut?: boolean
+}
+
+export interface AudioTrackPlayback {
+  trimStartMs: number
+  /** Infinity when the track length is unknown (export shapes without
+   * durationMs and no explicit trim end). */
+  trimEndMs: number
+  keptMs: number
+  volume: number
+  fadeIn: boolean
+  fadeOut: boolean
+}
+
+/** Resolve a track's playback settings against its playlist's defaults:
+ * trim clamped into the media, level defaulting to full, fades falling back
+ * to the playlist flags. */
+export function resolveAudioTrackPlayback(
+  track: AudioTrackPlaybackFields,
+  playlist: { fadeIn: boolean; fadeOut: boolean },
+): AudioTrackPlayback {
+  const durationMs = track.durationMs ?? Infinity
+  const trimEndMs = Math.max(0, Math.min(track.trimEndMs ?? durationMs, durationMs))
+  const trimStartMs = Math.max(0, Math.min(track.trimStartMs ?? 0, trimEndMs))
+  return {
+    trimStartMs,
+    trimEndMs,
+    keptMs: Math.max(0, trimEndMs - trimStartMs),
+    volume: audioTrackLevel(track),
+    fadeIn: track.fadeIn ?? playlist.fadeIn,
+    fadeOut: track.fadeOut ?? playlist.fadeOut,
+  }
+}
+
+/** The track's kept (trimmed) length. */
+export function audioTrackKeptMs(
+  track: Pick<ProjectAudioTrack, 'durationMs' | 'trimStartMs' | 'trimEndMs'>,
+): number {
+  const end = Math.max(0, Math.min(track.trimEndMs ?? track.durationMs, track.durationMs))
+  const start = Math.max(0, Math.min(track.trimStartMs ?? 0, end))
+  return Math.max(0, end - start)
+}
+
+/** The track's level (0–1) on the music side of the mix; default full. */
+export function audioTrackLevel(track: Pick<AudioTrackPlaybackFields, 'volume'>): number {
+  if (track.volume === undefined || !Number.isFinite(track.volume)) return 1
+  return Math.max(0, Math.min(1, track.volume))
+}
+
 /** Total playlist length — what the music can cover before going silent. */
 export function projectAudioTotalDurationMs(audio: Pick<ProjectAudioRecord, 'tracks'>): number {
-  return audio.tracks.reduce((sum, track) => sum + track.durationMs, 0)
+  return audio.tracks.reduce((sum, track) => sum + audioTrackKeptMs(track), 0)
 }
 
 export function clampVolume(volume: number): number {
@@ -103,6 +175,11 @@ export interface AppMeta {
   /** One-time "Remove Watermark" purchase (verified via Stripe). */
   watermarkRemoved?: boolean
   purchaseSessionId?: string | null
+  /**
+   * Plus opt-in: keep stamping the Kody mark on exports even after purchase.
+   * Default off — Plus removes the watermark unless the user chooses this.
+   */
+  keepWatermark?: boolean
   /** Opt-in: tag new clips with device location. */
   locationTaggingEnabled?: boolean
   /** The persisted last export (OPFS-backed), recoverable after the share

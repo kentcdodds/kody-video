@@ -3,6 +3,7 @@ import {
   addProjectAudioTrack,
   clearUndo,
   deleteClip,
+  deleteProjectIfPristine,
   duplicateClip,
   getClipsForProject,
   getProject,
@@ -18,7 +19,9 @@ import {
   updateClipThumbs,
   updateClipTrim,
   updateProjectAudioSettings,
+  updateProjectAudioTrack,
   type ProjectAudioSettings,
+  type ProjectAudioTrackSettings,
 } from './storage'
 import { probeAudioFile } from './audio-import'
 import { estimateExportCacheBytes } from './export/export-cache'
@@ -50,6 +53,10 @@ export interface ProjectLoaderData {
   onboardingDismissed: boolean
   /** True when the one-time "Remove Watermark" purchase is unlocked. */
   watermarkRemoved: boolean
+  /**
+   * Plus opt-in: keep the Kody mark on exports after purchase (default off).
+   */
+  keepWatermark: boolean
   /** Device storage estimate (null when the API is unavailable). */
   storage: StorageSpace | null
   /** Opt-in: tag new clips with device location. */
@@ -77,7 +84,16 @@ export async function loadHomePage(): Promise<HomeLoaderData> {
 }
 
 export async function loadHomeProjects(): Promise<ProjectSummary[]> {
-  const list = await listProjects()
+  const all = await listProjects()
+  // Exiting a project still in its default state (no clips, default name,
+  // no music) must leave nothing behind, just like backing out of
+  // /project/new. Every exit path lands back here, so such projects are
+  // silently deleted before the slots render.
+  const list: Project[] = []
+  for (const project of all) {
+    if (project.clipIds.length === 0 && (await deleteProjectIfPristine(project.id))) continue
+    list.push(project)
+  }
   // Stable slot order (creation order) — OK Video-style fixed project slots
   // that don't shuffle every time you open a project.
   list.sort((a, b) => a.createdAt - b.createdAt)
@@ -122,6 +138,7 @@ export async function loadProjectPage(projectId: ProjectId): Promise<ProjectLoad
         canUndo: false,
         onboardingDismissed: settings.onboardingDismissed,
         watermarkRemoved: settings.watermarkRemoved === true,
+        keepWatermark: settings.keepWatermark === true,
         storage,
         locationTaggingEnabled: settings.locationTaggingEnabled === true,
         error: null,
@@ -144,6 +161,7 @@ export async function loadProjectPage(projectId: ProjectId): Promise<ProjectLoad
         canUndo: false,
         onboardingDismissed: settings.onboardingDismissed,
         watermarkRemoved: settings.watermarkRemoved === true,
+        keepWatermark: settings.keepWatermark === true,
         storage,
         locationTaggingEnabled: settings.locationTaggingEnabled === true,
         error: 'Project not found',
@@ -166,6 +184,7 @@ export async function loadProjectPage(projectId: ProjectId): Promise<ProjectLoad
       canUndo: !!undo,
       onboardingDismissed: settings.onboardingDismissed,
       watermarkRemoved: settings.watermarkRemoved === true,
+      keepWatermark: settings.keepWatermark === true,
       storage,
       locationTaggingEnabled: settings.locationTaggingEnabled === true,
       error: null,
@@ -178,6 +197,7 @@ export async function loadProjectPage(projectId: ProjectId): Promise<ProjectLoad
       canUndo: false,
       onboardingDismissed: true,
       watermarkRemoved: false,
+      keepWatermark: false,
       storage: null,
       locationTaggingEnabled: false,
       error: err instanceof Error ? err.message : 'Failed to load project',
@@ -191,6 +211,9 @@ export async function appendRecording(
     blob: Blob
     mimeType: string
     durationMs: number
+    /** Default trim-out (recordings end their kept range at the release
+     * point; the media itself runs a stop-grace longer). */
+    trimEndMs?: number
     width?: number
     height?: number
     lat?: number
@@ -209,6 +232,7 @@ export async function appendRecording(
     blob: input.blob,
     mimeType: input.mimeType,
     durationMs: input.durationMs,
+    trimEndMs: input.trimEndMs,
     width: input.width,
     height: input.height,
     lat: input.lat,
@@ -275,6 +299,15 @@ export async function addProjectAudioFromFile(
 
 export async function removeAudioTrack(projectId: ProjectId, trackId: string): Promise<void> {
   await removeProjectAudioTrack(projectId, trackId)
+}
+
+/** Update one playlist track's playback settings (trim, level, fades). */
+export async function setAudioTrackSettings(
+  projectId: ProjectId,
+  trackId: string,
+  settings: ProjectAudioTrackSettings,
+): Promise<void> {
+  await updateProjectAudioTrack(projectId, trackId, settings)
 }
 
 export async function setProjectAudioSettings(

@@ -21,8 +21,7 @@ npm run test:e2e   # Playwright e2e suite (fake camera/mic; recording, editor, p
 npm run test:smoke # Playwright UX smoke (fake camera, records + exports)
 ```
 
-**Live app:** [https://kody.video](https://kody.video) (Cloudflare Pages, builds from `main`; the original
-[kody-video.pages.dev](https://kody-video.pages.dev) origin stays live so existing on-device projects remain accessible)
+**Live app:** [https://kody.video](https://kody.video) (Cloudflare Pages, builds from `main`)
 
 For a phone on the same network, use your machine’s LAN URL over HTTPS, or tunnel (`npm run dev -- --host` plus a trusted tunnel). `getUserMedia` will fail on plain `http://<lan-ip>` in most browsers.
 
@@ -42,10 +41,13 @@ For a phone on the same network, use your machine’s LAN URL over HTTPS, or tun
   **peak-normalized** so the split means the same thing however hot either
   recording is. Defaults to 25% music under every clip; tap a clip to set
   its own balance (duck the music under speech, swell it for b-roll). Mix
-  changes glide across clip boundaries, and the music fades in/out at the
-  start and end of the film (both toggleable, on by default). All of it —
-  levels, normalization, fades, track hand-offs — plays the same in the
-  previews as in the exported file: the project preview runs the whole
+  changes glide across clip boundaries. Tapping a track row opens its
+  **detail view** (the audio counterpart of the clip trim view): trim the
+  track to a kept window over its waveform, set the track's level, and
+  toggle its fade in/out (on by default — each track eases in where it
+  starts and out where it ends, including the film's edges). All of it —
+  levels, normalization, fades, trims, track hand-offs — plays the same in
+  the previews as in the exported file: the project preview runs the whole
   film's bed, and the editor's clip stage plays the music under the
   selected clip from its exact spot on the film's timeline (normalization
   boosts cap at the browser's volume ceiling in previews)
@@ -55,8 +57,8 @@ For a phone on the same network, use your machine’s LAN URL over HTTPS, or tun
 - Fallback: save clips as separate files
 - Project **backup/import**: one `.kodyvideo` file per project (clips, trims,
   location data, background music + volumes) — a safety net, and the way to
-  move a project between devices or origins (e.g. kody-video.pages.dev →
-  kody.video)
+  move a project between devices or browser origins (storage is per-origin);
+  ⋯ → Save backup on a slot, import from the About page
 - Installable PWA (manifest + Workbox service worker for the app shell)
 - **No accounts, no uploads, no analytics**
 
@@ -135,7 +137,7 @@ before this feature simply lack the data and degrade gracefully.
 | clips    | Clip metadata, `Blob` media, filmstrip thumbnails     |
 | undo     | Last deleted clip per project (for Undo)              |
 | meta     | Settings (`maxProjects`, last opened id, onboarding)  |
-| audio    | Background-music playlist per project (blobs, volumes, fades) |
+| audio    | Background-music playlist per project (blobs, volumes, per-track trims/levels/fades) |
 
 Database name: `kody-video`. Blobs never leave the device unless the user explicitly shares/downloads.
 
@@ -206,7 +208,10 @@ device: "Already paid?" on the export sheet or a locked slot's upsell.
 
 Projects are also created lazily — "New project" opens the camera at
 `/project/new` and nothing is persisted until the first clip is recorded, so
-backing out of an untouched project leaves no empty slot behind.
+backing out of an untouched project leaves no empty slot behind. The same
+holds after creation: a project exited while still in its default state (no
+clips, default name, no music) is silently deleted when the home screen
+loads, since keeping it would change nothing the user can see.
 
 Deployment requirement: set `STRIPE_SECRET_KEY` (a restricted key with
 Checkout Sessions read access is enough) on the Cloudflare Pages project.

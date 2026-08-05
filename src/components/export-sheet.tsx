@@ -19,8 +19,11 @@ interface ExportSheetProps {
   watermarked: boolean
   /** True when the removal purchase is unlocked (may change mid-sheet). */
   purchased: boolean
+  /** Plus opt-in: keep stamping the mark on future exports. */
+  keepWatermark: boolean
   /** A share/save is in flight — dismissal would drop its result notice. */
   busy: boolean
+  onKeepWatermarkChange: (keep: boolean) => void
   onShare: () => void
   onSave: () => void
   onSaveClips: () => void
@@ -49,7 +52,9 @@ export function ExportSheet(handle: Handle<ExportSheetProps>) {
       notice,
       watermarked,
       purchased,
+      keepWatermark,
       busy,
+      onKeepWatermarkChange,
       onShare,
       onSave,
       onSaveClips,
@@ -155,10 +160,31 @@ export function ExportSheet(handle: Handle<ExportSheetProps>) {
                   </button>
                 </p>
               ) : null}
-              {watermarked && purchased ? (
-                <p className="watermark-note">
-                  This video still includes the Kody mark — tap Go again for a clean export.
-                </p>
+              {purchased ? (
+                <div className="watermark-prefs">
+                  <label className="watermark-keep-toggle">
+                    <input
+                      type="checkbox"
+                      checked={keepWatermark}
+                      disabled={busy}
+                      mix={on('change', (event) => {
+                        onKeepWatermarkChange((event.currentTarget as HTMLInputElement).checked)
+                      })}
+                    />
+                    Keep the Kody mark on exports
+                  </label>
+                  {watermarked && !keepWatermark ? (
+                    <p className="watermark-note">
+                      This video still includes the Kody mark — tap Re-export from scratch for a
+                      clean export.
+                    </p>
+                  ) : null}
+                  {!watermarked && keepWatermark ? (
+                    <p className="watermark-note">
+                      Tap Re-export from scratch to stamp the Kody mark on this video.
+                    </p>
+                  ) : null}
+                </div>
               ) : null}
             </>
           ) : null}

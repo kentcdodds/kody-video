@@ -9,6 +9,8 @@ import {
   setProjectAudioSettings,
 } from '../lib/project-actions'
 import {
+  audioTrackKeptMs,
+  audioTrackLevel,
   clipAudioVolume,
   formatDuration,
   projectAudioTotalDurationMs,
@@ -33,26 +35,29 @@ interface AudioStripProps {
   plus: boolean
   /** Open the Plus upsell sheet (owned by the page, like restore). */
   onUpsell: () => void
+  /** Open a track's detail view (trim, level, fades) — owned by the editor
+   * screen, like the clip trim view. */
+  onEditTrack: (trackId: string) => void
   showToast: (message: string) => void
   refresh: () => void
 }
 
 /**
  * Background-music panel under the timeline: build a playlist of tracks
- * (played one after the other until the film ends), toggle the fade in/out,
- * set the default volume, and dial the music volume for the selected clip.
- * Volume writes persist on slider release; the label tracks the thumb live.
+ * (played one after the other until the film ends), set the default mix,
+ * and dial the music volume for the selected clip. Tapping a track row
+ * opens its detail view (trim, level, fades — the audio counterpart of the
+ * clip trim view). Volume writes persist on slider release; the label
+ * tracks the thumb live.
  */
 export function AudioStrip(handle: Handle<AudioStripProps>) {
   const { props } = handle
   let busy = false
   const fileInputRef: { current: HTMLInputElement | null } = { current: null }
-  /** Slider/toggle values mid-edit / awaiting the post-write refresh — they
-   * keep the controls steady until props catch up with what was persisted. */
+  /** Slider values mid-edit / awaiting the post-write refresh — they keep
+   * the controls steady until props catch up with what was persisted. */
   let pendingDefault: number | null = null
   let pendingClip: { clipId: ClipId; volume: number } | null = null
-  let pendingFadeIn: boolean | null = null
-  let pendingFadeOut: boolean | null = null
 
   const setBusy = (next: boolean) => {
     busy = next
@@ -89,8 +94,6 @@ export function AudioStrip(handle: Handle<AudioStripProps>) {
         reportError(err, 'project-audio')
         pendingDefault = null
         pendingClip = null
-        pendingFadeIn = null
-        pendingFadeOut = null
         props.showToast('Could not save that change — try again')
         props.refresh()
         void handle.update()
@@ -113,15 +116,6 @@ export function AudioStrip(handle: Handle<AudioStripProps>) {
         setBusy(false)
       }
     })()
-  }
-
-  const setFade = (which: 'fadeIn' | 'fadeOut', enabled: boolean) => {
-    const audio = props.audio
-    if (!audio) return
-    if (which === 'fadeIn') pendingFadeIn = enabled
-    else pendingFadeOut = enabled
-    void handle.update()
-    persist(setProjectAudioSettings(audio.projectId, { [which]: enabled }))
   }
 
   const commitDefaultVolume = (volume: number) => {
@@ -212,8 +206,6 @@ export function AudioStrip(handle: Handle<AudioStripProps>) {
     if (pendingDefault !== null && Math.abs(audio.defaultVolume - pendingDefault) < 0.005) {
       pendingDefault = null
     }
-    if (pendingFadeIn !== null && audio.fadeIn === pendingFadeIn) pendingFadeIn = null
-    if (pendingFadeOut !== null && audio.fadeOut === pendingFadeOut) pendingFadeOut = null
     if (
       pendingClip !== null &&
       (selectedClip?.id !== pendingClip.clipId ||
@@ -240,29 +232,49 @@ export function AudioStrip(handle: Handle<AudioStripProps>) {
     return (
       <div key="audio-strip" className="audio-strip has-track">
         {fileInput}
-        {audio.tracks.map((track, trackIndex) => (
-          <div key={track.id} className="audio-track-row">
-            <span className="audio-track-icon" aria-hidden="true">
-              <IconMusic size={16} />
-            </span>
-            <span
-              className="audio-track-name"
-              title={audio.tracks.length > 1 ? `Track ${trackIndex + 1}: ${track.name}` : track.name}
-            >
-              {track.name}
-            </span>
-            <span className="audio-track-duration muted">{formatDuration(track.durationMs)}</span>
-            <button
-              type="button"
-              className="btn-icon audio-remove"
-              disabled={disabled || busy}
-              aria-label={`Remove music track ${trackIndex + 1} (${track.name})`}
-              mix={on('click', () => removeTrack(track.id))}
-            >
-              <IconClose size={16} />
-            </button>
-          </div>
-        ))}
+        {audio.tracks.map((track, trackIndex) => {
+          const keptMs = audioTrackKeptMs(track)
+          const trimmed = keptMs < track.durationMs
+          const levelPct = Math.round(audioTrackLevel(track) * 100)
+          return (
+            <div key={track.id} className="audio-track-row">
+              <button
+                type="button"
+                className="audio-track-open"
+                disabled={disabled || busy}
+                aria-label={`Edit music track ${trackIndex + 1} (${track.name})`}
+                title="Trim, level, and fades"
+                mix={on('click', () => props.onEditTrack(track.id))}
+              >
+                <span className="audio-track-icon" aria-hidden="true">
+                  <IconMusic size={16} />
+                </span>
+                <span
+                  className="audio-track-name"
+                  title={
+                    audio.tracks.length > 1 ? `Track ${trackIndex + 1}: ${track.name}` : track.name
+                  }
+                >
+                  {track.name}
+                </span>
+                <span className="audio-track-duration muted">
+                  {formatDuration(keptMs)}
+                  {trimmed ? ' kept' : ''}
+                  {levelPct < 100 ? ` · ${levelPct}%` : ''}
+                </span>
+              </button>
+              <button
+                type="button"
+                className="btn-icon audio-remove"
+                disabled={disabled || busy}
+                aria-label={`Remove music track ${trackIndex + 1} (${track.name})`}
+                mix={on('click', () => removeTrack(track.id))}
+              >
+                <IconClose size={16} />
+              </button>
+            </div>
+          )
+        })}
 
         <div className="audio-playlist-row">
           <button
@@ -280,32 +292,6 @@ export function AudioStrip(handle: Handle<AudioStripProps>) {
               Music ends at {formatDuration(musicMs)} of {formatDuration(props.projectDurationMs)}
             </span>
           ) : null}
-          <span className="audio-fades" role="group" aria-label="Music fades">
-            <label className="audio-fade-toggle">
-              <input
-                type="checkbox"
-                checked={pendingFadeIn ?? audio.fadeIn}
-                disabled={disabled || busy}
-                aria-label="Fade the music in at the start"
-                mix={on('change', (event) => {
-                  setFade('fadeIn', (event.currentTarget as HTMLInputElement).checked)
-                })}
-              />
-              Fade in
-            </label>
-            <label className="audio-fade-toggle">
-              <input
-                type="checkbox"
-                checked={pendingFadeOut ?? audio.fadeOut}
-                disabled={disabled || busy}
-                aria-label="Fade the music out at the end"
-                mix={on('change', (event) => {
-                  setFade('fadeOut', (event.currentTarget as HTMLInputElement).checked)
-                })}
-              />
-              Fade out
-            </label>
-          </span>
         </div>
 
         {selectedClip ? (

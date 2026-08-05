@@ -1,10 +1,10 @@
 import { test, expect } from '@playwright/test'
-import { gotoHome, openNewProject, unlockPlus } from './helpers'
+import { gotoHome, openNewProject, recordClip, unlockPlus } from './helpers'
 
 test.describe('home & app shell', () => {
   test('onboarding shows on first camera open, dismisses for good', async ({ page }) => {
     await page.goto('/')
-    await page.getByRole('button', { name: 'New project', exact: true }).click()
+    await page.locator('.project-slot.empty').first().click()
     const overlay = page.locator('.onboarding-overlay')
     await expect(overlay).toBeVisible()
     await expect(overlay).toContainText('Hold to record')
@@ -17,11 +17,17 @@ test.describe('home & app shell', () => {
     await expect(page.locator('.onboarding-overlay')).toBeHidden()
   })
 
-  test('footer shows privacy line with storage usage', async ({ page }) => {
+  test('footer shows privacy line with a tappable storage gauge', async ({ page }) => {
     await gotoHome(page)
     const footer = page.locator('.home-privacy')
     await expect(footer).toContainText('Clips stay on this phone until you share.')
-    await expect(footer).toContainText(/of .+ used/)
+    const popover = page.locator('.storage-popover')
+    await expect(popover).toBeHidden()
+    await page.locator('.storage-meter').click()
+    await expect(popover).toBeVisible()
+    await expect(popover).toContainText(/of .+ used/)
+    await page.keyboard.press('Escape')
+    await expect(popover).toBeHidden()
   })
 
   test('free plan locks slots 2-6 behind the Plus upsell', async ({ page }) => {
@@ -42,6 +48,8 @@ test.describe('home & app shell', () => {
     await unlockPlus(page)
     const outcome = await page.evaluate(async () => {
       const storage = await import('/src/lib/storage.ts')
+      // Explicit names (even default-shaped ones): only projects still
+      // carrying their GENERATED name are auto-deleted on home load.
       for (let i = 1; i <= 6; i += 1) {
         await storage.createProject(`Project ${i}`)
       }
@@ -134,6 +142,37 @@ test.describe('home & app shell', () => {
     await expect(page.getByRole('button', { name: 'Install app' })).toBeVisible()
   })
 
+  test('install button opens an explainer popover; Install consumes the prompt', async ({
+    page,
+  }) => {
+    await gotoHome(page)
+    await page.evaluate(() => {
+      window.dispatchEvent(new Event('beforeinstallprompt'))
+    })
+    await page.getByRole('button', { name: 'Install app' }).click()
+    const explainer = page.getByRole('dialog', { name: 'Install Kody Video' })
+    await expect(explainer).toBeVisible()
+    await expect(explainer).toContainText('works offline')
+
+    // Escape / outside click dismisses without consuming the prompt.
+    await page.keyboard.press('Escape')
+    await expect(explainer).toBeHidden()
+
+    // The corner button is a toggle: tap to open, tap again to dismiss.
+    await page.getByRole('button', { name: 'Install app' }).click()
+    await expect(explainer).toBeVisible()
+    await page.getByRole('button', { name: 'Install app' }).click()
+    await expect(explainer).toBeHidden()
+    await expect(page.getByRole('button', { name: 'Install app' })).toBeVisible()
+    await page.getByRole('button', { name: 'Install app' }).click()
+    await expect(explainer).toBeVisible()
+
+    // Install consumes the one-shot prompt: popover and corner button go away.
+    await explainer.getByRole('button', { name: 'Install' }).click()
+    await expect(explainer).toBeHidden()
+    await expect(page.getByRole('button', { name: 'Install app' })).toHaveCount(0)
+  })
+
   test('about, privacy, and terms pages render', async ({ page }) => {
     await gotoHome(page)
     await page.getByRole('link', { name: 'About Kody Video' }).click()
@@ -157,6 +196,28 @@ test.describe('lazy project creation', () => {
       return (await storage.listProjects()).length
     })
     expect(projects).toBe(0)
+    await expect(page.locator('.project-slot.filled')).toHaveCount(0)
+  })
+
+  test('exiting a project still in its default state auto-deletes it', async ({ page }) => {
+    await openNewProject(page)
+    // The first take persists the project…
+    await recordClip(page)
+    await page.waitForURL((url) => !url.pathname.endsWith('/project/new'))
+    // …but deleting it leaves the project exactly as a fresh one: no clips,
+    // default name. Exiting must remove it silently.
+    await page.getByRole('button', { name: 'Delete last clip' }).click()
+    await expect(page.locator('.toast')).toContainText('Last clip deleted')
+    await page.getByRole('link', { name: 'Back to projects' }).click()
+    await page.waitForURL(/\/$/)
+    await expect
+      .poll(async () =>
+        page.evaluate(async () => {
+          const storage = await import('/src/lib/storage.ts')
+          return (await storage.listProjects()).length
+        }),
+      )
+      .toBe(0)
     await expect(page.locator('.project-slot.filled')).toHaveCount(0)
   })
 })

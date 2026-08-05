@@ -83,10 +83,24 @@ async function storedAudio(page: Page) {
           fadeIn: audio.fadeIn,
           fadeOut: audio.fadeOut,
           tracks: audio.tracks.map(
-            (track: { name: string; durationMs: number; blob: Blob }) => ({
+            (track: {
+              name: string
+              durationMs: number
+              blob: Blob
+              trimStartMs?: number
+              trimEndMs?: number
+              volume?: number
+              fadeIn?: boolean
+              fadeOut?: boolean
+            }) => ({
               name: track.name,
               durationMs: track.durationMs,
               size: track.blob.size,
+              trimStartMs: track.trimStartMs ?? null,
+              trimEndMs: track.trimEndMs ?? null,
+              volume: track.volume ?? null,
+              trackFadeIn: track.fadeIn ?? null,
+              trackFadeOut: track.fadeOut ?? null,
             }),
           ),
         }
@@ -147,11 +161,6 @@ test.describe('background music', () => {
       'second-song.wav',
     ])
 
-    // Fade toggles persist (default on).
-    await page.getByRole('checkbox', { name: /Fade the music in/ }).uncheck()
-    await expect.poll(async () => (await storedAudio(page))?.fadeIn).toBe(false)
-    await expect.poll(async () => (await storedAudio(page))?.fadeOut).toBe(true)
-
     // Default mix slider persists (value = music's share).
     await setSlider(page, 'Default audio mix', 40)
     await expect.poll(async () => (await storedAudio(page))?.defaultVolume).toBeCloseTo(0.4)
@@ -185,6 +194,64 @@ test.describe('background music', () => {
     expect(await storedAudio(page)).toBeNull()
   })
 
+  test('track detail view trims, levels, and fades one track', async ({ page }) => {
+    await openPlusEditorWithClips(page, 1)
+    await addMusic(page)
+
+    // A track row opens its detail view — the audio counterpart of Trim.
+    await page.getByRole('button', { name: /Edit music track 1/ }).click()
+    const detail = page.locator('.audio-detail-strip')
+    await expect(detail).toBeVisible()
+    await expect(detail.locator('.trim-handle-left')).toBeVisible()
+    await expect(detail.locator('.trim-handle-right')).toBeVisible()
+    // The timeline, mix rows, and clip actions yield to the detail view.
+    await expect(page.locator('.audio-strip')).toHaveCount(0)
+    await expect(page.locator('.editor-actions')).toHaveCount(0)
+
+    // Escape closes it without saving.
+    await page.keyboard.press('Escape')
+    await expect(detail).toBeHidden()
+    await expect(page.locator('.audio-strip')).toBeVisible()
+
+    // Reopen; drag the end handle to about the middle of the 4s track.
+    await page.getByRole('button', { name: /Edit music track 1/ }).click()
+    const handle = detail.locator('.trim-handle-right')
+    const handleBox = await handle.boundingBox()
+    const trackBox = await detail.locator('.trim-strip-track').boundingBox()
+    if (!handleBox || !trackBox) throw new Error('trim geometry unavailable')
+    const y = handleBox.y + handleBox.height / 2
+    await page.mouse.move(handleBox.x + handleBox.width / 2, y)
+    await page.mouse.down()
+    await page.mouse.move(trackBox.x + trackBox.width * 0.5, y, { steps: 8 })
+    await page.mouse.up()
+    await expect(detail.locator('.trim-kept-label')).toContainText(/kept/)
+
+    // Level + fades are per-track drafts, saved together on Done.
+    await setSlider(page, 'Track level', 60)
+    await detail.getByRole('checkbox', { name: 'Fade this track in' }).uncheck()
+    await detail.getByRole('button', { name: 'Done' }).click()
+    await expect(detail).toBeHidden()
+
+    const audio = await storedAudio(page)
+    const track = audio!.tracks[0]
+    expect(track.trimStartMs).toBe(0)
+    expect(track.trimEndMs).not.toBeNull()
+    expect(track.trimEndMs!).toBeGreaterThan(1000)
+    expect(track.trimEndMs!).toBeLessThan(track.durationMs)
+    expect(track.volume).toBeCloseTo(0.6)
+    expect(track.trackFadeIn).toBe(false)
+    expect(track.trackFadeOut).toBe(true)
+
+    // The row reflects the kept length and level…
+    await expect(page.locator('.audio-track-duration')).toContainText(/kept · 60%/)
+    // …and Cancel discards a fresh draft (the level stays 60%).
+    await page.getByRole('button', { name: /Edit music track 1/ }).click()
+    await setSlider(page, 'Track level', 20)
+    await detail.getByRole('button', { name: 'Cancel' }).click()
+    await expect(detail).toBeHidden()
+    await expect.poll(async () => (await storedAudio(page))?.tracks[0]?.volume).toBeCloseTo(0.6)
+  })
+
   test('export sequences the playlist at per-clip mixes with fades', async ({ page }) => {
     test.slow()
     // Two 3s fixture clips (video-only — the fixture encoder adds no audio
@@ -199,14 +266,22 @@ test.describe('background music', () => {
       const project = (await storage.listProjects())[0]!
       const clips = await storage.getClipsForProject(project.id)
 
-      // Two in-page sine WAVs at DIFFERENT frequencies: track A (4s,
-      // 440 Hz, full amplitude) then track B (20s, 880 Hz, HALF
-      // amplitude). The frequency step at the 4s hand-off proves
-      // sequential playback (a looping track A would keep 440 Hz), and
-      // peak normalization should erase the 2× amplitude difference —
-      // making the RMS ratio between the windows track the mix shares
-      // alone.
-      const makeWav = (seconds: number, amplitude: number, freq: number): Blob => {
+      // Two in-page sine WAVs at DIFFERENT frequencies: track A (8s,
+      // 110 Hz for the first 2s then 440 Hz, full amplitude, TRIMMED to
+      // its 2s–6s window) then track B (20s, 880 Hz, HALF amplitude, at
+      // HALF level). Track A's trim proves the kept window is honored on
+      // both sides: the film never hears the 110 Hz intro (trim start),
+      // and the hand-off to track B lands at 4s (trim end — an untrimmed
+      // 8s track A would still be playing 440 Hz there). Peak
+      // normalization should erase the 2× amplitude difference, so the
+      // RMS ratio between the windows tracks the shares × track B's
+      // level.
+      const makeWav = (
+        seconds: number,
+        amplitude: number,
+        freq: number,
+        introFreq?: number,
+      ): Blob => {
         const rate = 8000
         const samples = rate * seconds
         const bytes = new DataView(new ArrayBuffer(44 + samples * 2))
@@ -227,24 +302,39 @@ test.describe('background music', () => {
         writeAscii(36, 'data')
         bytes.setUint32(40, samples * 2, true)
         for (let i = 0; i < samples; i += 1) {
-          bytes.setInt16(44 + i * 2, Math.round(Math.sin((2 * Math.PI * freq * i) / rate) * amplitude), true)
+          const f = introFreq !== undefined && i < rate * 2 ? introFreq : freq
+          bytes.setInt16(44 + i * 2, Math.round(Math.sin((2 * Math.PI * f * i) / rate) * amplitude), true)
         }
         return new Blob([bytes.buffer], { type: 'audio/wav' })
       }
-      await storage.addProjectAudioTrack({
+      const first = await storage.addProjectAudioTrack({
         projectId: project.id,
-        blob: makeWav(4, 16000, 440),
+        blob: makeWav(8, 16000, 440, 110),
         mimeType: 'audio/wav',
-        durationMs: 4000,
+        durationMs: 8000,
         name: 'track-a.wav',
       })
-      const audio = await storage.addProjectAudioTrack({
+      // Keep track A's 2s–6s window; explicit fade-out off keeps the
+      // hand-off crisp for the frequency windows below.
+      await storage.updateProjectAudioTrack(project.id, first.tracks[0].id, {
+        trimStartMs: 2000,
+        trimEndMs: 6000,
+        fadeOut: false,
+      })
+      const added = await storage.addProjectAudioTrack({
         projectId: project.id,
         blob: makeWav(20, 8000, 880),
         mimeType: 'audio/wav',
         durationMs: 20000,
         name: 'track-b.wav',
       })
+      // Track B plays at HALF level; explicit fade-in off keeps the
+      // post-hand-off measurement window clean.
+      const audio = await storage.updateProjectAudioTrack(
+        project.id,
+        added.tracks[1].id,
+        { volume: 0.5, fadeIn: false },
+      )
       // Clip 1 follows the 0.25 default; clip 2 is overridden to full volume.
       await storage.updateClipAudioVolume(clips[1]!.id, 1)
       const updatedClips = await storage.getClipsForProject(project.id)
@@ -252,7 +342,25 @@ test.describe('background music', () => {
       const result = await exportProject(updatedClips, {
         watermark: false,
         background: {
-          tracks: audio.tracks.map((track: { blob: Blob }) => ({ blob: track.blob })),
+          tracks: audio.tracks.map(
+            (track: {
+              blob: Blob
+              durationMs: number
+              trimStartMs?: number
+              trimEndMs?: number
+              volume?: number
+              fadeIn?: boolean
+              fadeOut?: boolean
+            }) => ({
+              blob: track.blob,
+              durationMs: track.durationMs,
+              trimStartMs: track.trimStartMs,
+              trimEndMs: track.trimEndMs,
+              volume: track.volume,
+              fadeIn: track.fadeIn,
+              fadeOut: track.fadeOut,
+            }),
+          ),
           defaultVolume: audio.defaultVolume,
           fadeIn: audio.fadeIn,
           fadeOut: audio.fadeOut,
@@ -296,18 +404,22 @@ test.describe('background music', () => {
     expect(measured).not.toBeNull()
     // Clip 1 carries audible music from track A.
     expect(measured!.clip1).toBeGreaterThan(0.02)
-    // Sequencing: clip 1 hears track A (440 Hz), clip 2 hears track B
-    // (880 Hz) — a looping track A would keep 440 Hz after the hand-off.
+    // Sequencing + trims: clip 1 hears track A's KEPT window (440 Hz — a
+    // window starting at the file's real 0 would mix in the 110 Hz intro
+    // and read far lower), and clip 2 hears track B (880 Hz) because
+    // track A's trimmed end hands off at 4s (untrimmed, its 8s file
+    // would still be playing 440 Hz there).
     expect(measured!.clip1Freq).toBeGreaterThan(340)
     expect(measured!.clip1Freq).toBeLessThan(540)
     expect(measured!.clip2Freq).toBeGreaterThan(700)
     expect(measured!.clip2Freq).toBeLessThan(1060)
-    // Normalization + mix shares: both tracks normalize to the same peak
-    // despite track B being mastered at HALF the amplitude, so the RMS
-    // ratio tracks the shares alone (1.0 / 0.25 ≈ 4). Without
-    // normalization it would read ≈ 2.
-    expect(measured!.clip2 / measured!.clip1).toBeGreaterThan(2.8)
-    expect(measured!.clip2 / measured!.clip1).toBeLessThan(5.5)
+    // Normalization + shares + track level: both tracks normalize to the
+    // same peak despite track B being mastered at HALF the amplitude, so
+    // the RMS ratio tracks the shares (1.0 / 0.25 = 4) × track B's 0.5
+    // level ≈ 2. Without normalization it would read ≈ 1; with track B's
+    // level ignored, ≈ 4.
+    expect(measured!.clip2 / measured!.clip1).toBeGreaterThan(1.35)
+    expect(measured!.clip2 / measured!.clip1).toBeLessThan(2.8)
     // The film opens inside the fade-in and closes inside the fade-out.
     expect(measured!.fadeIn).toBeLessThan(measured!.clip1 * 0.5)
     expect(measured!.fadeOut).toBeLessThan(measured!.clip2 * 0.5)

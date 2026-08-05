@@ -1,21 +1,23 @@
 import type { Handle } from 'remix/ui'
 import { on, ref } from 'remix/ui'
 import { planExport } from '../lib/export'
-import { FADE_IN_MS, FADE_OUT_MS } from '../lib/export/background-audio'
 import {
   clipElementVolume,
   measureAudioNormalization,
   musicElementVolume,
   peekAudioNormalization,
 } from '../lib/preview-audio-normalization'
+import {
+  playlistFadeInScale,
+  playlistFadeOutScale,
+  playlistTrackAtMs,
+  trackKeptDurationMs,
+  trackMediaSec,
+  trackMusicGain,
+} from '../lib/preview-music-bed'
 import { BlobVideo } from './blob-video'
 import { IconPause, IconPlay } from './icons'
-import {
-  clipAudioVolume,
-  type ClipRecord,
-  type ProjectAudioRecord,
-  type ProjectAudioTrack,
-} from '../lib/types'
+import { clipAudioVolume, type ClipRecord, type ProjectAudioRecord } from '../lib/types'
 
 /** Smoothing time constant for level moves (~settles in 3×) — matches the
  * project preview's glide feel. */
@@ -112,40 +114,28 @@ export function EditorClipPreview(handle: Handle<EditorClipPreviewProps>) {
     return segment.offsetMs + elapsed
   }
 
-  /** The export's film-edge fade envelope at a film position: the music
-   * eases in over the first FADE_IN_MS and out over the last FADE_OUT_MS
-   * (when the toggles are on) — the first/last clips must sound like the
-   * exported film, not open at full level. */
+  const filmTotalMs = (): number => {
+    const segs = resolveSegments()
+    const last = segs[segs.length - 1]
+    return last ? last.offsetMs + (last.endMs - last.startMs) : 0
+  }
+
+  /** The export's film-edge fade envelope at a film position — the
+   * first/last clips must sound like the exported film, not open at full
+   * level. Per-track (interior) fades ride trackMusicGain instead. */
   const fadeScaleAt = (positionMs: number): number => {
     const audio = props.audio
     if (!audio) return 1
-    const segs = resolveSegments()
-    const last = segs[segs.length - 1]
-    const totalMs = last ? last.offsetMs + (last.endMs - last.startMs) : 0
-    const fadeIn = audio.fadeIn ? Math.max(0, Math.min(1, positionMs / FADE_IN_MS)) : 1
-    const fadeOut =
-      audio.fadeOut && totalMs > 0
-        ? Math.max(0, Math.min(1, (totalMs - positionMs) / FADE_OUT_MS))
-        : 1
-    return Math.min(fadeIn, fadeOut)
+    return Math.min(
+      playlistFadeInScale(audio, positionMs),
+      playlistFadeOutScale(audio, positionMs, filmTotalMs()),
+    )
   }
 
-  const trackDurationMs = (track: ProjectAudioTrack): number =>
-    peekAudioNormalization(track.blob)?.decodedDurationMs ?? track.durationMs
-
-  /** Playlist track + in-track offset covering a film position (null when
-   * the playlist has already run out there). */
-  const trackAtMs = (positionMs: number): { index: number; offsetMs: number } | null => {
-    const tracks = props.audio?.tracks ?? []
-    let cursor = 0
-    for (let i = 0; i < tracks.length; i += 1) {
-      if (positionMs < cursor + trackDurationMs(tracks[i])) {
-        return { index: i, offsetMs: positionMs - cursor }
-      }
-      cursor += trackDurationMs(tracks[i])
-    }
-    return null
-  }
+  /** Playlist track + in-track KEPT-window offset covering a film position
+   * (null when the playlist has already run out there). */
+  const trackAtMs = (positionMs: number): { index: number; offsetMs: number } | null =>
+    props.audio ? playlistTrackAtMs(props.audio, positionMs) : null
 
   const urlForTrack = (trackIndex: number): string => {
     const blob = props.audio!.tracks[trackIndex].blob
@@ -193,8 +183,10 @@ export function EditorClipPreview(handle: Handle<EditorClipPreviewProps>) {
       musicTrackIndex = target.index
       audio.src = urlForTrack(target.index)
     }
-    if (Math.abs(audio.currentTime - target.offsetMs / 1000) > 0.05) {
-      audio.currentTime = target.offsetMs / 1000
+    // offsetMs is inside the KEPT window — media time adds the trim.
+    const expectedSec = trackMediaSec(props.audio, target.index, target.offsetMs)
+    if (Math.abs(audio.currentTime - expectedSec) > 0.05) {
+      audio.currentTime = expectedSec
     }
     void audio.play().catch(() => undefined)
   }
@@ -219,15 +211,16 @@ export function EditorClipPreview(handle: Handle<EditorClipPreviewProps>) {
       return
     }
     musicExhausted = false
+    const expectedSec = trackMediaSec(props.audio!, target.index, target.offsetMs)
     if (musicTrackIndex !== target.index) {
       musicTrackIndex = target.index
       audio.src = urlForTrack(target.index)
-      audio.currentTime = target.offsetMs / 1000
+      audio.currentTime = expectedSec
       void audio.play().catch(() => undefined)
       return
     }
-    if (Math.abs(audio.currentTime - target.offsetMs / 1000) > 0.35) {
-      audio.currentTime = target.offsetMs / 1000
+    if (Math.abs(audio.currentTime - expectedSec) > 0.35) {
+      audio.currentTime = expectedSec
     }
   }
 
@@ -243,7 +236,7 @@ export function EditorClipPreview(handle: Handle<EditorClipPreviewProps>) {
     }
     musicTrackIndex = next
     audio.src = urlForTrack(next)
-    audio.currentTime = 0
+    audio.currentTime = trackMediaSec(props.audio!, next, 0)
     if (media && !media.paused) void audio.play().catch(() => undefined)
   }
 
@@ -296,15 +289,40 @@ export function EditorClipPreview(handle: Handle<EditorClipPreviewProps>) {
         resolveSegments()
         resyncMusicIfPlaying()
       }
+      // A trimmed track never reaches its media's end, so 'ended' cannot
+      // fire — hand off to the next track at the kept window's edge.
+      if (!el.paused && musicTrackIndex >= 0 && props.audio) {
+        const playing = props.audio.tracks[musicTrackIndex]
+        if (playing) {
+          const endSec = trackMediaSec(
+            props.audio,
+            musicTrackIndex,
+            trackKeptDurationMs(props.audio, playing),
+          )
+          const mediaEndSec = Number.isFinite(el.duration) ? el.duration : Infinity
+          if (endSec < mediaEndSec - 0.05 && el.currentTime >= endSec - 0.03) {
+            advanceMusicTrack()
+            // The playlist ending at a trimmed LAST track must silence the
+            // element (an untrimmed last track ends itself via 'ended').
+            if (musicExhausted) el.pause()
+          }
+        }
+      }
       const position = filmPositionMs()
       // Live playlist coverage at the playhead — the playhead can pass the
       // last decoded sample before the `ended` handler runs, and the mix
       // must go to zero there like the export's (no bed past the playlist).
       const musicHere = !musicExhausted && position !== null && trackAtMs(position) !== null
       const mix = musicHere ? musicShare() * fadeScaleAt(position) : 0
+      // The element's volume is the export's music-side gain: envelope ×
+      // normalization boost × the track's level and interior fades.
       const trackBlob = props.audio?.tracks[musicTrackIndex]?.blob
       const musicScale = trackBlob ? (peekAudioNormalization(trackBlob)?.scale ?? 1) : 1
-      musicVol = glide(musicVol, musicElementVolume(mix, musicScale))
+      const musicGain =
+        props.audio && musicTrackIndex >= 0
+          ? trackMusicGain(props.audio, musicTrackIndex, el.currentTime, filmTotalMs())
+          : 1
+      musicVol = glide(musicVol, musicElementVolume(mix, musicScale * musicGain))
       el.volume = musicVol
       const video = media
       if (video) {

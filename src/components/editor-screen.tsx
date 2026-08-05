@@ -7,6 +7,7 @@ import {
   importDeviceClips,
   moveSelectedClip,
   removeClip,
+  setAudioTrackSettings,
   trimClip,
   undoLastDelete,
 } from '../lib/project-actions'
@@ -19,6 +20,7 @@ import {
   type ProjectAudioRecord,
   type ProjectId,
 } from '../lib/types'
+import { AudioDetailStrip } from './audio-detail-strip'
 import { AudioStrip } from './audio-strip'
 import { EditorClipPreview, type EditorClipPreviewHandle } from './editor-clip-preview'
 import {
@@ -65,6 +67,9 @@ export function EditorScreen(handle: Handle<EditorScreenProps>) {
   const { props } = handle
   let selectedClipId: ClipId | null = props.clips.at(-1)?.id ?? null
   let trimming = false
+  /** Track whose detail view (trim, level, fades) is open — the audio
+   * counterpart of `trimming`. */
+  let editingTrackId: string | null = null
   let importing = false
   const fileInputRef: { current: HTMLInputElement | null } = { current: null }
   const previewApi: { current: EditorClipPreviewHandle | null } = { current: null }
@@ -130,9 +135,15 @@ export function EditorScreen(handle: Handle<EditorScreenProps>) {
     void handle.update()
   }
 
+  const setEditingTrackId = (next: string | null) => {
+    editingTrackId = next
+    void handle.update()
+  }
+
   const openTrim = (clip: ClipRecord) => {
     previewApi.current?.pause()
     trimming = true
+    editingTrackId = null
     // Seek after the commit: entering trim can remount the preview (the trim
     // override changes its remount key), and the seek must land on the new
     // element so the stage opens on the trim-start frame.
@@ -176,12 +187,14 @@ export function EditorScreen(handle: Handle<EditorScreenProps>) {
       if (trimming) {
         previewApi.current?.pause()
         setTrimming(false)
+      } else if (editingTrackId) {
+        setEditingTrackId(null)
       } else {
         props.onOpenCamera()
       }
       return
     }
-    if (trimming) return
+    if (trimming || editingTrackId) return
     switch (event.code) {
       case 'ArrowLeft':
       case 'ArrowRight': {
@@ -275,12 +288,17 @@ export function EditorScreen(handle: Handle<EditorScreenProps>) {
     const resolvedSelectedId = resolveSelectedId()
     const selected = clips.find((c) => c.id === resolvedSelectedId) ?? null
     const selectedIndex = selected ? clips.findIndex((c) => c.id === selected.id) : -1
+    // Derive the edited track from the loaded audio (no state syncing) —
+    // a removed track simply closes its detail view on the next render.
+    const editingTrack = editingTrackId
+      ? (props.audio?.tracks.find((track) => track.id === editingTrackId) ?? null)
+      : null
 
     refineFilmstrips()
 
     return (
       <div
-        className={`editor-screen${trimming ? ' is-trimming' : ''}${importing ? ' is-importing' : ''}`}
+        className={`editor-screen${trimming ? ' is-trimming' : ''}${editingTrack ? ' is-audio-editing' : ''}${importing ? ' is-importing' : ''}`}
         mix={ref((_node, signal) => {
           window.addEventListener('keydown', onWindowKeyDown)
           signal.addEventListener('abort', () => {
@@ -381,6 +399,19 @@ export function EditorScreen(handle: Handle<EditorScreenProps>) {
                 setTrimming(false)
               }}
             />
+          ) : editingTrack && props.audio ? (
+            <AudioDetailStrip
+              key={editingTrack.id}
+              track={editingTrack}
+              playlist={props.audio}
+              trackIndex={props.audio.tracks.findIndex((track) => track.id === editingTrack.id)}
+              onCancel={() => setEditingTrackId(null)}
+              onDone={async (draft) => {
+                await setAudioTrackSettings(props.audio!.projectId, editingTrack.id, draft)
+                props.refresh()
+                setEditingTrackId(null)
+              }}
+            />
           ) : (
             <Timeline
               projectId={project.id}
@@ -398,7 +429,7 @@ export function EditorScreen(handle: Handle<EditorScreenProps>) {
             />
           )}
 
-          {!trimming ? (
+          {!trimming && !editingTrack ? (
             <AudioStrip
               ensureProjectId={props.ensureProjectId}
               audio={props.audio}
@@ -408,12 +439,17 @@ export function EditorScreen(handle: Handle<EditorScreenProps>) {
               disabled={importing}
               plus={props.plus}
               onUpsell={props.onUpsell}
+              onEditTrack={(trackId) => {
+                previewApi.current?.pause()
+                trimming = false
+                setEditingTrackId(trackId)
+              }}
               showToast={props.showToast}
               refresh={props.refresh}
             />
           ) : null}
 
-          {!trimming ? (
+          {!trimming && !editingTrack ? (
             <div className="editor-actions" role="toolbar" aria-label="Clip actions">
               <ActionButton
                 label="Delete"

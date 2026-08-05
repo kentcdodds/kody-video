@@ -5,13 +5,14 @@ import {
   createProject,
   deleteProject,
   updateClipTrim,
+  updateProjectAudioTrack,
 } from './storage'
 import type { ClipRecord, Project, ProjectAudioRecord } from './types'
 
 /**
  * Single-file project backup, used both as a safety net and to move a
- * project between origins (e.g. kody-video.pages.dev → kody.video, whose
- * browser storage is separate).
+ * project between devices or browser origins (storage is per-origin — e.g.
+ * an older deploy → kody.video).
  *
  * Format: `KODYVID1` magic, u32 big-endian JSON manifest length, UTF-8 JSON
  * manifest, then every clip's media bytes concatenated in manifest order,
@@ -44,6 +45,13 @@ interface ManifestAudioTrack {
   mimeType: string
   durationMs: number
   name: string
+  /** Per-track playback settings (absent = whole track, full level,
+   * playlist-default fades). Older app versions ignore these. */
+  trimStartMs?: number
+  trimEndMs?: number
+  volume?: number
+  fadeIn?: boolean
+  fadeOut?: boolean
   /** Byte length of this track, appended after every clip's media bytes
    * (tracks follow in playlist order). */
   byteLength: number
@@ -111,6 +119,11 @@ export function serializeProject(
         mimeType: track.mimeType,
         durationMs: track.durationMs,
         name: track.name,
+        trimStartMs: track.trimStartMs,
+        trimEndMs: track.trimEndMs,
+        volume: track.volume,
+        fadeIn: track.fadeIn,
+        fadeOut: track.fadeOut,
         byteLength: track.blob.size,
       })),
     }
@@ -228,10 +241,17 @@ export async function parseProjectBackup(file: Blob): Promise<ParsedBackup> {
         throw new BackupFormatError('This backup file is damaged')
       }
       const mimeType = typeof track.mimeType === 'string' ? track.mimeType : 'audio/mpeg'
+      const finiteOrUndefined = (value: unknown): number | undefined =>
+        typeof value === 'number' && Number.isFinite(value) && value >= 0 ? value : undefined
       tracks.push({
         mimeType,
         durationMs: track.durationMs,
         name: String(track.name || 'Audio track'),
+        trimStartMs: finiteOrUndefined(track.trimStartMs),
+        trimEndMs: finiteOrUndefined(track.trimEndMs),
+        volume: finiteOrUndefined(track.volume),
+        fadeIn: typeof track.fadeIn === 'boolean' ? track.fadeIn : undefined,
+        fadeOut: typeof track.fadeOut === 'boolean' ? track.fadeOut : undefined,
         blob: file.slice(offset, offset + track.byteLength, mimeType),
       })
       offset += track.byteLength
@@ -307,7 +327,7 @@ export async function importProjectBackup(
     if (parsed.audio && (await isWatermarkRemoved())) {
       for (const track of parsed.audio.tracks) {
         const bytes = await track.blob.arrayBuffer()
-        await addProjectAudioTrack({
+        const record = await addProjectAudioTrack({
           projectId: project.id,
           blob: new Blob([bytes], { type: track.mimeType }),
           mimeType: track.mimeType,
@@ -318,6 +338,22 @@ export async function importProjectBackup(
           fadeIn: parsed.audio.fadeIn,
           fadeOut: parsed.audio.fadeOut,
         })
+        // Restore the track's own playback settings (trim, level, fades).
+        if (
+          track.trimStartMs !== undefined ||
+          track.trimEndMs !== undefined ||
+          track.volume !== undefined ||
+          track.fadeIn !== undefined ||
+          track.fadeOut !== undefined
+        ) {
+          await updateProjectAudioTrack(project.id, record.tracks.at(-1)!.id, {
+            trimStartMs: track.trimStartMs,
+            trimEndMs: track.trimEndMs,
+            volume: track.volume,
+            fadeIn: track.fadeIn,
+            fadeOut: track.fadeOut,
+          })
+        }
       }
     }
     return project

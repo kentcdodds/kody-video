@@ -303,7 +303,8 @@ try {
 
   // --- About page: open-source + OK Video credits ---
   await page.goto(BASE, { waitUntil: 'networkidle' })
-  await page.getByRole('link', { name: /^about$/i }).click()
+  // Corner icon link — accessible name is the aria-label, not visible "About" text.
+  await page.getByRole('link', { name: /about kody video/i }).click()
   await page.waitForURL(/\/about/, { timeout: 5000 })
   await page.waitForSelector('.about-section', { timeout: 5000 }).catch(() => undefined)
   const repoLink = await page

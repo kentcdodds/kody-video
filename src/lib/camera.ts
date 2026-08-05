@@ -25,6 +25,16 @@ import { isIosBrowser } from './platform'
  */
 const HOLD_MIC_WITH_CAMERA = typeof navigator !== 'undefined' && isIosBrowser()
 
+/** How long a take-end release keeps the mic warm (non-iOS). Real phone
+ * mics deliver silence for their first few hundred ms after a fresh
+ * getUserMedia (hardware/AGC ramp, Bluetooth routing) — with a per-take
+ * mic, that silence was baked into the head of every clip after the
+ * first, one half of the audible gap at every clip joint. Consecutive
+ * takes now reuse the warm mic; a long idle still releases it so Android
+ * voice-to-text (and the OS mic indicator) get the mic back when the
+ * user clearly isn't chaining clips. */
+const MIC_KEEP_WARM_MS = 60_000
+
 /** On iOS, camera + mic in one call (see HOLD_MIC_WITH_CAMERA); a combined
  * failure falls back to video-only so a mic-denied user still gets a
  * preview. Elsewhere always video-only. */
@@ -136,7 +146,10 @@ export interface Camera {
   setZoom: (value: number) => void
   setTorch: (on: boolean) => Promise<void>
   enableMic: () => Promise<void>
-  releaseMic: () => void
+  /** `keepWarm` defers the actual stop by MIC_KEEP_WARM_MS (take-end
+   * release); without it the mic stops immediately (leaving the screen,
+   * failed starts). */
+  releaseMic: (options?: { keepWarm?: boolean }) => void
   getStream: () => MediaStream | null
   /** The live preview element — for zero-cost frame capture at take end. */
   getVideoElement: () => HTMLVideoElement | null
@@ -163,6 +176,8 @@ export function createCamera(notify: () => void): Camera {
   let startInFlight: Promise<void> | null = null
   let micInFlight: Promise<void> | null = null
   let micPrimed = false
+  /** Pending deferred mic stop (releaseMic with keepWarm). */
+  let micReleaseTimer = 0
   let rearLenses: string[] = []
   let lensSwitchInFlight = false
   /** Bumped by stop(): async opens started before a stop must not adopt. */
@@ -519,15 +534,28 @@ export function createCamera(notify: () => void): Camera {
     notify()
   }
 
-  function releaseMic(): void {
+  function releaseMic(options?: { keepWarm?: boolean }): void {
     // iOS: the mic lives and dies with the camera stream (single-call
     // pattern) — stopping it per-take would force the separate audio-only
     // getUserMedia that produces muted tracks on the next take.
     if (HOLD_MIC_WITH_CAMERA) return
+    window.clearTimeout(micReleaseTimer)
+    micReleaseTimer = 0
+    if (options?.keepWarm) {
+      micReleaseTimer = window.setTimeout(() => {
+        micReleaseTimer = 0
+        stopAudioTracks(camera.stream)
+      }, MIC_KEEP_WARM_MS)
+      return
+    }
     stopAudioTracks(camera.stream)
   }
 
   async function enableMic(): Promise<void> {
+    // A deferred take-end release must never fire mid-take: this take owns
+    // the (possibly still-warm) mic now.
+    window.clearTimeout(micReleaseTimer)
+    micReleaseTimer = 0
     if (micInFlight) {
       await micInFlight
       if (!camera.stream?.getAudioTracks().some((track) => track.readyState === 'live')) {
@@ -611,6 +639,8 @@ export function createCamera(notify: () => void): Camera {
 
   function stop(): void {
     cameraEpoch += 1
+    window.clearTimeout(micReleaseTimer)
+    micReleaseTimer = 0
     const hadMic = (camera.stream?.getAudioTracks().length ?? 0) > 0
     stopStream(camera.stream)
     camera.stream = null
