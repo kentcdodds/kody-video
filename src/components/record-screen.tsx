@@ -193,12 +193,27 @@ export function RecordScreen(handle: Handle<RecordScreenProps>) {
   // Live zoom readout: updated imperatively (no component update) so
   // drag-to-zoom mid-recording never causes a re-render. Fades out shortly
   // after the value stops changing.
+  //
+  // The label is rendered as a real (vdom-owned) text child and updates
+  // mutate that node's data. An EMPTY vnode gets its children bulk-cleared
+  // by the reconciler on every re-render, so an imperative-only label was
+  // wiped whenever anything re-rendered mid-take — the HUD pill collapsed
+  // to its padding and re-expanded on the next pointermove: visible jitter.
   let zoomHudEl: HTMLDivElement | null = null
   let zoomHudTimer = 0
+  let zoomHudLabel = '1×'
   const showZoomHud = (value: number) => {
     const hud = zoomHudEl
     if (!hud) return
-    hud.textContent = formatZoomLabel(value)
+    const label = formatZoomLabel(value)
+    if (label !== zoomHudLabel) {
+      zoomHudLabel = label
+      // Mutate the existing text node (never replace it) so re-renders keep
+      // patching the node that is actually on screen.
+      const textNode = hud.firstChild
+      if (textNode) textNode.nodeValue = label
+      else hud.textContent = label
+    }
     hud.classList.add('is-visible')
     window.clearTimeout(zoomHudTimer)
     zoomHudTimer = window.setTimeout(() => {
@@ -907,7 +922,11 @@ export function RecordScreen(handle: Handle<RecordScreenProps>) {
               })
               dragZoomMoved = true
               dragZoomLastValue = next
-              camera.setZoom(next)
+              // silent: nothing that reads camera.zoom is visible mid-take,
+              // and the trailing re-render sync would compete with the
+              // encoder (and used to blank the HUD/timer text — see the
+              // zoom-hud comment above).
+              camera.setZoom(next, { silent: true })
               showZoomHud(next)
             }),
             on('pointerup', (event) => {
@@ -985,7 +1004,9 @@ export function RecordScreen(handle: Handle<RecordScreenProps>) {
                 window.clearTimeout(zoomHudTimer)
               })
             })}
-          />
+          >
+            {zoomHudLabel}
+          </div>
 
           {needsPermission ? (
             <div className="permission-panel">
