@@ -23,6 +23,13 @@ import { reportError } from '../lib/error-reporting'
 import { canPromptInstall, promptInstall, subscribeInstallPrompt } from '../lib/install-prompt'
 import { dismissIosInstallHint, shouldShowIosInstallHint } from '../lib/install-hint'
 import {
+  SHOWCASE_EDITION,
+  SHOWCASE_PR_NUMBER,
+  SHOWCASE_PR_URL,
+  dismissShowcaseBanner,
+  shouldShowShowcaseBanner,
+} from '../lib/showcase'
+import {
   formatBytes,
   formatStoragePercent,
   requestPersistentStorage,
@@ -60,6 +67,7 @@ export function HomePage() {
   const [notice, setNotice] = useState<string | null>(null)
   const [importProgress, setImportProgress] = useState<string | null>(null)
   const [showInstallHint, setShowInstallHint] = useState(shouldShowIosInstallHint)
+  const [showShowcaseBanner, setShowShowcaseBanner] = useState(shouldShowShowcaseBanner)
   const [upselling, setUpselling] = useState(false)
   const [restoring, setRestoring] = useState(false)
   // Prefetched when the options sheet opens so the Save-backup tap keeps its
@@ -192,6 +200,34 @@ export function HomePage() {
           <strong>Kody Video has moved to <a href="https://kody.video">kody.video</a>.</strong>{' '}
           Projects live in this browser per-site, so use ⋯ → Save backup here, then Import them
           over there. This address keeps working but won&rsquo;t get updates.
+        </div>
+      ) : null}
+
+      {showShowcaseBanner ? (
+        <div className="home-migrate home-showcase" role="note">
+          <span>
+            <strong>
+              This is the {SHOWCASE_EDITION} showcase — the real app lives at{' '}
+              <a href="https://kody.video">kody.video</a>.
+            </strong>{' '}
+            Projects stay in this browser per-site, so record over there. Curious how this
+            edition compares? Read the agent&rsquo;s analysis in{' '}
+            <a href={SHOWCASE_PR_URL} target="_blank" rel="noreferrer noopener">
+              PR #{SHOWCASE_PR_NUMBER}
+            </a>
+            .
+          </span>
+          <button
+            type="button"
+            className="install-hint-dismiss"
+            aria-label="Dismiss showcase note"
+            onClick={() => {
+              dismissShowcaseBanner()
+              setShowShowcaseBanner(false)
+            }}
+          >
+            <IconClose size={16} />
+          </button>
         </div>
       ) : null}
 
