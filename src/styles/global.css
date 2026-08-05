@@ -243,8 +243,7 @@ a {
 /* Light-mode accent (#1f8a68) + --ink-strong (#102019) is ~3.9:1. Pure
    black on that green clears WCAG AA (4.5:1) without shifting the brand. */
 @media (prefers-color-scheme: light) {
-  .btn-primary,
-  .go-button {
+  .btn-primary {
     color: #000000;
   }
 }
@@ -331,6 +330,13 @@ a {
 .go-button:disabled {
   opacity: 0.42;
   cursor: not-allowed;
+}
+
+/* Must follow the base .go-button rule so black wins over --ink-strong. */
+@media (prefers-color-scheme: light) {
+  .go-button {
+    color: #000000;
+  }
 }
 
 .sheet-backdrop {
