@@ -66,10 +66,17 @@ export function EditorClipPreview(handle: Handle<EditorClipPreviewProps>) {
   // normalization scales (see preview-audio-normalization.ts) — the music
   // at share × scale, the clip's own sound at (1 − share) × its scale.
   let musicEl: HTMLAudioElement | null = null
-  const trackUrls = new Map<number, string>()
+  /** Object URLs keyed by track BLOB — the stage outlives playlist edits
+   * (it is keyed by clip id), so index-keyed URLs would go stale when a
+   * track is removed or reordered. */
+  const trackUrls = new Map<Blob, string>()
   let musicTrackIndex = -1
   /** True when the playlist ran out before/at this clip's film position. */
   let musicExhausted = false
+  /** The playlist record the bed state belongs to — an edit (add / remove /
+   * reorder / new load) swaps the record identity and invalidates the
+   * loaded track index. */
+  let audioFor: ProjectAudioRecord | null = null
 
   // Segment plan cached per clips identity (same pattern as the overlay).
   let planFor: ClipRecord[] | null = null
@@ -137,12 +144,28 @@ export function EditorClipPreview(handle: Handle<EditorClipPreviewProps>) {
   }
 
   const urlForTrack = (trackIndex: number): string => {
-    let url = trackUrls.get(trackIndex)
+    const blob = props.audio!.tracks[trackIndex].blob
+    let url = trackUrls.get(blob)
     if (!url) {
-      url = URL.createObjectURL(props.audio!.tracks[trackIndex].blob)
-      trackUrls.set(trackIndex, url)
+      url = URL.createObjectURL(blob)
+      trackUrls.set(blob, url)
     }
     return url
+  }
+
+  /** The playlist changed under a mounted stage — drop every cached URL and
+   * the loaded-track state, then realign the bed if it should be playing. */
+  const resetMusicForPlaylistChange = () => {
+    for (const url of trackUrls.values()) URL.revokeObjectURL(url)
+    trackUrls.clear()
+    musicTrackIndex = -1
+    musicExhausted = false
+    const audio = musicEl
+    if (!audio) return
+    const wasAudible = media !== null && !media.paused
+    audio.pause()
+    audio.removeAttribute('src')
+    if (wasAudible) playMusic()
   }
 
   /** This clip's music share of the mix (its override or the default). */
@@ -241,6 +264,13 @@ export function EditorClipPreview(handle: Handle<EditorClipPreviewProps>) {
     // recomputing every frame keeps both sides correct.
     let raf = 0
     const tick = () => {
+      // A playlist edit (add / remove / reorder) swaps the record identity
+      // while this stage stays mounted — the loaded track index and cached
+      // URLs belong to the old playlist then.
+      if (audioFor !== props.audio) {
+        audioFor = props.audio
+        resetMusicForPlaylistChange()
+      }
       const position = filmPositionMs()
       const mix = musicShare() * (position === null ? 1 : fadeScaleAt(position))
       const trackBlob = props.audio?.tracks[musicTrackIndex]?.blob
@@ -248,7 +278,12 @@ export function EditorClipPreview(handle: Handle<EditorClipPreviewProps>) {
       el.volume = musicElementVolume(mix, musicScale)
       const video = media
       if (video) {
-        const covered = !musicExhausted
+        // Live per-frame coverage (same stance as the project preview):
+        // the playhead can sit past the playlist's last decoded sample
+        // before the element's `ended` handler runs, and the clip must not
+        // stay ducked under music that is not playing.
+        const covered =
+          !musicExhausted && position !== null && trackAtMs(position) !== null
         const clipScale = peekAudioNormalization(props.clip.blob)?.scale ?? 1
         // Where the playlist covers this clip the export blends the clip
         // at its normalized complement; where it doesn't, the clip's own
