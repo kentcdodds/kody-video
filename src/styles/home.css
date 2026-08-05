@@ -741,6 +741,45 @@
   font-size: 0.88rem;
 }
 
+.onboarding-tour {
+  display: grid;
+  grid-template-columns: 44px 1fr 24px;
+  gap: 12px;
+  align-items: center;
+  width: 100%;
+  margin: 0 0 16px;
+  padding: 8px 12px 8px 8px;
+  border-radius: 16px;
+  border: 1px solid color-mix(in srgb, var(--accent) 45%, transparent);
+  background: var(--accent-soft);
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.onboarding-tour img {
+  width: 44px;
+  height: 78px;
+  object-fit: cover;
+  border-radius: 10px;
+  display: block;
+}
+
+.onboarding-tour svg {
+  color: var(--accent);
+}
+
+.onboarding-tour-video {
+  display: block;
+  width: min(100%, 236px);
+  aspect-ratio: 9 / 16;
+  margin: 0 auto 16px;
+  border-radius: 16px;
+  background: var(--stage-bg);
+  object-fit: contain;
+}
+
 .onboarding-card .btn {
   width: 100%;
 }
