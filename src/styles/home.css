@@ -19,6 +19,36 @@
   left: 12px;
 }
 
+/* Anchored explainer for the Install corner button. Native [popover] top
+   layer: reset the UA margin/border, then match the app's sheet styling. */
+.install-popover {
+  margin: 0;
+  padding: 14px 16px;
+  width: min(272px, calc(100vw - 24px));
+  border: 1px solid var(--line);
+  border-radius: 18px;
+  background: var(--panel-bg);
+  color: var(--ink);
+  box-shadow: var(--shadow);
+}
+
+.install-popover strong {
+  display: block;
+  font-family: var(--font-display);
+  font-size: 1.05rem;
+}
+
+.install-popover p {
+  margin: 6px 0 12px;
+  color: var(--ink-muted);
+  font-size: 0.88rem;
+  line-height: 1.4;
+}
+
+.install-popover-action {
+  width: 100%;
+}
+
 .home-corner-right {
   right: 12px;
 }

@@ -1,5 +1,6 @@
 import type { Handle } from 'remix/ui'
 import { on } from 'remix/ui'
+import * as popover from 'remix/ui/popover'
 import { BlobImage } from '../components/blob-image'
 import { BrandMark } from '../components/brand-mark'
 import { ConfirmSheet } from '../components/confirm-sheet'
@@ -62,6 +63,7 @@ export function HomePage(handle: Handle) {
   let showInstallHint = shouldShowIosInstallHint()
   let upselling = false
   let restoring = false
+  let installPopoverOpen = false
   // Prefetched when the options sheet opens so the Save-backup tap keeps its
   // user activation (Web Share needs it; an IndexedDB read can outlive it).
   let prefetchedClips: {
@@ -186,16 +188,70 @@ export function HomePage(handle: Handle) {
         {/* Corner buttons: 44px tap targets clear of other controls — the
             old footer text links were too small and crowded for thumbs. */}
         {installable ? (
-          <button
-            type="button"
-            className="btn-icon home-corner home-corner-left"
-            aria-label="Install app"
-            mix={on('click', () => {
-              void promptInstall()
-            })}
-          >
-            <IconDownload />
-          </button>
+          // A bare download glyph is ambiguous — tapping it opens a small
+          // anchored popover that says what installing gets you, with the
+          // actual Install action behind a clearly labeled button.
+          <popover.Context>
+            <button
+              type="button"
+              className="btn-icon home-corner home-corner-left"
+              aria-label="Install app"
+              mix={[
+                popover.anchor({ placement: 'bottom-start', offsetY: 8 }),
+                popover.focusOnHide(),
+                on('click', () => {
+                  // Explicit toggle (with closeOnAnchorClick: false below):
+                  // a second tap on the corner button dismisses the popover.
+                  installPopoverOpen = !installPopoverOpen
+                  void handle.update()
+                }),
+              ]}
+            >
+              <IconDownload />
+            </button>
+            <div
+              className="install-popover"
+              role="dialog"
+              aria-label="Install Kody Video"
+              mix={popover.surface({
+                open: installPopoverOpen,
+                // The anchor's own click handler owns toggling; letting the
+                // surface also request close on anchor taps double-handles
+                // the same click.
+                closeOnAnchorClick: false,
+                onHide: () => {
+                  installPopoverOpen = false
+                  void handle.update()
+                },
+              })}
+            >
+              <strong>Install Kody Video</strong>
+              <p>
+                Full screen, works offline, and your clips are safer from browser storage cleanup.
+              </p>
+              <button
+                type="button"
+                className="btn btn-primary install-popover-action"
+                mix={[
+                  popover.focusOnShow(),
+                  on('click', (event) => {
+                    // Hide the native popover synchronously — its toggle
+                    // events release the scroll lock and restore focus —
+                    // because consuming the one-shot install event unmounts
+                    // this subtree without ever firing those events. Then
+                    // prompt in the same tick: Chromium wants prompt()
+                    // during the tap's transient user activation.
+                    ;(event.currentTarget as HTMLElement).closest<HTMLElement>('[popover]')?.hidePopover()
+                    installPopoverOpen = false
+                    void promptInstall()
+                    void handle.update()
+                  }),
+                ]}
+              >
+                Install
+              </button>
+            </div>
+          </popover.Context>
         ) : null}
         <a
           className="btn-icon home-corner home-corner-right"
