@@ -83,6 +83,29 @@ export function isProjectLimitEvent(event: FilterableSentryEvent): boolean {
   return false
 }
 
+/**
+ * Browser-extension / host-bridge noise (often Edge/Chrome on Windows).
+ * Rejects a non-Error string like
+ * "Object Not Found Matching Id:1, MethodName:update, ParamCount:4" with no
+ * app stack — not from Kody Video (no chrome.tabs / extension surface).
+ * KODY-VIDEO-H.
+ */
+const BROWSER_EXTENSION_HOST_OBJECT_NOISE =
+  /Object Not Found Matching Id:\d+, MethodName:\w+, ParamCount:\d+/
+
+export function isBrowserExtensionHostObjectNoiseEvent(
+  event: FilterableSentryEvent,
+): boolean {
+  const exceptionValues = event.exception?.values ?? []
+  for (const value of exceptionValues) {
+    if (BROWSER_EXTENSION_HOST_OBJECT_NOISE.test(value.value ?? '')) return true
+  }
+  return (
+    typeof event.message === 'string' &&
+    BROWSER_EXTENSION_HOST_OBJECT_NOISE.test(event.message)
+  )
+}
+
 function frameUrl(frame: FilterableStackFrame): string {
   return frame.abs_path ?? frame.filename ?? ''
 }
@@ -236,6 +259,7 @@ function loadSentry(): Promise<SentryLike> | null {
         if (isMonitoringSelfTestEvent(event)) return null
         if (isCloudflareInsightsBeaconEvent(event)) return null
         if (isProjectLimitEvent(event)) return null
+        if (isBrowserExtensionHostObjectNoiseEvent(event)) return null
         if (isViteCssPreloadError(event)) return null
         return event
       },

@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import {
+  isBrowserExtensionHostObjectNoiseEvent,
   isCloudflareInsightsBeaconEvent,
   isExpectedUserError,
   isMonitoringSelfTestEvent,
@@ -138,6 +139,57 @@ describe('isReportingHostname / local capture paths', () => {
     expect(() =>
       reportComponentError(new ReferenceError('importProgress is not defined')),
     ).not.toThrow()
+  })
+})
+
+describe('isBrowserExtensionHostObjectNoiseEvent', () => {
+  it('drops the classic host-bridge Object Not Found rejection (KODY-VIDEO-H)', () => {
+    expect(
+      isBrowserExtensionHostObjectNoiseEvent({
+        exception: {
+          values: [
+            {
+              type: 'UnhandledRejection',
+              value:
+                'Non-Error promise rejection captured with value: Object Not Found Matching Id:1, MethodName:update, ParamCount:4',
+            },
+          ],
+        },
+      }),
+    ).toBe(true)
+  })
+
+  it('drops when the signature appears only in message', () => {
+    expect(
+      isBrowserExtensionHostObjectNoiseEvent({
+        message: 'Object Not Found Matching Id:2, MethodName:update, ParamCount:4',
+      }),
+    ).toBe(true)
+  })
+
+  it('keeps ordinary application errors', () => {
+    expect(
+      isBrowserExtensionHostObjectNoiseEvent({
+        exception: {
+          values: [{ type: 'Error', value: 'Export failed: encoder closed' }],
+        },
+      }),
+    ).toBe(false)
+  })
+
+  it('keeps unrelated Object Not Found wording without the host-bridge shape', () => {
+    expect(
+      isBrowserExtensionHostObjectNoiseEvent({
+        exception: {
+          values: [
+            {
+              type: 'NotFoundError',
+              value: 'The object can not be found here.',
+            },
+          ],
+        },
+      }),
+    ).toBe(false)
   })
 })
 

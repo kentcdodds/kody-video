@@ -7,6 +7,7 @@ import { sweepExportCache, withExportCacheReserved } from './export-cache'
 import { planExport } from './plan'
 import {
   AUDIO_SILENCE_PEAK,
+  classifyOutputAudioPeak,
   decodedAudioMaxPeak,
   loadWatermarkImage,
   measureBlobAudioPeak,
@@ -145,7 +146,8 @@ async function verifyOutputAudio(
     )
     return measured.failure === 'too large to verify' ? 'unknown' : 'undecodable'
   }
-  if (measured.peak >= AUDIO_SILENCE_PEAK) return 'ok'
+  const verdict = classifyOutputAudioPeak(inputPeak, measured.peak)
+  if (verdict !== 'silent') return verdict
   reportError(
     new Error('Export output audio is silent despite audible clip audio (encode/mux fault)'),
     'export-audio-output',

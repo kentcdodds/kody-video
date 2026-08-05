@@ -253,6 +253,30 @@ export function resetAudioDiagnostics(): void {
 /** Near-silence floor shared by the input and output audio diagnostics. */
 export const AUDIO_SILENCE_PEAK = 0.005
 
+/**
+ * Fraction of the decoded input peak the muxed output must retain before a
+ * below-floor absolute peak is treated as "still present". Lossy AAC can
+ * nudge a near-floor peak under {@link AUDIO_SILENCE_PEAK} without dropping
+ * the track; a real encode/mux fault collapses energy to ~0.
+ */
+export const AUDIO_PEAK_RETENTION_RATIO = 0.25
+
+/**
+ * Decide whether a finished export's audio peak indicates an encode/mux
+ * silence fault. Absolute floor first; when the output sits just under it,
+ * compare against the input so near-floor encode attenuation is not a false
+ * positive (Sentry KODY-VIDEO-K: input 0.0065 → output 0.0048).
+ */
+export function classifyOutputAudioPeak(
+  inputPeak: number,
+  outputPeak: number,
+): 'ok' | 'silent' | 'unknown' {
+  if (inputPeak < AUDIO_SILENCE_PEAK) return 'unknown'
+  if (outputPeak >= AUDIO_SILENCE_PEAK) return 'ok'
+  if (outputPeak >= inputPeak * AUDIO_PEAK_RETENTION_RATIO) return 'ok'
+  return 'silent'
+}
+
 /** Loudest decoded input peak this export (0 when nothing decoded). */
 export function decodedAudioMaxPeak(): number {
   if (audioObservations.length === 0) return 0
