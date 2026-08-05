@@ -24,6 +24,7 @@ import {
   toStoredBlob,
   undoDeleteLastClip,
   updateClipAudioVolume,
+  updateProjectAudioTrack,
   updateClipTrim,
   updateProjectAudioSettings,
 } from './storage'
@@ -344,6 +345,62 @@ describe('storage layer', () => {
     expect(audio?.tracks.map((track) => track.name)).toEqual(['other.wav'])
     await removeProjectAudioTrack(project.id, audio!.tracks[0].id)
     expect(await getProjectAudio(project.id)).toBeUndefined()
+  })
+
+  it('updates one track\u2019s playback settings with clamped trim and level', async () => {
+    await markWatermarkRemoved('cs_test_storage')
+    const project = await createProject('Track settings')
+    const record = await addProjectAudioTrack({
+      projectId: project.id,
+      blob: new Blob(['song'], { type: 'audio/mpeg' }),
+      mimeType: 'audio/mpeg',
+      durationMs: 30_000,
+      name: 'song.mp3',
+    })
+    const trackId = record.tracks[0].id
+
+    const updated = await updateProjectAudioTrack(project.id, trackId, {
+      trimStartMs: 2_000,
+      trimEndMs: 45_000,
+      volume: 0.6,
+      fadeIn: false,
+    })
+    expect(updated.tracks[0]).toMatchObject({
+      trimStartMs: 2_000,
+      trimEndMs: 30_000,
+      volume: 0.6,
+      fadeIn: false,
+    })
+    // Untouched fields survive; fadeOut still inherits from the playlist.
+    expect(updated.tracks[0].fadeOut).toBeUndefined()
+    expect(updated.defaultVolume).toBe(DEFAULT_AUDIO_VOLUME)
+
+    // Partial updates keep the other side of the trim window, and the end
+    // can never cross the start.
+    const nudged = await updateProjectAudioTrack(project.id, trackId, { trimEndMs: 1_000 })
+    expect(nudged.tracks[0].trimStartMs).toBe(2_000)
+    expect(nudged.tracks[0].trimEndMs).toBe(2_000)
+
+    // The level clamps to 0–1 and junk falls back to full volume.
+    expect(
+      (await updateProjectAudioTrack(project.id, trackId, { volume: 7 })).tracks[0].volume,
+    ).toBe(1)
+    expect(
+      (await updateProjectAudioTrack(project.id, trackId, { volume: Number.NaN })).tracks[0]
+        .volume,
+    ).toBe(1)
+
+    // The settings persist.
+    const stored = await getProjectAudio(project.id)
+    expect(stored?.tracks[0]).toMatchObject({ trimStartMs: 2_000, trimEndMs: 2_000, volume: 1 })
+
+    await expect(
+      updateProjectAudioTrack(project.id, 'missing-track', { volume: 0.5 }),
+    ).rejects.toThrow(/track not found/i)
+    const empty = await createProject('No music yet')
+    await expect(
+      updateProjectAudioTrack(empty.id, trackId, { volume: 0.5 }),
+    ).rejects.toThrow(/no background music/i)
   })
 
   it('drops the audio playlist when the project is deleted', async () => {

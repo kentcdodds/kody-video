@@ -41,10 +41,13 @@ For a phone on the same network, use your machine’s LAN URL over HTTPS, or tun
   **peak-normalized** so the split means the same thing however hot either
   recording is. Defaults to 25% music under every clip; tap a clip to set
   its own balance (duck the music under speech, swell it for b-roll). Mix
-  changes glide across clip boundaries, and the music fades in/out at the
-  start and end of the film (both toggleable, on by default). All of it —
-  levels, normalization, fades, track hand-offs — plays the same in the
-  project preview as in the exported file
+  changes glide across clip boundaries. Tapping a track row opens its
+  **detail view** (the audio counterpart of the clip trim view): trim the
+  track to a kept window over its waveform, set the track's level, and
+  toggle its fade in/out (on by default — each track eases in where it
+  starts and out where it ends, including the film's edges). All of it —
+  levels, normalization, fades, trims, track hand-offs — plays the same in
+  the project preview as in the exported file
 - Project preview playback: tap edges to skip clips, tap middle to stop
 - Up to **6** stable project slots (create / open / rename / delete, poster art from your clips)
 - Big Go CTA: on-device export to **one video file**, then Share (system sheet) or Save
@@ -131,7 +134,7 @@ before this feature simply lack the data and degrade gracefully.
 | clips    | Clip metadata, `Blob` media, filmstrip thumbnails     |
 | undo     | Last deleted clip per project (for Undo)              |
 | meta     | Settings (`maxProjects`, last opened id, onboarding)  |
-| audio    | Background-music playlist per project (blobs, volumes, fades) |
+| audio    | Background-music playlist per project (blobs, volumes, per-track trims/levels/fades) |
 
 Database name: `kody-video`. Blobs never leave the device unless the user explicitly shares/downloads.
 
