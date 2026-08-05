@@ -373,6 +373,8 @@ export function EditorScreen(handle: Handle<EditorScreenProps>) {
                     }
                   : selected
               }
+              clips={clips}
+              audio={props.audio}
               apiRef={previewApi}
             />
           ) : (

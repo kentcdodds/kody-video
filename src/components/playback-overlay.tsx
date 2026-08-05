@@ -1,15 +1,22 @@
 import type { Handle } from 'remix/ui'
 import { on, ref } from 'remix/ui'
 import { planExport } from '../lib/export'
-import { FADE_IN_MS, FADE_OUT_MS } from '../lib/export/background-audio'
-import { measureAudioNormalization } from '../lib/preview-audio-normalization'
 import {
-  clipAudioVolume,
-  resolveAudioTrackPlayback,
-  type ClipRecord,
-  type ProjectAudioRecord,
-  type ProjectAudioTrack,
-} from '../lib/types'
+  clipElementVolume,
+  measureAudioNormalization,
+  musicElementVolume,
+  peekAudioNormalization,
+} from '../lib/preview-audio-normalization'
+import {
+  playlistBoundaryMs,
+  playlistFadeOutScale,
+  playlistTrackAtMs,
+  trackKeptDurationMs,
+  trackMediaSec,
+  trackMusicGain,
+  trackPlayback,
+} from '../lib/preview-music-bed'
+import { clipAudioVolume, type ClipRecord, type ProjectAudioRecord } from '../lib/types'
 import { IconPlay } from './icons'
 import { isInteractiveTarget } from '../lib/keyboard'
 
@@ -72,51 +79,17 @@ export function PlaybackOverlay(handle: Handle<PlaybackOverlayProps>) {
 
   // Export-fidelity levels: the export peak-normalizes BOTH sources toward
   // the same peak before blending by the mix share (a quietly mastered song
-  // is boosted up to 4×), so element volumes alone would play the music at
-  // the wrong level relative to the clips. One Web Audio gain per element
-  // carries its source's normalization scale (the element volume keeps
-  // carrying the share/fade glide) — the product is the export's gain, and
-  // gains above 1 need Web Audio anyway (element volume caps at 1).
-  let audioContext: AudioContext | null = null
-  let clipGainNode: GainNode | null = null
-  let musicGainNode: GainNode | null = null
-  let graphFailed = false
-  let appliedClipScale = 1
-  let appliedMusicScale = 1
-  /** Measured per source blob: the export's normalization gain + decoded
-   * length (kicked off when the preview opens, glides in when it lands). */
-  const measured = new Map<Blob, { scale: number; decodedDurationMs: number | null }>()
-  const measuring = new Set<Blob>()
+  // is boosted up to 4×). The previews carry those measured scales through
+  // plain element volumes, clamped to the ceiling of 1 — deliberately NOT
+  // through a Web Audio media-element graph, whose captured elements go
+  // permanently silent on WebKit/iOS whenever the context is not running.
+  // See preview-audio-normalization.ts for the trade-off. Playlist
+  // geometry (trims, levels, interior fades) lives in preview-music-bed.ts,
+  // shared with the editor's clip stage.
 
-  const requestMeasure = (blob: Blob) => {
-    if (measured.has(blob) || measuring.has(blob)) return
-    measuring.add(blob)
-    void measureAudioNormalization(blob).then((info) => {
-      measured.set(blob, info)
-    })
-  }
-
-  /** Normalization gain the export applies to this source (1 until measured). */
-  const scaleFor = (blob: Blob): number => {
-    requestMeasure(blob)
-    return measured.get(blob)?.scale ?? 1
-  }
-
-  /** The track's playback settings (trim window, level, fades) resolved
-   * against the playlist defaults. */
-  const trackPlayback = (track: ProjectAudioTrack) =>
-    resolveAudioTrackPlayback(track, props.audio!)
-
-  /** Track length on the output timeline: the KEPT (trimmed) window,
-   * clamped to the real media. The export hands off to the next playlist
-   * track where the previous one's DECODED samples end, which can differ
-   * from the stored metadata duration — prefer the measured value. */
-  const trackDurationMs = (track: ProjectAudioTrack): number => {
-    const mediaMs = measured.get(track.blob)?.decodedDurationMs ?? track.durationMs
-    const playback = trackPlayback(track)
-    const endMs = Math.min(playback.trimEndMs, mediaMs)
-    return Math.max(0, endMs - Math.min(playback.trimStartMs, endMs))
-  }
+  /** Normalization gain the export applies to this source (1 until the
+   * background measurement lands). */
+  const scaleFor = (blob: Blob): number => peekAudioNormalization(blob)?.scale ?? 1
 
   /** A rejected play() surfaces the tap-to-play affordance only for
    * autoplay-policy rejections. AbortError means the attempt was merely
@@ -125,68 +98,6 @@ export function PlaybackOverlay(handle: Handle<PlaybackOverlayProps>) {
    * controls then is wrong (and blocks the button underneath). */
   const rejectionNeedsTap = (error: unknown): boolean =>
     !(error instanceof DOMException && error.name === 'AbortError')
-
-  /** Synchronous, gesture-time nudge for a suspended context: Safari (and
-   * iOS in particular) only honors resume() called from inside a
-   * user-gesture handler — the async promise continuations where playback
-   * starts are too late there. Called at the top of every tap/key path. */
-  const resumeAudioContextFromGesture = () => {
-    if (audioContext?.state === 'suspended') {
-      void audioContext.resume().catch(() => undefined)
-    }
-  }
-
-  /** Route both elements through per-source normalization gains. Wired only
-   * once the context is RUNNING: elements captured by a suspended graph go
-   * silent, while unwired elements still play (at share volume, just
-   * without the normalization scales). */
-  const ensureAudioGraph = () => {
-    if (graphFailed || clipGainNode || !videoEl || !audioEl) return
-    try {
-      audioContext ??= new AudioContext()
-      if (audioContext.state !== 'running') return
-      const clip = audioContext.createGain()
-      const music = audioContext.createGain()
-      // Destination first: if capturing the second element throws below,
-      // the first one is already wired through and stays audible.
-      clip.connect(audioContext.destination)
-      music.connect(audioContext.destination)
-      audioContext.createMediaElementSource(videoEl).connect(clip)
-      audioContext.createMediaElementSource(audioEl).connect(music)
-      clipGainNode = clip
-      musicGainNode = music
-      // Test observability: the gain nodes are unreachable from the DOM.
-      audioEl.dataset.clipScale = String(appliedClipScale)
-      audioEl.dataset.musicScale = String(appliedMusicScale)
-    } catch {
-      graphFailed = true
-    }
-  }
-
-  /** Glide both gains toward the export's music-side gains — the clip's
-   * normalization from the current segment, the music's normalization
-   * shaped by the loaded track's level and interior fades. */
-  const applyNormalizationGains = () => {
-    ensureAudioGraph()
-    const context = audioContext
-    if (!context || !clipGainNode || !musicGainNode || !audioEl) return
-    const segment = currentSegment()
-    const clipScale = segment ? scaleFor(segment.clip.blob) : 1
-    const currentTrack = props.audio?.tracks[musicTrackIndex]
-    const musicScale = currentTrack
-      ? scaleFor(currentTrack.blob) * trackMusicGain(currentTrack)
-      : 1
-    if (clipScale !== appliedClipScale) {
-      appliedClipScale = clipScale
-      clipGainNode.gain.setTargetAtTime(clipScale, context.currentTime, 0.05)
-      audioEl.dataset.clipScale = String(clipScale)
-    }
-    if (musicScale !== appliedMusicScale) {
-      appliedMusicScale = musicScale
-      musicGainNode.gain.setTargetAtTime(musicScale, context.currentTime, 0.05)
-      audioEl.dataset.musicScale = String(musicScale)
-    }
-  }
 
   const currentSegment = () => resolveSegments()[index] ?? null
   const startSec = () => {
@@ -215,50 +126,11 @@ export function PlaybackOverlay(handle: Handle<PlaybackOverlayProps>) {
     return last ? last.offsetMs + (last.endMs - last.startMs) : 0
   }
 
-  /** Whether this track's kept window ends before the film does — its own
-   * fade-out is interior then (a film-end cut fades via fadeOutScale). */
-  const trackEndsBeforeFilm = (index: number): boolean => {
-    const tracks = props.audio?.tracks ?? []
-    let end = 0
-    for (let i = 0; i <= index && i < tracks.length; i += 1) {
-      end += trackDurationMs(tracks[i])
-    }
-    return end < filmTotalMs()
-  }
-
-  /** The export's per-track music gain at the element's position: the
-   * track's level shaped by its interior fades (fade-in only for tracks
-   * starting mid-film, fade-out only when the track ends before the film —
-   * the film-edge fades ride the element volume instead). */
-  const trackMusicGain = (track: ProjectAudioTrack): number => {
-    const playback = trackPlayback(track)
-    let gain = playback.volume
-    const el = audioEl
-    if (!el) return gain
-    const posMs = el.currentTime * 1000 - playback.trimStartMs
-    if (playback.fadeIn && musicTrackIndex > 0 && posMs < FADE_IN_MS) {
-      gain *= Math.max(0, posMs / FADE_IN_MS)
-    }
-    if (playback.fadeOut && trackEndsBeforeFilm(musicTrackIndex)) {
-      const tailMs = trackDurationMs(track) - posMs
-      if (tailMs < FADE_OUT_MS) gain *= Math.max(0, tailMs / FADE_OUT_MS)
-    }
-    return gain
-  }
-
   /** Mirror the export's end-of-film fade-out in the live preview: when
    * the track playing at the film's end has fade-out on, the music target
    * scales down toward silence inside the final FADE_OUT_MS. */
-  const fadeOutScale = () => {
-    const audio = props.audio
-    if (!audio) return 1
-    const totalMs = filmTotalMs()
-    if (totalMs <= 0) return 1
-    const covering = trackAtMs(Math.max(0, totalMs - 1))
-    if (!covering || !trackPlayback(audio.tracks[covering.index]).fadeOut) return 1
-    const remainingMs = totalMs - timelinePositionMs()
-    return Math.max(0, Math.min(1, remainingMs / FADE_OUT_MS))
-  }
+  const fadeOutScale = () =>
+    props.audio ? playlistFadeOutScale(props.audio, timelinePositionMs(), filmTotalMs()) : 1
 
   /** Playhead position on the output timeline, in ms. */
   const timelinePositionMs = () => {
@@ -268,19 +140,10 @@ export function PlaybackOverlay(handle: Handle<PlaybackOverlayProps>) {
     return segment.offsetMs + elapsedSec * 1000
   }
 
-  /** Playlist track and in-track offset covering an output position, or
-   * null when the playlist has already run out there. */
-  const trackAtMs = (positionMs: number): { index: number; offsetMs: number } | null => {
-    const tracks = props.audio?.tracks ?? []
-    let cursor = 0
-    for (let i = 0; i < tracks.length; i += 1) {
-      if (positionMs < cursor + trackDurationMs(tracks[i])) {
-        return { index: i, offsetMs: positionMs - cursor }
-      }
-      cursor += trackDurationMs(tracks[i])
-    }
-    return null
-  }
+  /** Playlist track and in-track KEPT-window offset covering an output
+   * position, or null when the playlist has already run out there. */
+  const trackAtMs = (positionMs: number): { index: number; offsetMs: number } | null =>
+    props.audio ? playlistTrackAtMs(props.audio, positionMs) : null
 
   const urlForTrack = (trackIndex: number): string => {
     let url = trackUrls.get(trackIndex)
@@ -314,11 +177,9 @@ export function PlaybackOverlay(handle: Handle<PlaybackOverlayProps>) {
       // track's tail there). Once the current element has ENDED there is
       // also nothing to protect (play() on it would restart it from 0),
       // so a backward skip switches to the covering track instead.
-      const boundaryMs = props.audio.tracks
-        .slice(0, target.index + 1)
-        .reduce((sum, track) => sum + trackDurationMs(track), 0)
+      const boundaryMs = playlistBoundaryMs(props.audio, target.index)
       const overshootPossible =
-        measured.get(props.audio.tracks[target.index].blob)?.decodedDurationMs == null
+        peekAudioNormalization(props.audio.tracks[target.index].blob)?.decodedDurationMs == null
       const nearHandOff =
         overshootPossible &&
         target.index < musicTrackIndex &&
@@ -328,14 +189,12 @@ export function PlaybackOverlay(handle: Handle<PlaybackOverlayProps>) {
         musicTrackIndex = target.index
         audio.src = urlForTrack(target.index)
         // offsetMs is inside the KEPT window — media time adds the trim.
-        audio.currentTime =
-          (trackPlayback(props.audio.tracks[target.index]).trimStartMs + target.offsetMs) / 1000
+        audio.currentTime = trackMediaSec(props.audio, target.index, target.offsetMs)
         playlistDone = false
       }
       return true
     }
-    const expectedSec =
-      (trackPlayback(props.audio.tracks[target.index]).trimStartMs + target.offsetMs) / 1000
+    const expectedSec = trackMediaSec(props.audio, target.index, target.offsetMs)
     // Positions inside a finished track's metadata overshoot have no
     // decoded audio behind them — playing there would RESTART the ended
     // element (play() on an ended media element seeks back to 0).
@@ -367,14 +226,11 @@ export function PlaybackOverlay(handle: Handle<PlaybackOverlayProps>) {
     }
     musicTrackIndex = next
     audio.src = urlForTrack(next)
-    audio.currentTime = trackPlayback(tracks[next]).trimStartMs / 1000
+    audio.currentTime = trackMediaSec(props.audio!, next, 0)
     if (videoEl && !videoEl.paused) void audio.play().catch(() => undefined)
   }
 
   const playMusic = () => {
-    // Every play request runs from a user-gesture path — the moment a
-    // suspended normalization graph is allowed to start.
-    void audioContext?.resume().catch(() => undefined)
     if (!syncMusicPosition()) return
     void audioEl?.play().catch(() => undefined)
   }
@@ -388,22 +244,14 @@ export function PlaybackOverlay(handle: Handle<PlaybackOverlayProps>) {
     if (!track) return
     audioEl = el
     // No fade-in on the opening track means the music starts at the clip's
-    // volume; otherwise the per-frame glide below fades it in from silence.
+    // mix level; otherwise the per-frame glide below fades it in from
+    // silence. `mix` is the export envelope's value (share × film-edge
+    // fades), tracked apart from the element volume so the normalization
+    // scales can multiply on top without distorting the glide.
     const firstTrack = track.tracks[0]
-    const opensWithFade = firstTrack ? trackPlayback(firstTrack).fadeIn : track.fadeIn
-    el.volume = opensWithFade ? 0 : segmentMusicVolume()
-
-    // Create the context NOW — as close to the opening tap as possible, so
-    // browsers that gate Web Audio on user activation start it running
-    // (created any later, only a fresh gesture could unsuspend it).
-    try {
-      audioContext ??= new AudioContext()
-      if (audioContext.state === 'suspended') {
-        void audioContext.resume().catch(() => undefined)
-      }
-    } catch {
-      graphFailed = true
-    }
+    const opensWithFade = firstTrack ? trackPlayback(track, firstTrack).fadeIn : track.fadeIn
+    let mix = opensWithFade ? 0 : segmentMusicVolume()
+    el.volume = mix
 
     // Measure every source up front, one decode at a time: the scales and
     // decoded track lengths should be ready by the time the playhead needs
@@ -415,7 +263,7 @@ export function PlaybackOverlay(handle: Handle<PlaybackOverlayProps>) {
       ]
       for (const blob of blobs) {
         if (audioEl !== el) return
-        measured.set(blob, await measureAudioNormalization(blob))
+        await measureAudioNormalization(blob)
         // A decoded track length that differs from the stored metadata
         // duration moves the playlist's boundaries — realign the bed to
         // the corrected (export-true) position right away instead of
@@ -426,23 +274,27 @@ export function PlaybackOverlay(handle: Handle<PlaybackOverlayProps>) {
       }
     })()
 
-    // Per-frame glide of BOTH sides of the mix: the music toward the
-    // current clip's share, the clip's own sound toward the complement
-    // (1 − share) — mirroring the export blend. Where the playlist has run
-    // out, the clip glides back to full volume.
+    // Per-frame glide of BOTH sides of the mix: the export envelope value
+    // glides toward the current clip's share (0 where the playlist has run
+    // out), and each element's volume is its side of the blend times its
+    // source's normalization scale, clamped to the element ceiling.
     let last = performance.now()
     let raf = 0
+    let reportedClipScale = ''
+    let reportedMusicScale = ''
     const tick = (now: number) => {
       const dt = Math.min(100, now - last)
       last = now
-      applyNormalizationGains()
       // A trimmed track never reaches its media's end, so 'ended' cannot
       // fire — hand off to the next track at the kept window's edge.
       if (!el.paused && musicTrackIndex >= 0 && props.audio) {
         const playing = props.audio.tracks[musicTrackIndex]
         if (playing) {
-          const endSec =
-            (trackPlayback(playing).trimStartMs + trackDurationMs(playing)) / 1000
+          const endSec = trackMediaSec(
+            props.audio,
+            musicTrackIndex,
+            trackKeptDurationMs(props.audio, playing),
+          )
           const mediaEndSec = Number.isFinite(el.duration) ? el.duration : Infinity
           if (endSec < mediaEndSec - 0.05 && el.currentTime >= endSec - 0.03) {
             advanceMusicTrack()
@@ -453,25 +305,42 @@ export function PlaybackOverlay(handle: Handle<PlaybackOverlayProps>) {
           }
         }
       }
-      const target = segmentMusicVolume()
+      const musicHere =
+        !playlistDone && trackAtMs(timelinePositionMs()) !== null
+      const target = musicHere ? segmentMusicVolume() : 0
       const alpha = 1 - Math.exp(-dt / MUSIC_VOLUME_TAU_MS)
-      const next = el.volume + (target - el.volume) * alpha
-      el.volume = Math.abs(next - target) < 0.005 ? target : next
+      const next = mix + (target - mix) * alpha
+      mix = Math.abs(next - target) < 0.005 ? target : next
+      // The element's volume is the export's music-side gain: the gliding
+      // envelope × the track's normalization boost × the track's level and
+      // interior fades, clamped to the element ceiling.
+      const trackBlob = props.audio?.tracks[musicTrackIndex]?.blob
+      const musicScale = trackBlob ? scaleFor(trackBlob) : 1
+      const musicGain =
+        props.audio && musicTrackIndex >= 0
+          ? trackMusicGain(props.audio, musicTrackIndex, el.currentTime, filmTotalMs())
+          : 1
+      el.volume = musicElementVolume(mix, musicScale * musicGain)
       const video = videoEl
+      const segment = currentSegment()
+      const clipScale = segment ? scaleFor(segment.clip.blob) : 1
       if (video) {
-        const musicHere =
-          props.audio && !playlistDone ? trackAtMs(timelinePositionMs()) !== null : false
-        if (musicHere) {
-          // Exact mirror of the export blend: the clip's own sound always
-          // carries the complement of the music's CURRENT (gliding)
-          // volume — during the fade-in the clip starts at full and only
-          // comes down as the bed actually rises.
-          video.volume = Math.max(0, Math.min(1, 1 - el.volume))
-        } else {
-          // No music here (playlist over) — glide back up to full.
-          const nextClip = video.volume + (1 - video.volume) * alpha
-          video.volume = Math.min(1, nextClip > 0.995 ? 1 : nextClip)
-        }
+        // The clip's own sound carries the complement of the CURRENT
+        // (gliding) mix — during the fade-in it starts at full and only
+        // comes down as the bed actually rises. After the playlist ends it
+        // keeps its normalization, exactly like the export's foreground.
+        video.volume = clipElementVolume(mix, clipScale)
+      }
+      // Test observability for the applied normalization scales.
+      const clipScaleText = String(clipScale)
+      if (clipScaleText !== reportedClipScale) {
+        reportedClipScale = clipScaleText
+        el.dataset.clipScale = clipScaleText
+      }
+      const musicScaleText = String(musicScale)
+      if (musicScaleText !== reportedMusicScale) {
+        reportedMusicScale = musicScaleText
+        el.dataset.musicScale = musicScaleText
       }
       raf = requestAnimationFrame(tick)
     }
@@ -484,10 +353,6 @@ export function PlaybackOverlay(handle: Handle<PlaybackOverlayProps>) {
       for (const url of trackUrls.values()) URL.revokeObjectURL(url)
       trackUrls.clear()
       musicTrackIndex = -1
-      clipGainNode = null
-      musicGainNode = null
-      void audioContext?.close().catch(() => undefined)
-      audioContext = null
     })
   }
 
@@ -509,8 +374,6 @@ export function PlaybackOverlay(handle: Handle<PlaybackOverlayProps>) {
   }
 
   const goTo = (nextIndex: number) => {
-    // Skips arrive from taps/keys — the moment a suspended graph may start.
-    resumeAudioContextFromGesture()
     advancedFor = -1
     segmentProgress = 0
     needsTap = false
@@ -589,7 +452,6 @@ export function PlaybackOverlay(handle: Handle<PlaybackOverlayProps>) {
         event.preventDefault()
         // Auto-repeat while held must not rapid-toggle pause/resume.
         if (event.repeat) return
-        resumeAudioContextFromGesture()
         const video = videoEl
         if (!video) return
         if (video.paused) {
@@ -751,7 +613,6 @@ export function PlaybackOverlay(handle: Handle<PlaybackOverlayProps>) {
             type="button"
             className="playback-resume"
             mix={on('click', () => {
-              resumeAudioContextFromGesture()
               const video = videoEl
               if (video)
                 void video
