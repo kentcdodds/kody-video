@@ -17,6 +17,7 @@ import {
   getProjectAudio,
   getSettings,
   getUndoSnapshot,
+  isStaleConnectionError,
   listProjects,
   moveClip,
   removeProjectAudioTrack,
@@ -49,6 +50,42 @@ describe('storage layer', () => {
     await setOnboardingDismissed(true)
 
     expect((await getSettings()).onboardingDismissed).toBe(true)
+  })
+
+  it('reopens when the cached IDB connection is closing (iOS Safari)', async () => {
+    // KODY-VIDEO-F: iOS Safari closes the connection on background/navigation
+    // while our module still caches the handle. close() puts the connection in
+    // the "closing" state where transaction() throws InvalidStateError before
+    // the close event drops the singleton — the same window getSettings hit.
+    const stale = await getDb()
+    stale.close()
+
+    await expect(getSettings()).resolves.toMatchObject({ key: 'settings' })
+    const reopened = await getDb()
+    expect(reopened).not.toBe(stale)
+    await expect(createProject('After reopen')).resolves.toMatchObject({
+      name: 'After reopen',
+    })
+  })
+
+  it('recognizes the IndexedDB closing/closed InvalidStateError signature', () => {
+    expect(
+      isStaleConnectionError(
+        new DOMException(
+          "Failed to execute 'transaction' on 'IDBDatabase': The database connection is closing.",
+          'InvalidStateError',
+        ),
+      ),
+    ).toBe(true)
+    expect(
+      isStaleConnectionError(
+        new DOMException('The database connection is closed.', 'InvalidStateError'),
+      ),
+    ).toBe(true)
+    expect(isStaleConnectionError(new DOMException('Quota exceeded', 'QuotaExceededError'))).toBe(
+      false,
+    )
+    expect(isStaleConnectionError(new Error('nope'))).toBe(false)
   })
 
   it('heals a DB left empty by a version-less open (diag-style)', async () => {

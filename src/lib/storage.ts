@@ -46,6 +46,7 @@ export const DB_NAME = 'kody-video'
 export const DB_VERSION = 3
 
 let dbPromise: Promise<IDBPDatabase<ClipsDB>> | null = null
+let activeDb: IDBPDatabase<ClipsDB> | null = null
 
 /**
  * Finish an explicit idb transaction without leaking AbortError.
@@ -93,15 +94,77 @@ export function ensureObjectStores(db: {
   }
 }
 
-export function getDb(): Promise<IDBPDatabase<ClipsDB>> {
-  if (!dbPromise) {
-    dbPromise = openDB<ClipsDB>(DB_NAME, DB_VERSION, {
-      upgrade(db) {
-        ensureObjectStores(db)
-      },
-    })
+/** True when IndexedDB rejected because the cached connection is gone. */
+export function isStaleConnectionError(error: unknown): boolean {
+  if (!(error instanceof DOMException) && !(error instanceof Error)) return false
+  if (error.name !== 'InvalidStateError') return false
+  return /database connection is (closing|closed)/i.test(error.message)
+}
+
+function forgetCachedDb(closedDb?: IDBPDatabase<ClipsDB> | null): void {
+  // A concurrent reopen may already own the cache — don't clobber it.
+  if (closedDb && activeDb && closedDb !== activeDb) return
+  activeDb = null
+  dbPromise = null
+}
+
+function openTrackedDb(): Promise<IDBPDatabase<ClipsDB>> {
+  // Capture this open's handle in terminated — activeDb may already point at
+  // a newer reconnect by the time the close event runs.
+  const tracked = openDB<ClipsDB>(DB_NAME, DB_VERSION, {
+    upgrade(db) {
+      ensureObjectStores(db)
+    },
+    terminated() {
+      // iOS Safari often closes IDB when the page is backgrounded. Drop the
+      // singleton so the next getDb() opens a fresh connection.
+      void tracked.then((db) => forgetCachedDb(db))
+    },
+  }).then((db) => {
+    activeDb = db
+    return db
+  })
+  return tracked
+}
+
+/**
+ * Open (or reuse) the app IndexedDB connection.
+ *
+ * The handle is cached, but browsers — especially iOS Safari — may close it
+ * out from under us. getDb() clears the cache on close and, if a caller still
+ * holds a closing handle, probes and reopens once so getSettings/load-home
+ * does not surface InvalidStateError.
+ */
+export async function getDb(): Promise<IDBPDatabase<ClipsDB>> {
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    if (!dbPromise) {
+      dbPromise = openTrackedDb().catch((error) => {
+        forgetCachedDb()
+        throw error
+      })
+    }
+    const pending = dbPromise
+    try {
+      const db = await pending
+      // transaction() throws InvalidStateError while the connection is
+      // closing/closed — before the close event clears our cache (KODY-VIDEO-F).
+      db.transaction('meta')
+      return db
+    } catch (error) {
+      if (!isStaleConnectionError(error) || attempt === 1) throw error
+      if (dbPromise === pending) {
+        const stale = activeDb
+        forgetCachedDb(stale)
+        try {
+          stale?.close()
+        } catch {
+          // Already closing/closed.
+        }
+      }
+    }
   }
-  return dbPromise
+  // Unreachable: the loop either returns or throws on the final attempt.
+  throw new Error('Failed to open IndexedDB')
 }
 
 /** Test helper: close open connections and clear the module-level DB handle. */
@@ -110,7 +173,7 @@ export async function __resetDbForTests(): Promise<void> {
     const db = await dbPromise.catch(() => null)
     db?.close()
   }
-  dbPromise = null
+  forgetCachedDb()
   await new Promise<void>((resolve, reject) => {
     const req = indexedDB.deleteDatabase(DB_NAME)
     req.onsuccess = () => resolve()
