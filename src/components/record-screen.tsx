@@ -344,12 +344,15 @@ export function RecordScreen(handle: Handle<RecordScreenProps>) {
     try {
       // Grab the mic only for this take so Brave/Android voice-to-text stays free while idle.
       await camera.enableMic()
+      // Aborted presses keep the just-acquired mic warm — the real press
+      // usually follows within moments and must not pay a fresh
+      // acquisition's silent ramp-up at its head.
       if (nextPointerId !== null && pointerId !== nextPointerId) {
-        camera.releaseMic()
+        camera.releaseMic({ keepWarm: true })
         return false
       }
       if (nextRecordingMode === 'hold' && nextPointerId !== null && pointerId === null) {
-        camera.releaseMic()
+        camera.releaseMic({ keepWarm: true })
         return false
       }
       // Re-check after the mic await — an overlay may have opened meanwhile.
