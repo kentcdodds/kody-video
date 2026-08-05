@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest'
+import { MIN_SEGMENT_MS } from './plan'
 import {
   CROSSFADE_HALF_MS,
   CROSSFADE_MS,
@@ -37,6 +38,15 @@ function slice(
 }
 
 describe('sliceSegmentAudio', () => {
+  it('is only fed segments longer than a full crossfade', () => {
+    // The exporter chops a fixed CROSSFADE_HALF_MS of video per joint side
+    // and this module withholds a fixed CROSSFADE_MS of audio per joint —
+    // safe only while the planner's minimum keeps at least half of every
+    // segment. clampSegmentToMedia drops anything under MIN_SEGMENT_MS, so
+    // this bound is what protects the chop from inverting a segment.
+    expect(MIN_SEGMENT_MS).toBeGreaterThanOrEqual(CROSSFADE_MS * 2)
+  })
+
   it('produces exactly the segment duration when the film is one clip', () => {
     const { channels, carryOut } = slice({})
     expect(channels).toHaveLength(2)

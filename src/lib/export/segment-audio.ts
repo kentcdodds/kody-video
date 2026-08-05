@@ -18,7 +18,11 @@
  */
 
 /** Half the joint overlap: each neighbor contributes this much on its side
- * of the cut, and gives up this much video at the joint. */
+ * of the cut, and gives up this much video at the joint. The exporter's
+ * fixed video chops rely on every emitted segment being longer than a full
+ * crossfade — guaranteed because clampSegmentToMedia drops anything under
+ * MIN_SEGMENT_MS (see plan.ts, and the invariant test in
+ * segment-audio.test.ts). */
 export const CROSSFADE_HALF_MS = 10
 /** Full audio overlap at a joint. */
 export const CROSSFADE_MS = CROSSFADE_HALF_MS * 2
