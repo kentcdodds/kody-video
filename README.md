@@ -213,6 +213,24 @@ loads, since keeping it would change nothing the user can see.
 Deployment requirement: set `STRIPE_SECRET_KEY` (a restricted key with
 Checkout Sessions read access is enough) on the Cloudflare Pages project.
 
+## Rewrite showcases
+
+The app has been implemented four times as an experiment series, and every
+edition stays online as a living showcase. Each deployment carries a
+dismissible banner pointing back to the real app and to the PR where the
+agent analyzed that edition:
+
+| Origin | Edition | Analysis |
+|--------|---------|----------|
+| [kody.video](https://kody.video) | Remix 3 (this branch — production) | — |
+| [remix.kody.video](https://remix.kody.video) | Remix 3 rewrite preview (proxies production) | [PR #87](https://github.com/kentcdodds/kody-video/pull/87) |
+| [react.kody.video](https://react.kody.video) | React 19 + React Router 7 (pre-rewrite, branch `cursor/react-legacy-b52b`) | [PR #87](https://github.com/kentcdodds/kody-video/pull/87) |
+| [vanilla.kody.video](https://vanilla.kody.video) | Web components, no build, no deps (branch `vanilla`) | [PR #88](https://github.com/kentcdodds/kody-video/pull/88) |
+| [typescript.kody.video](https://typescript.kody.video) | The vanilla app in strict TypeScript, `tsc`-only build (branch `typescript`) | [PR #89](https://github.com/kentcdodds/kody-video/pull/89) |
+
+Storage is per-origin, so projects recorded on a showcase stay there — use
+backup/import to move them to [kody.video](https://kody.video).
+
 ## Support
 
 Email [team@kody.video](mailto:team@kody.video) or open a GitHub issue (the
@@ -249,6 +267,8 @@ in-app About page has a link that pre-fills device details).
 | `node scripts/probe-rear-lens.mjs`   | Rear lens switching (ultra-wide) with fake cameras |
 | `node scripts/probe-fast-export.mjs` | Decode-driven export beats realtime (MP4 clips) |
 | `node scripts/probe-mic-monitor.mjs`  | Silent-mic warning fires (and clears) correctly |
+| `node scripts/probe-install-hint.mjs` | iOS install hint shows/dismisses per user agent (needs `npm run build`) |
+| `node scripts/probe-deployed-remix.mjs` | Live smoke against a deployed origin (defaults to remix.kody.video) |
 | `node scripts/probe-screen-record.mjs` | Desktop screen recording lands as a clip |
 | `node scripts/probe-touch-timeline.mjs` | Touch timeline gestures (scroll, long-press lift) |
 | `node scripts/probe-webkit.mjs`      | WebKit engine sanity + feature matrix (iOS proxy, not a substitute for a real device) |

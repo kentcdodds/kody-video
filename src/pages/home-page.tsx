@@ -26,6 +26,11 @@ import { clearExportCache } from '../lib/export/export-cache'
 import { reportError } from '../lib/error-reporting'
 import { canPromptInstall, promptInstall, subscribeInstallPrompt } from '../lib/install-prompt'
 import { dismissIosInstallHint, shouldShowIosInstallHint } from '../lib/install-hint'
+import {
+  dismissShowcaseBanner,
+  isShowcaseBannerDismissed,
+  showcaseForHostname,
+} from '../lib/showcase'
 import { navigate } from '../router'
 import { formatBytes, formatStoragePercent, storageSeverity } from '../lib/storage-space'
 import {
@@ -64,6 +69,8 @@ export function HomePage(handle: Handle) {
   let upselling = false
   let restoring = false
   let installPopoverOpen = false
+  const showcase = showcaseForHostname(location.hostname)
+  let showShowcaseBanner = showcase !== null && !isShowcaseBannerDismissed()
   // Prefetched when the options sheet opens so the Save-backup tap keeps its
   // user activation (Web Share needs it; an IndexedDB read can outlive it).
   let prefetchedClips: {
@@ -288,6 +295,35 @@ export function HomePage(handle: Handle) {
             Projects live in this browser per-site, so use ⋯ → Save backup here, then import them
             over there (About → Import a backup). This address keeps working but won&rsquo;t get
             updates.
+          </div>
+        ) : null}
+
+        {showcase && showShowcaseBanner ? (
+          <div className="home-migrate home-showcase" role="note">
+            <span>
+              <strong>
+                This is the {showcase.edition} showcase — the real app lives at{' '}
+                <a href="https://kody.video">kody.video</a>.
+              </strong>{' '}
+              Projects stay in this browser per-site, so record over there. Curious how this
+              edition came to be? Read the agent&rsquo;s analysis in{' '}
+              <a href={showcase.prUrl} target="_blank" rel="noreferrer noopener">
+                PR #{showcase.prNumber}
+              </a>
+              .
+            </span>
+            <button
+              type="button"
+              className="install-hint-dismiss"
+              aria-label="Dismiss showcase note"
+              mix={on('click', () => {
+                dismissShowcaseBanner()
+                showShowcaseBanner = false
+                void handle.update()
+              })}
+            >
+              <IconClose size={16} />
+            </button>
           </div>
         ) : null}
 

@@ -411,6 +411,13 @@
   text-underline-offset: 2px;
 }
 
+/* Rewrite-showcase note (remix.kody.video): migrate styling + a dismiss. */
+.home-showcase {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+}
+
 .home-install-hint {
   display: flex;
   align-items: flex-start;

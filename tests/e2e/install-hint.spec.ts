@@ -23,14 +23,16 @@ test.describe('iOS install hint', () => {
     })
     const page = await context.newPage()
     await page.goto('/')
-    await expect(page.locator('.home-hero')).toBeVisible()
+    // `.home-hero` is a hidden layout spacer on mobile (the visible hero is
+    // the static #boot-hero); the slots are the "home rendered" signal.
+    await expect(page.locator('.project-slot').first()).toBeVisible()
     await expect(page.locator('.home-install-hint')).toBeHidden()
     await context.close()
   })
 
   test('hidden in non-iOS browsers', async ({ page }) => {
     await page.goto('/')
-    await expect(page.locator('.home-hero')).toBeVisible()
+    await expect(page.locator('.project-slot').first()).toBeVisible()
     await expect(page.locator('.home-install-hint')).toBeHidden()
   })
 })
