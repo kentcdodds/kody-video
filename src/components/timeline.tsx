@@ -336,8 +336,12 @@ export function Timeline(handle: Handle<TimelineProps>) {
                 role="option"
                 aria-selected={selected}
                 aria-label={`Clip ${index + 1}, ${formatDuration(effectiveDurationMs(clip))}${
-                  props.showAudioBadges && clip.audioVolume !== undefined
-                    ? `, music ${Math.round(clip.audioVolume * 100)}%`
+                  clip.clipVolume !== undefined
+                    ? `, clip sound ${Math.round(clip.clipVolume * 100)}%`
+                    : ''
+                }${
+                  props.showAudioBadges && clip.musicVolume !== undefined
+                    ? `, music ${Math.round(clip.musicVolume * 100)}%`
                     : ''
                 }`}
                 data-clip-id={clip.id}
@@ -378,9 +382,14 @@ export function Timeline(handle: Handle<TimelineProps>) {
                   )}
                 </div>
                 <span className="clip-dur">{formatDuration(effectiveDurationMs(clip))}</span>
-                {props.showAudioBadges && clip.audioVolume !== undefined ? (
+                {props.showAudioBadges && clip.musicVolume !== undefined ? (
                   <span className="clip-audio-badge" aria-hidden="true">
-                    ♪ {Math.round(clip.audioVolume * 100)}%
+                    ♪ {Math.round(clip.musicVolume * 100)}%
+                  </span>
+                ) : null}
+                {clip.clipVolume !== undefined ? (
+                  <span className="clip-volume-badge" aria-hidden="true">
+                    clip {Math.round(clip.clipVolume * 100)}%
                   </span>
                 ) : null}
               </button>

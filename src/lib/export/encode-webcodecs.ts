@@ -18,15 +18,20 @@ import {
 } from 'mediabunny'
 import { deriveProjectLocation } from '../geo'
 import { isIosBrowser } from '../platform'
-import { resolveAudioTrackPlayback, type ClipRecord } from '../types'
 import {
+  clipMusicVolume,
+  clipSoundVolume,
+  resolveAudioTrackPlayback,
+  type ClipRecord,
+} from '../types'
+import {
+  applyGainEnvelope,
   boundaryRampHalfMs,
   channelPeak,
   createBackgroundMixer,
   filmEdgeFades,
   normalizationScale,
   planSegmentGain,
-  segmentVolume,
   type BackgroundAudio,
 } from './background-audio'
 import { injectMp4Metadata, type Mp4Chapter } from './mp4-metadata'
@@ -194,14 +199,14 @@ export async function exportWithWebCodecs(
 
   // Background music: playlist tracks are decoded lazily (one at a time,
   // released as the timeline passes them) and BLENDED with each segment's
-  // audio slice under a per-segment mix envelope — the per-clip value is
-  // the music's share of the mix, the clip's own sound gets the
-  // complement, and both sources are peak-normalized first so the shares
-  // mean the same thing regardless of how hot either recording is.
-  // Envelopes are built from each segment's REAL (clamped) duration as it
-  // is mixed, so ramps and fades stay on their clips even when clamping
-  // shifts the timeline; only ramp-length clamping peeks at the next
-  // clip's planned duration.
+  // audio slice under two per-segment envelopes — the clip's own sound
+  // rides its clip-volume envelope and the music rides its music-volume
+  // envelope (scaling the playing track's own volume). Both sources are
+  // peak-normalized first so the dials mean the same thing regardless of
+  // how hot either recording is. Envelopes are built from each segment's
+  // REAL (clamped) duration as it is mixed, so ramps and fades stay on
+  // their clips even when clamping shifts the timeline; only ramp-length
+  // clamping peeks at the next clip's planned duration.
   const backgroundMixer =
     background && background.tracks.length > 0
       ? createBackgroundMixer(
@@ -259,9 +264,13 @@ export async function exportWithWebCodecs(
   /** Film-edge fades come from the tracks at the film's edges. */
   const backgroundEdgeFades = background ? filmEdgeFades(background, plan.totalMs) : null
   const plannedDurationsMs = plan.segments.map((s) => s.endMs - s.startMs)
-  /** Volume + real duration of the previous MIXED segment (dropped
+  /** Volumes + real duration of the previous EMITTED segment (dropped
    * segments must not become ramp anchors). */
-  let previousMixed: { volume: number; durationMs: number } | null = null
+  let previousSegment: {
+    musicVolume: number
+    clipVolume: number
+    durationMs: number
+  } | null = null
   /** Tail withheld from the previous EMITTED segment for the joint
    * crossfade (see segment-audio.ts); null until a segment emits. */
   let crossfadeCarry: Float32Array[] | null = null
@@ -327,12 +336,13 @@ export async function exportWithWebCodecs(
         // CROSSFADE at the joint: the previous slice withheld its tail, and
         // this slice mixes it into its own head (see segment-audio.ts).
         const buffer = await decodeClipAudio(segment.clip.blob, AUDIO_SAMPLE_RATE)
+        const sourceChannels = buffer
+          ? Array.from({ length: buffer.numberOfChannels }, (_, ch) =>
+              buffer.getChannelData(ch),
+            )
+          : null
         const { channels: sliceChannels, carryOut } = sliceSegmentAudio({
-          source: buffer
-            ? Array.from({ length: buffer.numberOfChannels }, (_, ch) =>
-                buffer.getChannelData(ch),
-              )
-            : null,
+          source: sourceChannels,
           startMs: clamped.startMs,
           segmentMs,
           sampleRate: AUDIO_SAMPLE_RATE,
@@ -341,52 +351,60 @@ export async function exportWithWebCodecs(
           hasNext,
         })
         crossfadeCarry = carryOut
+        // Per-clip levels + normalization apply with or without music.
+        const musicVolume = clipMusicVolume(segment.clip)
+        const clipVolume = clipSoundVolume(segment.clip)
+        // Whole-clip peak (not just this trim window) so a clip's
+        // loudness doesn't change with where it is trimmed.
+        const foregroundScale = normalizationScale(
+          sourceChannels ? channelPeak(sourceChannels) : 0,
+        )
+        // The slice's real span (joints shift it by half a crossfade).
+        const sliceDurationMs = (sliceChannels[0]!.length / AUDIO_SAMPLE_RATE) * 1000
+        const nextPlanned = plan.segments[segmentIndex + 1]
+        const entryHalfMs = previousSegment
+          ? boundaryRampHalfMs(previousSegment.durationMs, plannedDurationsMs[segmentIndex])
+          : 0
+        const exitHalfMs = nextPlanned
+          ? boundaryRampHalfMs(segmentMs, plannedDurationsMs[segmentIndex + 1])
+          : 0
+        const clipEnvelope = planSegmentGain({
+          volume: clipVolume,
+          durationMs: sliceDurationMs,
+          entry: previousSegment
+            ? { fromVolume: previousSegment.clipVolume, halfMs: entryHalfMs }
+            : undefined,
+          exit: nextPlanned
+            ? { toVolume: clipSoundVolume(nextPlanned.clip), halfMs: exitHalfMs }
+            : undefined,
+          fades: 'hold',
+        })
         if (backgroundMixer && background) {
-          const volume = segmentVolume(segment, background.defaultVolume)
-          const nextPlanned = plan.segments[segmentIndex + 1]
           await backgroundMixer.mixInto(
             sliceChannels,
             // Frames already written = the real position of this slice, even
             // when clamping shortened an earlier segment.
             audioFramesWritten,
-            planSegmentGain({
-              volume,
-              // The slice's real span (joints shift it by half a crossfade).
-              durationMs: (sliceChannels[0]!.length / AUDIO_SAMPLE_RATE) * 1000,
-              entry: previousMixed
-                ? {
-                    fromVolume: previousMixed.volume,
-                    halfMs: boundaryRampHalfMs(
-                      previousMixed.durationMs,
-                      plannedDurationsMs[segmentIndex],
-                    ),
-                  }
-                : undefined,
-              exit: nextPlanned
-                ? {
-                    toVolume: segmentVolume(nextPlanned, background.defaultVolume),
-                    halfMs: boundaryRampHalfMs(
-                      segmentMs,
-                      plannedDurationsMs[segmentIndex + 1],
-                    ),
-                  }
-                : undefined,
-              fades: backgroundEdgeFades ?? background,
-            }),
-            // Whole-clip peak (not just this trim window) so a clip's
-            // loudness doesn't change with where it is trimmed.
-            normalizationScale(
-              buffer
-                ? channelPeak(
-                    Array.from({ length: buffer.numberOfChannels }, (_, ch) =>
-                      buffer.getChannelData(ch),
-                    ),
-                  )
-                : 0,
-            ),
+            {
+              music: planSegmentGain({
+                volume: musicVolume,
+                durationMs: sliceDurationMs,
+                entry: previousSegment
+                  ? { fromVolume: previousSegment.musicVolume, halfMs: entryHalfMs }
+                  : undefined,
+                exit: nextPlanned
+                  ? { toVolume: clipMusicVolume(nextPlanned.clip), halfMs: exitHalfMs }
+                  : undefined,
+                fades: backgroundEdgeFades ?? background,
+              }),
+              clip: clipEnvelope,
+            },
+            foregroundScale,
           )
-          previousMixed = { volume, durationMs: segmentMs }
+        } else {
+          applyGainEnvelope(sliceChannels, clipEnvelope, AUDIO_SAMPLE_RATE, foregroundScale)
         }
+        previousSegment = { musicVolume, clipVolume, durationMs: segmentMs }
         await audioSource.add(toAudioBuffer(sliceChannels))
         audioFramesWritten += sliceChannels[0]!.length
 

@@ -301,7 +301,6 @@ export function ProjectPage(handle: Handle<ProjectPageProps>) {
                     fadeIn: track.fadeIn,
                     fadeOut: track.fadeOut,
                   })),
-                  defaultVolume: audio.defaultVolume,
                   fadeIn: audio.fadeIn,
                   fadeOut: audio.fadeOut,
                 }

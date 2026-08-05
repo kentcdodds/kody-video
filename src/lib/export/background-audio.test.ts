@@ -6,6 +6,7 @@ import {
   MAX_NORMALIZATION_BOOST,
   NORMALIZED_PEAK,
   VOLUME_RAMP_MS,
+  applyGainEnvelope,
   boundaryRampHalfMs,
   channelPeak,
   createBackgroundMixer,
@@ -13,7 +14,6 @@ import {
   gainAtMs,
   normalizationScale,
   planSegmentGain,
-  segmentVolume,
   type GainPoint,
   type SequentialBackgroundSource,
 } from './background-audio'
@@ -45,6 +45,28 @@ describe('planSegmentGain', () => {
     expect(gainAtMs(points, 100)).toBeCloseTo(0.25)
     expect(gainAtMs(points, 7900)).toBeCloseTo(0.25)
     expect(gainAtMs(points, 8000)).toBe(0)
+  })
+
+  it('holds the level flat at film edges for the clip envelope', () => {
+    // 'hold' is the clip-sound edge behavior: no fade to silence at the
+    // film's edges (segment slicing already click-kills hard edges).
+    const points = planSegmentGain({ volume: 0.7, durationMs: 8000, fades: 'hold' })
+    expect(gainAtMs(points, 0)).toBeCloseTo(0.7)
+    expect(gainAtMs(points, 4000)).toBeCloseTo(0.7)
+    expect(gainAtMs(points, 8000)).toBeCloseTo(0.7)
+  })
+
+  it('still ramps between neighbors under hold edges', () => {
+    const half = boundaryRampHalfMs(4000, 4000)
+    const incoming = planSegmentGain({
+      volume: 0.2,
+      durationMs: 4000,
+      entry: { fromVolume: 1, halfMs: half },
+      fades: 'hold',
+    })
+    expect(gainAtMs(incoming, 0)).toBeCloseTo(0.6)
+    expect(gainAtMs(incoming, half)).toBeCloseTo(0.2)
+    expect(gainAtMs(incoming, 4000)).toBeCloseTo(0.2)
   })
 
   it('honors the fade toggles independently', () => {
@@ -133,16 +155,11 @@ describe('planSegmentGain', () => {
     expect(boundaryRampHalfMs(400, 4000)).toBe(200)
     expect(boundaryRampHalfMs(4000, 100)).toBe(50)
   })
-
-  it('reads the clip override through segmentVolume', () => {
-    expect(segmentVolume({ clip: { audioVolume: 0.7 } } as never, 0.25)).toBe(0.7)
-    expect(segmentVolume({ clip: {} } as never, 0.25)).toBe(0.25)
-  })
 })
 
 describe('filmEdgeFades', () => {
   const blob = new Blob(['x'])
-  const playlist = { defaultVolume: 0.25, fadeIn: true, fadeOut: true }
+  const playlist = { fadeIn: true, fadeOut: true }
 
   it('reads the film edges from the tracks that play there', () => {
     const fades = filmEdgeFades(
@@ -225,11 +242,56 @@ describe('normalization', () => {
   })
 })
 
+describe('applyGainEnvelope', () => {
+  const flat = (volume: number): GainPoint[] => [
+    { tMs: 0, volume },
+    { tMs: 1_000_000, volume },
+  ]
+
+  it('scales the slice by scale × envelope', () => {
+    const channels = [new Float32Array([0.4, 0.4])]
+    applyGainEnvelope(channels, flat(0.5), 48000, 1.5)
+    for (const sample of channels[0]) {
+      expect(sample).toBeCloseTo(0.4 * 0.5 * 1.5)
+    }
+  })
+
+  it('follows the envelope over time and hard-clamps', () => {
+    // 1 frame = 1ms at sampleRate 1000 for readable positions.
+    const channels = [new Float32Array([0.5, 0.5, 0.5])]
+    applyGainEnvelope(
+      channels,
+      [
+        { tMs: 0, volume: 0 },
+        { tMs: 2, volume: 1 },
+      ],
+      1000,
+      4,
+    )
+    expect(channels[0][0]).toBeCloseTo(0)
+    expect(channels[0][1]).toBeCloseTo(1) // 0.5·0.5·4 = 1 exactly
+    expect(channels[0][2]).toBe(1) // 0.5·1·4 = 2 → clamped
+  })
+
+  it('is a no-op at unity gain', () => {
+    const channels = [new Float32Array([0.3, -0.3])]
+    const before = Array.from(channels[0])
+    applyGainEnvelope(channels, flat(1), 48000)
+    expect(Array.from(channels[0])).toEqual(before)
+  })
+})
+
 describe('createBackgroundMixer', () => {
   const flatEnvelope = (volume: number): GainPoint[] => [
     { tMs: 0, volume },
     { tMs: 1_000_000, volume },
   ]
+
+  /** Flat music + clip envelopes (clip defaults to full volume). */
+  const envelopes = (music: number, clip = 1) => ({
+    music: flatEnvelope(music),
+    clip: flatEnvelope(clip),
+  })
 
   function sourceOf(tracks: Array<Float32Array[] | null>): SequentialBackgroundSource {
     return {
@@ -238,16 +300,29 @@ describe('createBackgroundMixer', () => {
     }
   }
 
-  it('blends complementary shares: music at g, clip at 1 − g', async () => {
+  it('blends the two independent levels: clip at its volume, music at its own', async () => {
     const slice = [new Float32Array([0.6, 0.6, 0.6, 0.6])]
     const mixer = createBackgroundMixer(
       sourceOf([[new Float32Array([0.4, 0.4, 0.4, 0.4])]]),
       48000,
     )
-    // 30% music: out = 0.6·0.7 + 0.4·0.3 = 0.54.
-    await mixer.mixInto(slice, 0, flatEnvelope(0.3))
+    // Clip 70%, music 30%: out = 0.6·0.7 + 0.4·0.3 = 0.54.
+    await mixer.mixInto(slice, 0, envelopes(0.3, 0.7))
     for (const sample of slice[0]) {
       expect(sample).toBeCloseTo(0.6 * 0.7 + 0.4 * 0.3)
+    }
+  })
+
+  it('a quiet music level never ducks the clip side', async () => {
+    const slice = [new Float32Array([0.6, 0.6])]
+    const mixer = createBackgroundMixer(
+      sourceOf([[new Float32Array([0.4, 0.4])]]),
+      48000,
+    )
+    // Music ducked to 10%, clip at full: out = 0.6 + 0.4·0.1 = 0.64.
+    await mixer.mixInto(slice, 0, envelopes(0.1))
+    for (const sample of slice[0]) {
+      expect(sample).toBeCloseTo(0.64)
     }
   })
 
@@ -257,26 +332,24 @@ describe('createBackgroundMixer', () => {
       sourceOf([[new Float32Array([0.4, 0.4])]]),
       48000,
     )
-    // Clip normalized 2×: out = 0.2·2·0.5 + 0.4·0.5 = 0.4.
-    await mixer.mixInto(slice, 0, flatEnvelope(0.5), 2)
+    // Clip normalized 2× at half volume: out = 0.2·2·0.5 + 0.4·0.5 = 0.4.
+    await mixer.mixInto(slice, 0, envelopes(0.5, 0.5), 2)
     for (const sample of slice[0]) {
       expect(sample).toBeCloseTo(0.4)
     }
   })
 
-  it('eases the clip back to full volume when the playlist runs out', async () => {
-    // 1 frame = 30ms (sampleRate ~33.33) would be awkward; use sampleRate 10
-    // so the 300ms end ramp spans exactly 3 frames.
+  it('keeps the clip at its own level when the playlist runs out', async () => {
     const mixer = createBackgroundMixer(
       sourceOf([[new Float32Array([0, 0])]]), // 2 frames of silent music
       10,
     )
     const slice = [new Float32Array(6).fill(0.6)]
-    await mixer.mixInto(slice, 0, flatEnvelope(0.8))
-    // Frames 0–1: clip at 1 − 0.8 = 0.2 share. From frame 2 the playlist is
-    // over and the clip ramps 0.2 → 1 over 3 frames.
+    await mixer.mixInto(slice, 0, envelopes(0.8, 0.5))
+    // The clip side holds 0.5 throughout — music ending changes nothing on
+    // the clip's side (the levels are independent).
     expect(Array.from(slice[0]).map((v) => Number(v.toFixed(2)))).toEqual([
-      0.12, 0.12, 0.12, 0.28, 0.44, 0.6,
+      0.3, 0.3, 0.3, 0.3, 0.3, 0.3,
     ])
   })
 
@@ -287,7 +360,7 @@ describe('createBackgroundMixer', () => {
       48000,
     )
     const slice = [new Float32Array(6)]
-    await mixer.mixInto(slice, 0, flatEnvelope(1))
+    await mixer.mixInto(slice, 0, envelopes(1))
     expect(Array.from(slice[0]).map((v) => Number(v.toFixed(2)))).toEqual([
       0.2, 0.2, 0.6, 0.6, 0, 0,
     ])
@@ -300,8 +373,8 @@ describe('createBackgroundMixer', () => {
     )
     const first = [new Float32Array(2)]
     const second = [new Float32Array(4)]
-    await mixer.mixInto(first, 0, flatEnvelope(1))
-    await mixer.mixInto(second, 2, flatEnvelope(1))
+    await mixer.mixInto(first, 0, envelopes(1))
+    await mixer.mixInto(second, 2, envelopes(1))
     expect(Array.from(first[0]).map((v) => Number(v.toFixed(2)))).toEqual([0.2, 0.2])
     // Second slice spans the A→B hand-off (frame 3) and B's end (frame 6).
     expect(Array.from(second[0]).map((v) => Number(v.toFixed(2)))).toEqual([0.2, 0.6, 0.6, 0.6])
@@ -316,11 +389,14 @@ describe('createBackgroundMixer', () => {
     )
     const first = [new Float32Array(2)]
     const second = [new Float32Array(2)]
-    await mixer.mixInto(first, 0, flatEnvelope(1))
-    await mixer.mixInto(second, 2, [
-      { tMs: 0, volume: 0.5 },
-      { tMs: 2, volume: 0.5 },
-    ])
+    await mixer.mixInto(first, 0, envelopes(1))
+    await mixer.mixInto(second, 2, {
+      music: [
+        { tMs: 0, volume: 0.5 },
+        { tMs: 2, volume: 0.5 },
+      ],
+      clip: flatEnvelope(1),
+    })
     expect(first[0][0]).toBeCloseTo(0.4)
     expect(second[0][0]).toBeCloseTo(0.2)
   })
@@ -331,29 +407,28 @@ describe('createBackgroundMixer', () => {
       48000,
     )
     const slice = [new Float32Array(3)]
-    await mixer.mixInto(slice, 0, flatEnvelope(0.5))
+    await mixer.mixInto(slice, 0, envelopes(0.5))
     expect(Array.from(slice[0]).map((v) => Number(v.toFixed(2)))).toEqual([0.2, 0.2, 0])
   })
 
   it('spreads a mono track across stereo slices and hard-clamps the blend', async () => {
     const slice = [new Float32Array([0.9]), new Float32Array([-0.9])]
     const mixer = createBackgroundMixer(sourceOf([[new Float32Array([1])]]), 48000)
-    // An extreme normalization boost is the only way past 1 now that the
-    // shares themselves are complementary: 0.9·4·0.5 + 1·0.5 = 2.3 → 1.
-    await mixer.mixInto(slice, 0, flatEnvelope(0.5), 4)
+    // Independent levels can sum past 1: 0.9·4·0.5 + 1·0.5 = 2.3 → 1.
+    await mixer.mixInto(slice, 0, envelopes(0.5, 0.5), 4)
     expect(slice[0][0]).toBe(1)
     expect(slice[1][0]).toBe(-1)
   })
 
-  it('leaves slices untouched when the music share is zero', async () => {
+  it('leaves slices untouched when both levels are unity and zero', async () => {
     const slice = [new Float32Array([0.3, 0.3])]
     const before = Array.from(slice[0])
     const mixer = createBackgroundMixer(sourceOf([[new Float32Array([0.5, 0.5])]]), 48000)
-    await mixer.mixInto(slice, 0, flatEnvelope(0))
+    await mixer.mixInto(slice, 0, envelopes(0))
     expect(Array.from(slice[0])).toEqual(before)
   })
 
-  it('scales the music side by the track level, leaving the clip side alone', async () => {
+  it('scales the music side by the track volume, leaving the clip side alone', async () => {
     const slice = [new Float32Array([0.6, 0.6])]
     const mixer = createBackgroundMixer(
       {
@@ -362,8 +437,9 @@ describe('createBackgroundMixer', () => {
       },
       48000,
     )
-    // out = clip·(1 − g) + music·g·level = 0.6·0.5 + 0.4·0.5·0.5 = 0.4.
-    await mixer.mixInto(slice, 0, flatEnvelope(0.5))
+    // out = clip·clipEnv + music·musicEnv·trackVolume
+    //     = 0.6·0.5 + 0.4·0.5·0.5 = 0.4.
+    await mixer.mixInto(slice, 0, envelopes(0.5, 0.5))
     for (const sample of slice[0]) {
       expect(sample).toBeCloseTo(0.4)
     }
@@ -384,9 +460,9 @@ describe('createBackgroundMixer', () => {
       10,
     )
     const slice = [new Float32Array(8)]
-    await mixer.mixInto(slice, 0, flatEnvelope(1))
+    await mixer.mixInto(slice, 0, envelopes(1))
     const samples = Array.from(slice[0]).map((v) => Number(v.toFixed(2)))
-    // Track 0 starts the film — its fade-in belongs to the share envelope,
+    // Track 0 starts the film — its fade-in belongs to the music envelope,
     // so it opens at full level; its end (before the film's) fades out.
     expect(samples.slice(0, 2)).toEqual([0.4, 0.4])
     expect(samples[2]).toBeCloseTo(0.4 * (2 / 2), 2)
@@ -404,14 +480,14 @@ describe('createBackgroundMixer', () => {
       {
         ...sourceOf([[new Float32Array(4).fill(0.4)]]),
         getTrackPlayback: () => ({ volume: 1, fadeIn: true, fadeOut: true }),
-        // The film ends where (or before) the track does — the share
+        // The film ends where (or before) the track does — the music
         // envelope's film-edge fade covers that cut instead.
         totalFrames: 4,
       },
       10,
     )
     const slice = [new Float32Array(4)]
-    await mixer.mixInto(slice, 0, flatEnvelope(1))
+    await mixer.mixInto(slice, 0, envelopes(1))
     expect(Array.from(slice[0]).map((v) => Number(v.toFixed(2)))).toEqual([
       0.4, 0.4, 0.4, 0.4,
     ])
@@ -430,9 +506,9 @@ describe('createBackgroundMixer', () => {
       48000,
     )
     // The film only reaches into track 2's range (frames 0..5).
-    await mixer.mixInto([new Float32Array(3)], 0, flatEnvelope(0.5))
+    await mixer.mixInto([new Float32Array(3)], 0, envelopes(0.5))
     expect(decoded).toEqual([0, 1])
-    await mixer.mixInto([new Float32Array(3)], 3, flatEnvelope(0.5))
+    await mixer.mixInto([new Float32Array(3)], 3, envelopes(0.5))
     expect(decoded).toEqual([0, 1, 2])
   })
 })

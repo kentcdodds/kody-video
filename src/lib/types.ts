@@ -30,10 +30,16 @@ export interface ClipMeta {
   lat?: number
   lng?: number
   locationAccuracyM?: number
-  /** Music's share (0–1) of the audio mix while this clip plays: the clip's
-   * own sound gets the complement (0.8 music ⇒ 0.2 clip sound), so the mix
-   * can never clip. Absent = the project playlist's default share. */
-  audioVolume?: number
+  /** This clip's own (foreground) sound level (0–1). Absent = full. */
+  clipVolume?: number
+  /** Background-music level (0–1) while this clip plays, scaling the
+   * playing track's own volume (duck the music under speech). Absent =
+   * full (the track's volume alone). */
+  musicVolume?: number
+  /** Measured whole-clip audio peak (0–1) at the export's mixing rate —
+   * the persisted normalization measurement (0 = silent or undecodable).
+   * Absent = not yet measured; backfilled automatically on project load. */
+  audioPeak?: number
 }
 
 export interface ClipRecord extends ClipMeta {
@@ -63,8 +69,9 @@ export interface ProjectAudioTrack {
    * window plays; the next track starts where it ends. */
   trimStartMs?: number
   trimEndMs?: number
-  /** Track level (0–1) applied to the music side of the mix while this
-   * track plays (default 1 — the clip mix share is unaffected). */
+  /** Track volume (0–1): the music's level under the clips while this
+   * track plays (clips can duck it further via their own musicVolume).
+   * Absent = DEFAULT_TRACK_VOLUME. */
   volume?: number
   /** Ease this track in/out where it starts/ends. Absent = inherit the
    * playlist's fade flags (kept for records made before per-track fades). */
@@ -74,23 +81,21 @@ export interface ProjectAudioTrack {
 
 /**
  * A project's background music: tracks play one after the other under the
- * clips until the film ends (the last one is cut off there — nothing loops),
- * at a default volume clips can override individually.
+ * clips until the film ends (the last one is cut off there — nothing
+ * loops), each at its own volume, which clips can duck individually.
  */
 export interface ProjectAudioRecord {
   projectId: ProjectId
   tracks: ProjectAudioTrack[]
-  /** Music's default share (0–1) of the audio mix for clips without a
-   * per-clip override; clip sound gets the complement. */
-  defaultVolume: number
   /** Playlist-level fade defaults, inherited by tracks without their own
    * fadeIn/fadeOut flags (records made before per-track fades). */
   fadeIn: boolean
   fadeOut: boolean
 }
 
-/** 25% music / 75% clip sound — sits under speech without drowning it. */
-export const DEFAULT_AUDIO_VOLUME = 0.25
+/** Default track volume: music at 25% sits under speech without drowning
+ * it (both sides are peak-normalized, so 100% would rival the clips). */
+export const DEFAULT_TRACK_VOLUME = 0.25
 
 /** The fields that shape how one playlist track plays back. `durationMs`
  * is optional so export-side track shapes (which may not know it) fit. */
@@ -115,8 +120,8 @@ export interface AudioTrackPlayback {
 }
 
 /** Resolve a track's playback settings against its playlist's defaults:
- * trim clamped into the media, level defaulting to full, fades falling back
- * to the playlist flags. */
+ * trim clamped into the media, volume defaulting to DEFAULT_TRACK_VOLUME,
+ * fades falling back to the playlist flags. */
 export function resolveAudioTrackPlayback(
   track: AudioTrackPlaybackFields,
   playlist: { fadeIn: boolean; fadeOut: boolean },
@@ -143,9 +148,10 @@ export function audioTrackKeptMs(
   return Math.max(0, end - start)
 }
 
-/** The track's level (0–1) on the music side of the mix; default full. */
+/** The track's volume (0–1) — the music's level under the clips while it
+ * plays; default DEFAULT_TRACK_VOLUME. */
 export function audioTrackLevel(track: Pick<AudioTrackPlaybackFields, 'volume'>): number {
-  if (track.volume === undefined || !Number.isFinite(track.volume)) return 1
+  if (track.volume === undefined || !Number.isFinite(track.volume)) return DEFAULT_TRACK_VOLUME
   return Math.max(0, Math.min(1, track.volume))
 }
 
@@ -155,16 +161,19 @@ export function projectAudioTotalDurationMs(audio: Pick<ProjectAudioRecord, 'tra
 }
 
 export function clampVolume(volume: number): number {
-  if (!Number.isFinite(volume)) return DEFAULT_AUDIO_VOLUME
+  if (!Number.isFinite(volume)) return 1
   return Math.max(0, Math.min(1, volume))
 }
 
-/** Music's share of the mix while a clip plays: its override or the default. */
-export function clipAudioVolume(
-  clip: Pick<ClipMeta, 'audioVolume'>,
-  defaultVolume: number,
-): number {
-  return clampVolume(clip.audioVolume ?? defaultVolume)
+/** The clip's own (foreground) sound level (0–1); default full. */
+export function clipSoundVolume(clip: Pick<ClipMeta, 'clipVolume'>): number {
+  return clampVolume(clip.clipVolume ?? 1)
+}
+
+/** The music's level (0–1) while this clip plays, scaling the playing
+ * track's own volume; default full (no duck). */
+export function clipMusicVolume(clip: Pick<ClipMeta, 'musicVolume'>): number {
+  return clampVolume(clip.musicVolume ?? 1)
 }
 
 export interface AppMeta {

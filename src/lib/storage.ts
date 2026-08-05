@@ -1,7 +1,6 @@
 import { openDB, type DBSchema, type IDBPDatabase } from 'idb'
 import { removeExportEntry } from './export/opfs'
 import {
-  DEFAULT_AUDIO_VOLUME,
   FREE_PROJECTS,
   MAX_PROJECTS,
   clampVolume,
@@ -354,8 +353,9 @@ export interface AddClipInput {
   /** Original capture time — used when importing backups so chapter titles
    * keep the real recording time. Defaults to now. */
   createdAt?: number
-  /** Background-music volume override — used when importing backups. */
-  audioVolume?: number
+  /** Per-clip volume overrides — used when importing backups. */
+  clipVolume?: number
+  musicVolume?: number
 }
 
 /**
@@ -395,8 +395,11 @@ export async function addClip(input: AddClipInput): Promise<ClipRecord> {
     lng: input.lng,
     locationAccuracyM: input.locationAccuracyM,
   }
-  if (input.audioVolume !== undefined) {
-    clip.audioVolume = clampVolume(input.audioVolume)
+  if (input.clipVolume !== undefined && clampVolume(input.clipVolume) < 1) {
+    clip.clipVolume = clampVolume(input.clipVolume)
+  }
+  if (input.musicVolume !== undefined && clampVolume(input.musicVolume) < 1) {
+    clip.musicVolume = clampVolume(input.musicVolume)
   }
 
   const tx = db.transaction(['clips', 'projects'], 'readwrite')
@@ -471,11 +474,18 @@ export async function updateClipTrim(
   return toMeta(updated)
 }
 
-/** Set a clip's background-music volume override; null returns it to the
- * project audio track's default. */
-export async function updateClipAudioVolume(
+export interface ClipVolumeSettings {
+  /** The clip's own (foreground) sound level; undefined = leave as is. */
+  clipVolume?: number | null
+  /** Music level while this clip plays; undefined = leave as is. */
+  musicVolume?: number | null
+}
+
+/** Set a clip's volume levels. Full volume (1) is the default, so a value
+ * of 1 or null clears the stored override. */
+export async function updateClipVolumes(
   clipId: ClipId,
-  volume: number | null,
+  volumes: ClipVolumeSettings,
 ): Promise<ClipMeta> {
   const db = await getDb()
   // Read + merge + write in one transaction so a concurrent clip mutation
@@ -487,14 +497,34 @@ export async function updateClipAudioVolume(
     throw new Error('Clip not found')
   }
   const updated: ClipRecord = { ...clip }
-  if (volume === null) {
-    delete updated.audioVolume
-  } else {
-    updated.audioVolume = clampVolume(volume)
+  const apply = (field: 'clipVolume' | 'musicVolume', value: number | null | undefined) => {
+    if (value === undefined) return
+    const clamped = value === null ? 1 : clampVolume(value)
+    if (clamped >= 1) {
+      delete updated[field]
+    } else {
+      updated[field] = clamped
+    }
   }
+  apply('clipVolume', volumes.clipVolume)
+  apply('musicVolume', volumes.musicVolume)
   await completeTransaction([tx.store.put(updated)], tx)
   await touchProject(clip.projectId)
   return toMeta(updated)
+}
+
+/** Persist a clip's measured audio peak (the normalization measurement).
+ * Not a user edit — the project's updatedAt is deliberately untouched. */
+export async function updateClipAudioPeak(clipId: ClipId, peak: number): Promise<void> {
+  const db = await getDb()
+  const tx = db.transaction('clips', 'readwrite')
+  const clip = await tx.store.get(clipId)
+  if (!clip) {
+    await tx.done
+    return
+  }
+  const audioPeak = Number.isFinite(peak) ? Math.max(0, Math.min(1, peak)) : 0
+  await completeTransaction([tx.store.put({ ...clip, audioPeak })], tx)
 }
 
 export async function getProjectAudio(
@@ -510,8 +540,7 @@ export interface AddProjectAudioTrackInput {
   mimeType: string
   durationMs: number
   name: string
-  /** Initial playlist settings — only honored when this is the first track. */
-  defaultVolume?: number
+  /** Initial playlist fade settings — only honored on the first track. */
   fadeIn?: boolean
   fadeOut?: boolean
 }
@@ -547,7 +576,6 @@ export async function addProjectAudioTrack(
     : {
         projectId: input.projectId,
         tracks: [track],
-        defaultVolume: clampVolume(input.defaultVolume ?? DEFAULT_AUDIO_VOLUME),
         fadeIn: input.fadeIn ?? true,
         fadeOut: input.fadeOut ?? true,
       }
@@ -622,46 +650,18 @@ export async function updateProjectAudioTrack(
     updatedTrack.trimEndMs = Math.max(start, Math.min(requestedEnd, track.durationMs))
   }
   if (settings.volume !== undefined) {
-    updatedTrack.volume = Number.isFinite(settings.volume)
-      ? Math.max(0, Math.min(1, settings.volume))
-      : 1
+    if (Number.isFinite(settings.volume)) {
+      updatedTrack.volume = Math.max(0, Math.min(1, settings.volume))
+    } else {
+      // A non-finite request must never persist — back to the default.
+      delete updatedTrack.volume
+    }
   }
   if (settings.fadeIn !== undefined) updatedTrack.fadeIn = settings.fadeIn
   if (settings.fadeOut !== undefined) updatedTrack.fadeOut = settings.fadeOut
   const updated: ProjectAudioRecord = {
     ...audio,
     tracks: audio.tracks.map((t) => (t.id === trackId ? updatedTrack : t)),
-  }
-  await completeTransaction([tx.store.put(updated)], tx)
-  await touchProject(projectId)
-  return updated
-}
-
-export interface ProjectAudioSettings {
-  defaultVolume?: number
-  fadeIn?: boolean
-  fadeOut?: boolean
-}
-
-export async function updateProjectAudioSettings(
-  projectId: ProjectId,
-  settings: ProjectAudioSettings,
-): Promise<ProjectAudioRecord> {
-  const db = await getDb()
-  const tx = db.transaction('audio', 'readwrite')
-  const audio = await tx.store.get(projectId)
-  if (!audio) {
-    await tx.done.catch(() => undefined)
-    throw new Error('This project has no background music')
-  }
-  const updated: ProjectAudioRecord = {
-    ...audio,
-    defaultVolume:
-      settings.defaultVolume !== undefined
-        ? clampVolume(settings.defaultVolume)
-        : audio.defaultVolume,
-    fadeIn: settings.fadeIn ?? audio.fadeIn,
-    fadeOut: settings.fadeOut ?? audio.fadeOut,
   }
   await completeTransaction([tx.store.put(updated)], tx)
   await touchProject(projectId)

@@ -25,7 +25,6 @@ function fakeAudio(contents: string[] = ['SONGBYTES']): ProjectAudioRecord {
       name: `song-${index + 1}.mp3`,
       addedAt: 1700000000000 + index,
     })),
-    defaultVolume: 0.4,
     fadeIn: true,
     fadeOut: false,
   }
@@ -94,7 +93,7 @@ describe('project backup round trip', () => {
   it('round-trips the music playlist, fades, and per-clip volumes', async () => {
     await markWatermarkRemoved('cs_test_transfer')
     const clips = [
-      fakeClip('clip_a', 'AAAA', { audioVolume: 0.8 }),
+      fakeClip('clip_a', 'AAAA', { clipVolume: 0.3, musicVolume: 0.8 }),
       fakeClip('clip_b', 'BBBB'),
     ]
     const backup = serializeProject(
@@ -104,7 +103,6 @@ describe('project backup round trip', () => {
     )
 
     const parsed = await parseProjectBackup(backup)
-    expect(parsed.audio?.defaultVolume).toBe(0.4)
     expect(parsed.audio?.fadeIn).toBe(true)
     expect(parsed.audio?.fadeOut).toBe(false)
     expect(parsed.audio?.tracks.map((track) => track.name)).toEqual([
@@ -113,22 +111,25 @@ describe('project backup round trip', () => {
     ])
     expect(await parsed.audio!.tracks[0].blob.text()).toBe('SONGBYTES')
     expect(await parsed.audio!.tracks[1].blob.text()).toBe('MORESONG')
-    expect(parsed.clips[0].audioVolume).toBe(0.8)
-    expect(parsed.clips[1].audioVolume).toBeUndefined()
+    expect(parsed.clips[0].clipVolume).toBe(0.3)
+    expect(parsed.clips[0].musicVolume).toBe(0.8)
+    expect(parsed.clips[1].clipVolume).toBeUndefined()
+    expect(parsed.clips[1].musicVolume).toBeUndefined()
     // Clip bytes stay aligned with the trailing audio section present.
     expect(await parsed.clips[1].blob.text()).toBe('BBBB')
 
     const project = await importProjectBackup(parsed)
     const audio = await getProjectAudio(project.id)
-    expect(audio?.defaultVolume).toBe(0.4)
     expect(audio?.fadeIn).toBe(true)
     expect(audio?.fadeOut).toBe(false)
     expect(audio?.tracks.map((track) => track.name)).toEqual(['song-1.mp3', 'song-2.mp3'])
     expect(await audio!.tracks[0].blob.text()).toBe('SONGBYTES')
     expect(await audio!.tracks[1].blob.text()).toBe('MORESONG')
     const imported = await getClipsForProject(project.id)
-    expect(imported[0].audioVolume).toBe(0.8)
-    expect(imported[1].audioVolume).toBeUndefined()
+    expect(imported[0].clipVolume).toBe(0.3)
+    expect(imported[0].musicVolume).toBe(0.8)
+    expect(imported[1].clipVolume).toBeUndefined()
+    expect(imported[1].musicVolume).toBeUndefined()
   })
 
   it('round-trips per-track playback settings (trim, level, fades)', async () => {

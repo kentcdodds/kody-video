@@ -1,21 +1,18 @@
-import {
-  clipAudioVolume,
-  resolveAudioTrackPlayback,
-  type AudioTrackPlaybackFields,
-} from '../types'
-import type { PlannedSegment } from './plan'
+import { resolveAudioTrackPlayback, type AudioTrackPlaybackFields } from '../types'
 
 /**
- * Background-music mix planning shared by both export engines and unit
- * tests. The per-clip value is the music's SHARE of the audio mix: gain g
- * for the music means gain (1 − g) for the clip's own sound, so the two
- * always sum to one — no clipping, no shouting match between mic and
- * music. Per-clip shares become piecewise-linear envelopes (mix changes
- * glide across clip boundaries), and the playlist's tracks are mixed in
- * one after the other — the film's end cuts the music off, nothing loops.
+ * Audio gain planning shared by both export engines and unit tests. Each
+ * clip carries two independent levels: its own (foreground) sound volume
+ * and the music's volume while it plays (which scales the playing track's
+ * own volume). Both are peak-normalized first so the dials mean the same
+ * thing however hot either recording is, and both become piecewise-linear
+ * envelopes (level changes glide across clip boundaries). The playlist's
+ * tracks are mixed in one after the other — the film's end cuts the music
+ * off, nothing loops. The blend hard-clamps to [-1, 1]: the sides no
+ * longer sum to one, so a hot clip under loud music can touch the rail.
  */
 
-/** Length of the glide between two clips with different music shares. */
+/** Length of the glide between two clips with different levels. */
 export const VOLUME_RAMP_MS = 600
 /** Musical ease-in at the start of the film (the "Fade in" toggle). */
 export const FADE_IN_MS = 800
@@ -23,9 +20,6 @@ export const FADE_IN_MS = 800
 export const FADE_OUT_MS = 1200
 /** With fades off, a click-kill ramp too short to hear as a fade. */
 export const EDGE_RAMP_MS = 15
-/** When the playlist runs out mid-film, the clip sound eases back to full
- * volume over this window instead of jumping. */
-export const PLAYLIST_END_RAMP_MS = 300
 
 /** Peak both sources are normalized toward before blending. */
 export const NORMALIZED_PEAK = 0.9
@@ -62,19 +56,17 @@ export interface BackgroundAudioTrack extends AudioTrackPlaybackFields {
 
 export interface BackgroundAudio {
   tracks: BackgroundAudioTrack[]
-  defaultVolume: number
   /** Playlist-level fade defaults for tracks without their own flags. */
   fadeIn: boolean
   fadeOut: boolean
 }
 
 /**
- * Film-edge fades for the share envelope, read from the tracks that
+ * Film-edge fades for the music envelope, read from the tracks that
  * actually play at the film's edges: the first track's fade-in opens the
  * film, and the fade-out belongs to whichever track the film's end cuts
  * off. When the playlist runs out before the film ends there is no music
- * at the film's end to fade (the playlist-end ramp already eased the clip
- * sound back), so fadeOut is false.
+ * at the film's end to fade, so fadeOut is false.
  */
 export function filmEdgeFades(
   background: BackgroundAudio,
@@ -106,7 +98,7 @@ export interface BackgroundFades {
 }
 
 export interface SegmentGainArgs {
-  /** This clip's music volume. */
+  /** This clip's level (music volume or the clip's own sound volume). */
   volume: number
   /** The segment's REAL duration (after media clamping), in ms. */
   durationMs: number
@@ -114,7 +106,11 @@ export interface SegmentGainArgs {
   entry?: { fromVolume: number; halfMs: number }
   /** Ramp out toward the next clip's volume (omit at the film end). */
   exit?: { toVolume: number; halfMs: number }
-  fades: BackgroundFades
+  /** Film-edge behavior where there is no neighbor: the music envelope
+   * fades in/out (or click-kill ramps); the clip's own envelope passes
+   * 'hold' to keep its level — segment slicing already click-kills the
+   * clip sound's hard edges. */
+  fades: BackgroundFades | 'hold'
 }
 
 /**
@@ -139,6 +135,8 @@ export function planSegmentGain({
   if (entry) {
     points.push({ tMs: 0, volume: (entry.fromVolume + volume) / 2 })
     points.push({ tMs: Math.min(entry.halfMs, durationMs / 2), volume })
+  } else if (fades === 'hold') {
+    points.push({ tMs: 0, volume })
   } else {
     const fadeIn = Math.min(fades.fadeIn ? FADE_IN_MS : EDGE_RAMP_MS, durationMs / 2)
     points.push({ tMs: 0, volume: 0 })
@@ -147,6 +145,8 @@ export function planSegmentGain({
   if (exit) {
     points.push({ tMs: durationMs - Math.min(exit.halfMs, durationMs / 2), volume })
     points.push({ tMs: durationMs, volume: (volume + exit.toVolume) / 2 })
+  } else if (fades === 'hold') {
+    points.push({ tMs: durationMs, volume })
   } else {
     const fadeOut = Math.min(fades.fadeOut ? FADE_OUT_MS : EDGE_RAMP_MS, durationMs / 2)
     points.push({ tMs: durationMs - fadeOut, volume })
@@ -165,14 +165,6 @@ export function boundaryRampHalfMs(aDurationMs: number, bDurationMs: number): nu
   return Math.min(VOLUME_RAMP_MS / 2, aDurationMs / 2, bDurationMs / 2)
 }
 
-/** Music volume for one planned segment (override or default). */
-export function segmentVolume(
-  segment: Pick<PlannedSegment, 'clip'>,
-  defaultVolume: number,
-): number {
-  return clipAudioVolume(segment.clip, defaultVolume)
-}
-
 /** Envelope gain at an output-timeline position (linear between points). */
 export function gainAtMs(points: GainPoint[], tMs: number): number {
   if (points.length === 0) return 0
@@ -189,16 +181,58 @@ export function gainAtMs(points: GainPoint[], tMs: number): number {
   return points[points.length - 1].volume
 }
 
+/** Stateful piecewise-linear evaluator for one envelope. Positions must be
+ * requested in nondecreasing order (the mixers' sample loops are). */
+function createEnvelopeCursor(points: GainPoint[], emptyValue: number) {
+  let cursor = 0
+  return (tMs: number): number => {
+    if (points.length === 0) return emptyValue
+    while (cursor < points.length && points[cursor].tMs < tMs) cursor += 1
+    if (cursor === 0) return points[0].volume
+    if (cursor >= points.length) return points[points.length - 1].volume
+    const prev = points[cursor - 1]
+    const next = points[cursor]
+    const span = next.tMs - prev.tMs
+    if (span <= 0) return next.volume
+    return prev.volume + ((next.volume - prev.volume) * (tMs - prev.tMs)) / span
+  }
+}
+
+/**
+ * Scale a segment slice's channels in place by `scale × envelope(t)` — the
+ * music-free counterpart of BackgroundMixer.mixInto, so per-clip volume
+ * and normalization apply with or without a playlist. `points` live on
+ * the slice's local timeline (its time 0 is the slice's first sample).
+ */
+export function applyGainEnvelope(
+  channels: Float32Array[],
+  points: GainPoint[],
+  sampleRate: number,
+  scale = 1,
+): void {
+  if (channels.length === 0) return
+  if (scale === 1 && points.every((point) => point.volume === 1)) return
+  const clamp = (value: number): number => (value > 1 ? 1 : value < -1 ? -1 : value)
+  const envelope = createEnvelopeCursor(points, 1)
+  const length = channels[0].length
+  for (let i = 0; i < length; i += 1) {
+    const gain = scale * envelope((i / sampleRate) * 1000)
+    for (let ch = 0; ch < channels.length; ch += 1) {
+      channels[ch][i] = clamp(channels[ch][i] * gain)
+    }
+  }
+}
+
 /** How one playlist track sits in the music side of the mix. */
 export interface TrackMixPlayback {
-  /** Track level (0–1) — scales the music's contribution only; the clip
-   * side keeps its complement of the share. */
+  /** Track volume (0–1) — scales the music's contribution only; the
+   * clip's own sound rides its own envelope. */
   volume: number
   /** Ease this track in where it starts mid-film (the film-start fade
-   * lives in the share envelope instead). */
+   * lives in the music envelope instead). */
   fadeIn: boolean
   /** Ease this track out where it ends before the film does (a film-end
-   * cut fades via the share envelope instead). */
+   * cut fades via the music envelope instead). */
   fadeOut: boolean
 }
 
@@ -208,26 +242,35 @@ export interface SequentialBackgroundSource {
    * kept window); null = undecodable (the track is skipped and the next
    * one starts in its place). */
   getTrack: (index: number) => Promise<Float32Array[] | null>
-  /** Per-track level + interior fades; absent = unity, no fades. */
+  /** Per-track volume + interior fades; absent = unity, no fades. */
   getTrackPlayback?: (index: number) => TrackMixPlayback
   /** Film length in output frames — a track whose end lands at or past it
-   * is cut by the film (its own fade-out is skipped; the share envelope's
+   * is cut by the film (its own fade-out is skipped; the music envelope's
    * film-edge fade covers that cut). */
   totalFrames?: number
 }
 
+/** The two per-segment gain envelopes, both on the slice's local timeline
+ * (time 0 is the slice's first sample). */
+export interface SegmentEnvelopes {
+  /** Music level (the clip's music volume, with film-edge fades). */
+  music: GainPoint[]
+  /** The clip's own (foreground) sound level. */
+  clip: GainPoint[]
+}
+
 export interface BackgroundMixer {
   /** Blend the playlist into a segment slice's channels (which carry the
-   * clip's own sound), in place: `out = clip·fgScale·(1−g) + music·g`,
-   * where g follows `points` — the slice's own local envelope (its time 0
-   * is the slice's first sample) — and `foregroundScale` is the clip's
-   * normalization gain. Slices must be requested in output order (tracks
-   * are decoded lazily, one at a time, and released once the timeline
-   * passes them). */
+   * clip's own sound), in place:
+   * `out = clip·fgScale·clipEnv(t) + music·trackVolume·musicEnv(t)`,
+   * where `foregroundScale` is the clip's normalization gain and the
+   * track's own volume/normalization/fades ride the music side. Slices
+   * must be requested in output order (tracks are decoded lazily, one at
+   * a time, and released once the timeline passes them). */
   mixInto: (
     channels: Float32Array[],
     sliceStartFrame: number,
-    points: GainPoint[],
+    envelopes: SegmentEnvelopes,
     foregroundScale?: number,
   ) => Promise<void>
 }
@@ -235,9 +278,9 @@ export interface BackgroundMixer {
 /**
  * Sequential playlist mixer: track 0 starts at output frame 0, each next
  * track starts where the previous one's decoded samples end, and when the
- * playlist runs out the clip sound eases back to full volume (over
- * PLAYLIST_END_RAMP_MS) and the rest of the film simply has no music.
- * Everything hard-clamps to [-1, 1].
+ * playlist runs out the rest of the film simply has no music — the clip
+ * sound keeps following its own envelope, unaffected. Everything
+ * hard-clamps to [-1, 1].
  */
 export function createBackgroundMixer(
   source: SequentialBackgroundSource,
@@ -248,11 +291,7 @@ export function createBackgroundMixer(
   let trackStartFrame = 0
   let current: Float32Array[] | null = null
   let exhausted = source.trackCount === 0
-  /** Frame where the playlist ran out, and the music share right before —
-   * the foreground ramps from (1 − that share) back to full from here. */
-  let exhaustedAtFrame: number | null = null
-  let shareAtExhaustion = 0
-  /** The current track's level and precomputed fade windows (in frames of
+  /** The current track's volume and precomputed fade windows (in frames of
    * the track's own timeline; 0 = that fade is off). */
   let trackVolume = 1
   let fadeInFrames = 0
@@ -264,7 +303,7 @@ export function createBackgroundMixer(
     const playback = source.getTrackPlayback?.(trackIndex)
     const trackFrames = current![0].length
     trackVolume = playback?.volume ?? 1
-    // The film-start fade lives in the share envelope — a track fade-in on
+    // The film-start fade lives in the music envelope — a track fade-in on
     // top of it would fade twice — so it only applies to tracks that start
     // mid-film. Same for a film-end cut and the track fade-out.
     const endsBeforeFilm =
@@ -306,26 +345,22 @@ export function createBackgroundMixer(
   const mixInto = async (
     channels: Float32Array[],
     sliceStartFrame: number,
-    points: GainPoint[],
+    envelopes: SegmentEnvelopes,
     foregroundScale = 1,
   ): Promise<void> => {
-    if (channels.length === 0 || points.length === 0) return
+    if (channels.length === 0) return
     const sliceLength = channels[0].length
-    const endRampFrames = Math.max(1, Math.round((PLAYLIST_END_RAMP_MS / 1000) * sampleRate))
+    const musicEnvelope = createEnvelopeCursor(envelopes.music, 0)
+    const clipEnvelope = createEnvelopeCursor(envelopes.clip, 1)
     let i = 0
-    let cursor = 0
     while (i < sliceLength) {
       const frame = sliceStartFrame + i
       if (!(await ensureTrackFor(frame))) {
-        // Playlist over: no music, but the clip keeps its normalization
-        // (consistent loudness across the whole film) and its share eases
-        // from (1 − last music share) back to full instead of jumping.
-        exhaustedAtFrame ??= frame
+        // Playlist over: no music for the rest of the film. The clip keeps
+        // its own envelope and normalization (consistent loudness across
+        // the whole film) — the sides are independent, nothing to ease.
         for (; i < sliceLength; i += 1) {
-          const outFrame = sliceStartFrame + i
-          const ramp = Math.min(1, (outFrame - exhaustedAtFrame) / endRampFrames)
-          const foreground =
-            foregroundScale * (1 - shareAtExhaustion + shareAtExhaustion * ramp)
+          const foreground = foregroundScale * clipEnvelope((i / sampleRate) * 1000)
           for (let ch = 0; ch < channels.length; ch += 1) {
             channels[ch][i] = clamp(channels[ch][i] * foreground)
           }
@@ -339,26 +374,12 @@ export function createBackgroundMixer(
       for (; i < runEnd; i += 1) {
         const outFrame = sliceStartFrame + i
         const tMs = (i / sampleRate) * 1000
-        while (cursor < points.length && points[cursor].tMs < tMs) cursor += 1
-        let share: number
-        if (cursor === 0) {
-          share = points[0].volume
-        } else if (cursor >= points.length) {
-          share = points[points.length - 1].volume
-        } else {
-          const prev = points[cursor - 1]
-          const next = points[cursor]
-          const span = next.tMs - prev.tMs
-          share =
-            span <= 0
-              ? next.volume
-              : prev.volume + ((next.volume - prev.volume) * (tMs - prev.tMs)) / span
-        }
-        shareAtExhaustion = share
+        const musicLevel = musicEnvelope(tMs)
+        const clipLevel = clipEnvelope(tMs)
         const sourceIndex = outFrame - trackStartFrame
-        // The music side alone carries the track's level and fades — the
-        // clip keeps the complement of the SHARE, so a quiet track never
-        // makes the clip louder or softer.
+        // The music side carries the track's own volume and fades under
+        // the clip's music envelope; the clip's sound rides its own
+        // envelope — a quiet track never makes the clip louder or softer.
         let musicGain = trackVolume
         if (fadeInFrames > 0 && sourceIndex < fadeInFrames) {
           musicGain *= sourceIndex / fadeInFrames
@@ -369,8 +390,8 @@ export function createBackgroundMixer(
         }
         for (let ch = 0; ch < channels.length; ch += 1) {
           channels[ch][i] = clamp(
-            channels[ch][i] * foregroundScale * (1 - share) +
-              sources[ch][sourceIndex] * share * musicGain,
+            channels[ch][i] * foregroundScale * clipLevel +
+              sources[ch][sourceIndex] * musicLevel * musicGain,
           )
         }
       }

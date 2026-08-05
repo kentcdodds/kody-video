@@ -15,12 +15,11 @@ import {
   removeProjectAudioTrack,
   setLastOpenedProjectId,
   undoDeleteLastClip,
-  updateClipAudioVolume,
   updateClipThumbs,
   updateClipTrim,
-  updateProjectAudioSettings,
+  updateClipVolumes,
   updateProjectAudioTrack,
-  type ProjectAudioSettings,
+  type ClipVolumeSettings,
   type ProjectAudioTrackSettings,
 } from './storage'
 import { probeAudioFile } from './audio-import'
@@ -168,14 +167,17 @@ export async function loadProjectPage(projectId: ProjectId): Promise<ProjectLoad
       }
     }
     await setLastOpenedProjectId(projectId)
-    // Backfill filmstrip thumbnails for clips that lack them. Serially —
-    // Android caps concurrent video decoders hard, and this normally touches
-    // at most the clip that was just recorded.
-    // Lazy: thumbs → export/shared → mediabunny. Home never hits this path.
+    // Backfill filmstrip thumbnails and the persisted audio-normalization
+    // measurement for clips that lack them. Serially — Android caps
+    // concurrent video decoders hard, and this normally touches at most
+    // the clip that was just recorded.
+    // Lazy: thumbs / clip-audio-peak → export/shared → mediabunny. Home
+    // never hits this path.
     const { ensureClipThumbs } = await import('./thumbs')
+    const { ensureClipAudioPeak } = await import('./clip-audio-peak')
     const hydrated: ClipRecord[] = []
     for (const clip of clips) {
-      hydrated.push(await ensureClipThumbs(clip))
+      hydrated.push(await ensureClipAudioPeak(await ensureClipThumbs(clip)))
     }
     return {
       project,
@@ -310,19 +312,12 @@ export async function setAudioTrackSettings(
   await updateProjectAudioTrack(projectId, trackId, settings)
 }
 
-export async function setProjectAudioSettings(
-  projectId: ProjectId,
-  settings: ProjectAudioSettings,
-): Promise<void> {
-  await updateProjectAudioSettings(projectId, settings)
-}
-
-/** Set (or clear, with null) a clip's background-music volume override. */
-export async function setClipAudioVolume(
+/** Set a clip's volume levels (1 or null clears the stored override). */
+export async function setClipVolumes(
   clipId: ClipId,
-  volume: number | null,
+  volumes: ClipVolumeSettings,
 ): Promise<void> {
-  await updateClipAudioVolume(clipId, volume)
+  await updateClipVolumes(clipId, volumes)
 }
 
 export {

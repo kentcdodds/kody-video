@@ -25,13 +25,13 @@ import {
   setKeepWatermark,
   toStoredBlob,
   undoDeleteLastClip,
-  updateClipAudioVolume,
+  updateClipAudioPeak,
+  updateClipVolumes,
   updateProjectAudioTrack,
   updateClipTrim,
-  updateProjectAudioSettings,
 } from './storage'
 import { markWatermarkRemoved } from './entitlement'
-import { DEFAULT_AUDIO_VOLUME, MAX_PROJECTS, effectiveDurationMs } from './types'
+import { MAX_PROJECTS, effectiveDurationMs } from './types'
 
 function fakeBlob(label: string): Blob {
   return new Blob([label], { type: 'video/webm' })
@@ -364,19 +364,12 @@ describe('storage layer', () => {
       durationMs: 30_000,
       name: 'song.mp3',
     })
-    expect(first.defaultVolume).toBe(DEFAULT_AUDIO_VOLUME)
     expect(first.fadeIn).toBe(true)
     expect(first.fadeOut).toBe(true)
     expect(first.tracks).toHaveLength(1)
     expect(await first.tracks[0].blob.text()).toBe('song')
 
-    await updateProjectAudioSettings(project.id, { defaultVolume: 0.6, fadeOut: false })
-    let audio = await getProjectAudio(project.id)
-    expect(audio?.defaultVolume).toBe(0.6)
-    expect(audio?.fadeIn).toBe(true)
-    expect(audio?.fadeOut).toBe(false)
-
-    // A second track appends and keeps the chosen settings.
+    // A second track appends and keeps the playlist settings.
     const second = await addProjectAudioTrack({
       projectId: project.id,
       blob: new Blob(['other'], { type: 'audio/wav' }),
@@ -385,10 +378,12 @@ describe('storage layer', () => {
       name: 'other.wav',
     })
     expect(second.tracks.map((track) => track.name)).toEqual(['song.mp3', 'other.wav'])
-    expect(second.defaultVolume).toBe(0.6)
-    expect(second.fadeOut).toBe(false)
+    expect(second.fadeIn).toBe(true)
+    expect(second.fadeOut).toBe(true)
 
     // Removing one track keeps the playlist; removing the last drops it.
+    let audio = await getProjectAudio(project.id)
+    expect(audio?.tracks).toHaveLength(2)
     await removeProjectAudioTrack(project.id, second.tracks[0].id)
     audio = await getProjectAudio(project.id)
     expect(audio?.tracks.map((track) => track.name)).toEqual(['other.wav'])
@@ -422,7 +417,6 @@ describe('storage layer', () => {
     })
     // Untouched fields survive; fadeOut still inherits from the playlist.
     expect(updated.tracks[0].fadeOut).toBeUndefined()
-    expect(updated.defaultVolume).toBe(DEFAULT_AUDIO_VOLUME)
 
     // Partial updates keep the other side of the trim window, and the end
     // can never cross the start.
@@ -439,18 +433,20 @@ describe('storage layer', () => {
     expect(junkTrim.tracks[0].trimEndMs).toBe(10_000)
     await updateProjectAudioTrack(project.id, trackId, { trimEndMs: 1_000 })
 
-    // The level clamps to 0–1 and junk falls back to full volume.
+    // The volume clamps to 0–1 and junk falls back to the default (the
+    // stored value is dropped, so audioTrackLevel resolves the default).
     expect(
       (await updateProjectAudioTrack(project.id, trackId, { volume: 7 })).tracks[0].volume,
     ).toBe(1)
     expect(
       (await updateProjectAudioTrack(project.id, trackId, { volume: Number.NaN })).tracks[0]
         .volume,
-    ).toBe(1)
+    ).toBeUndefined()
 
     // The settings persist.
     const stored = await getProjectAudio(project.id)
-    expect(stored?.tracks[0]).toMatchObject({ trimStartMs: 2_000, trimEndMs: 2_000, volume: 1 })
+    expect(stored?.tracks[0]).toMatchObject({ trimStartMs: 2_000, trimEndMs: 2_000 })
+    expect(stored?.tracks[0].volume).toBeUndefined()
 
     await expect(
       updateProjectAudioTrack(project.id, 'missing-track', { volume: 0.5 }),
@@ -475,7 +471,7 @@ describe('storage layer', () => {
     expect(await getProjectAudio(project.id)).toBeUndefined()
   })
 
-  it('sets, clamps, clears, and duplicates per-clip music volumes', async () => {
+  it('sets, clamps, clears, and duplicates per-clip volumes', async () => {
     const project = await createProject('Volumes')
     const clip = await addClip({
       projectId: project.id,
@@ -483,22 +479,58 @@ describe('storage layer', () => {
       mimeType: 'video/webm',
       durationMs: 1000,
     })
-    expect(clip.audioVolume).toBeUndefined()
+    expect(clip.clipVolume).toBeUndefined()
+    expect(clip.musicVolume).toBeUndefined()
 
-    await updateClipAudioVolume(clip.id, 1.7)
-    expect((await getClip(clip.id))?.audioVolume).toBe(1)
+    // Full volume is the default — values ≥ 1 store no override.
+    await updateClipVolumes(clip.id, { clipVolume: 1.7 })
+    expect((await getClip(clip.id))?.clipVolume).toBeUndefined()
 
-    await updateClipAudioVolume(clip.id, 0.4)
-    expect((await getClip(clip.id))?.audioVolume).toBe(0.4)
+    await updateClipVolumes(clip.id, { clipVolume: 0.4 })
+    expect((await getClip(clip.id))?.clipVolume).toBe(0.4)
 
-    // Duplicates inherit the override.
+    // Each side updates independently; the other is left as is.
+    await updateClipVolumes(clip.id, { musicVolume: 0.6 })
+    const both = await getClip(clip.id)
+    expect(both?.clipVolume).toBe(0.4)
+    expect(both?.musicVolume).toBe(0.6)
+
+    // Duplicates inherit the overrides.
     const copy = await duplicateClip(clip.id)
-    expect((await getClip(copy.id))?.audioVolume).toBe(0.4)
+    expect((await getClip(copy.id))?.clipVolume).toBe(0.4)
+    expect((await getClip(copy.id))?.musicVolume).toBe(0.6)
 
-    await updateClipAudioVolume(clip.id, null)
+    await updateClipVolumes(clip.id, { clipVolume: null, musicVolume: 1 })
     const cleared = await getClip(clip.id)
-    expect(cleared?.audioVolume).toBeUndefined()
-    expect(cleared && 'audioVolume' in cleared).toBe(false)
+    expect(cleared?.clipVolume).toBeUndefined()
+    expect(cleared && 'clipVolume' in cleared).toBe(false)
+    expect(cleared && 'musicVolume' in cleared).toBe(false)
+  })
+
+  it('persists the measured audio peak without touching updatedAt', async () => {
+    const project = await createProject('Peaks')
+    const clip = await addClip({
+      projectId: project.id,
+      blob: fakeBlob('p'),
+      mimeType: 'video/webm',
+      durationMs: 1000,
+    })
+    expect(clip.audioPeak).toBeUndefined()
+    const updatedAtBefore = (await listProjects()).find((p) => p.id === project.id)!.updatedAt
+
+    await updateClipAudioPeak(clip.id, 0.45)
+    expect((await getClip(clip.id))?.audioPeak).toBe(0.45)
+
+    // Junk clamps into 0–1 (never poisons playback math).
+    await updateClipAudioPeak(clip.id, Number.NaN)
+    expect((await getClip(clip.id))?.audioPeak).toBe(0)
+
+    // A measurement is not a user edit — home slot order must not churn.
+    const updatedAtAfter = (await listProjects()).find((p) => p.id === project.id)!.updatedAt
+    expect(updatedAtAfter).toBe(updatedAtBefore)
+
+    // A missing clip is a no-op, not an error (deleted mid-backfill).
+    await expect(updateClipAudioPeak('missing-clip', 0.5)).resolves.toBeUndefined()
   })
 
   it('does not leak AbortError unhandled rejections when a clip put fails', async () => {
