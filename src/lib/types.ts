@@ -26,6 +26,9 @@ export interface ClipMeta {
   lat?: number
   lng?: number
   locationAccuracyM?: number
+  /** Background-music volume (0–1) while this clip plays. Absent = the
+   * project audio track's default volume. */
+  audioVolume?: number
 }
 
 export interface ClipRecord extends ClipMeta {
@@ -40,6 +43,54 @@ export interface DeletedClipSnapshot {
   clip: ClipRecord
   index: number
   deletedAt: number
+}
+
+/** One entry in a project's background-music playlist. */
+export interface ProjectAudioTrack {
+  id: string
+  blob: Blob
+  mimeType: string
+  durationMs: number
+  /** Display name (the picked file's name). */
+  name: string
+  addedAt: number
+}
+
+/**
+ * A project's background music: tracks play one after the other under the
+ * clips until the film ends (the last one is cut off there — nothing loops),
+ * at a default volume clips can override individually.
+ */
+export interface ProjectAudioRecord {
+  projectId: ProjectId
+  tracks: ProjectAudioTrack[]
+  /** Baseline volume (0–1) for clips without a per-clip override. */
+  defaultVolume: number
+  /** Ease the music in at the start of the film (default on). */
+  fadeIn: boolean
+  /** Ease the music out at the end of the film (default on). */
+  fadeOut: boolean
+}
+
+/** Sits under speech without drowning it — the out-of-the-box music level. */
+export const DEFAULT_AUDIO_VOLUME = 0.25
+
+/** Total playlist length — what the music can cover before going silent. */
+export function projectAudioTotalDurationMs(audio: Pick<ProjectAudioRecord, 'tracks'>): number {
+  return audio.tracks.reduce((sum, track) => sum + track.durationMs, 0)
+}
+
+export function clampVolume(volume: number): number {
+  if (!Number.isFinite(volume)) return DEFAULT_AUDIO_VOLUME
+  return Math.max(0, Math.min(1, volume))
+}
+
+/** Background-music volume while a clip plays: its override or the default. */
+export function clipAudioVolume(
+  clip: Pick<ClipMeta, 'audioVolume'>,
+  defaultVolume: number,
+): number {
+  return clampVolume(clip.audioVolume ?? defaultVolume)
 }
 
 export interface AppMeta {

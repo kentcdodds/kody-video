@@ -429,6 +429,199 @@
   flex: 1;
 }
 
+/* Background-music strip under the timeline */
+.audio-strip {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.audio-strip .audio-add {
+  align-self: flex-start;
+  min-height: 36px;
+  padding: 0 14px;
+  font-size: 0.84rem;
+}
+
+.audio-plus-lock {
+  display: grid;
+  place-items: center;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  color: var(--ink-strong);
+  background: var(--accent);
+  margin-left: 2px;
+}
+
+.audio-track-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 28px;
+}
+
+.audio-track-icon {
+  display: grid;
+  place-items: center;
+  width: 22px;
+  height: 22px;
+  border-radius: 7px;
+  color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 16%, transparent);
+  flex: 0 0 auto;
+}
+
+.audio-track-name {
+  min-width: 0;
+  padding: 2px 0;
+  font-size: 0.84rem;
+  font-weight: 600;
+  color: var(--ink);
+  text-align: left;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.audio-playlist-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 26px;
+  flex-wrap: wrap;
+}
+
+.audio-add-track {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  min-height: 26px;
+  padding: 2px 10px;
+  border-radius: 999px;
+  font-size: 0.74rem;
+  font-weight: 600;
+  color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 14%, transparent);
+  flex: 0 0 auto;
+}
+
+.audio-add-track:disabled {
+  opacity: 0.4;
+  cursor: wait;
+}
+
+.audio-coverage-hint {
+  font-size: 0.72rem;
+  font-variant-numeric: tabular-nums;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.audio-fades {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  margin-left: auto;
+  flex: 0 0 auto;
+}
+
+.audio-fade-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 0.74rem;
+  font-weight: 600;
+  color: var(--ink-muted);
+  cursor: pointer;
+}
+
+.audio-fade-toggle input[type='checkbox'] {
+  width: 15px;
+  height: 15px;
+  accent-color: var(--accent);
+  margin: 0;
+}
+
+.audio-track-duration {
+  font-size: 0.75rem;
+  font-variant-numeric: tabular-nums;
+  flex: 0 0 auto;
+  margin-left: auto;
+}
+
+.audio-remove {
+  width: 30px;
+  height: 30px;
+  min-height: 30px;
+  flex: 0 0 auto;
+}
+
+.audio-volume-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 26px;
+}
+
+.audio-volume-label {
+  flex: 0 0 74px;
+  font-size: 0.74rem;
+  font-weight: 600;
+  color: var(--ink-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.audio-volume-row input[type='range'] {
+  flex: 1 1 auto;
+  min-width: 0;
+  height: 26px;
+  accent-color: var(--accent);
+  touch-action: pan-y;
+}
+
+.audio-volume-value {
+  flex: 0 0 38px;
+  text-align: right;
+  font-size: 0.76rem;
+  font-variant-numeric: tabular-nums;
+  color: var(--ink);
+}
+
+.audio-volume-reset {
+  flex: 0 0 auto;
+  min-height: 26px;
+  padding: 2px 10px;
+  border-radius: 999px;
+  font-size: 0.72rem;
+  font-weight: 600;
+  color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 14%, transparent);
+}
+
+.audio-volume-reset:disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
+}
+
+/* Per-clip music-volume badge on timeline tiles */
+.clip-thumb .clip-audio-badge {
+  position: absolute;
+  left: 4px;
+  top: 4px;
+  font-size: 0.62rem;
+  color: #fff;
+  background: rgba(0, 0, 0, 0.55);
+  padding: 2px 5px;
+  border-radius: 999px;
+  font-variant-numeric: tabular-nums;
+  pointer-events: none;
+}
+
 /* Bottom clip action bar */
 .editor-actions {
   display: flex;

@@ -1,8 +1,10 @@
 import { openDB, type DBSchema, type IDBPDatabase } from 'idb'
 import { removeExportEntry } from './export/opfs'
 import {
+  DEFAULT_AUDIO_VOLUME,
   FREE_PROJECTS,
   MAX_PROJECTS,
+  clampVolume,
   newId,
   type AppMeta,
   type ClipId,
@@ -10,6 +12,8 @@ import {
   type ClipRecord,
   type DeletedClipSnapshot,
   type Project,
+  type ProjectAudioRecord,
+  type ProjectAudioTrack,
   type ProjectId,
 } from './types'
 
@@ -32,10 +36,14 @@ interface ClipsDB extends DBSchema {
     key: string
     value: AppMeta
   }
+  audio: {
+    key: ProjectId
+    value: ProjectAudioRecord
+  }
 }
 
 export const DB_NAME = 'kody-video'
-const DB_VERSION = 1
+const DB_VERSION = 2
 
 let dbPromise: Promise<IDBPDatabase<ClipsDB>> | null = null
 
@@ -58,15 +66,21 @@ async function completeTransaction(
 export function getDb(): Promise<IDBPDatabase<ClipsDB>> {
   if (!dbPromise) {
     dbPromise = openDB<ClipsDB>(DB_NAME, DB_VERSION, {
-      upgrade(db) {
-        const projects = db.createObjectStore('projects', { keyPath: 'id' })
-        projects.createIndex('by-updated', 'updatedAt')
+      upgrade(db, oldVersion) {
+        if (oldVersion < 1) {
+          const projects = db.createObjectStore('projects', { keyPath: 'id' })
+          projects.createIndex('by-updated', 'updatedAt')
 
-        const clips = db.createObjectStore('clips', { keyPath: 'id' })
-        clips.createIndex('by-project', 'projectId')
+          const clips = db.createObjectStore('clips', { keyPath: 'id' })
+          clips.createIndex('by-project', 'projectId')
 
-        db.createObjectStore('undo', { keyPath: 'clip.projectId' })
-        db.createObjectStore('meta', { keyPath: 'key' })
+          db.createObjectStore('undo', { keyPath: 'clip.projectId' })
+          db.createObjectStore('meta', { keyPath: 'key' })
+        }
+        if (oldVersion < 2) {
+          // One optional background-audio track per project.
+          db.createObjectStore('audio', { keyPath: 'projectId' })
+        }
       },
     })
   }
@@ -192,7 +206,7 @@ export async function deleteProject(id: ProjectId): Promise<void> {
   const project = await db.get('projects', id)
   if (!project) return
 
-  const tx = db.transaction(['projects', 'clips', 'undo', 'meta'], 'readwrite')
+  const tx = db.transaction(['projects', 'clips', 'undo', 'meta', 'audio'], 'readwrite')
   // Read meta before queueing writes so a failed delete cannot reject while
   // we are still awaiting get — that would reintroduce the AbortError leak.
   const settings = await tx.objectStore('meta').get('settings')
@@ -200,6 +214,7 @@ export async function deleteProject(id: ProjectId): Promise<void> {
   const ops: Array<Promise<unknown>> = [
     ...project.clipIds.map((clipId) => clips.delete(clipId)),
     tx.objectStore('undo').delete(id),
+    tx.objectStore('audio').delete(id),
     tx.objectStore('projects').delete(id),
   ]
   const dropsCachedExport = settings?.lastExport?.projectId === id
@@ -270,6 +285,8 @@ export interface AddClipInput {
   /** Original capture time — used when importing backups so chapter titles
    * keep the real recording time. Defaults to now. */
   createdAt?: number
+  /** Background-music volume override — used when importing backups. */
+  audioVolume?: number
 }
 
 /**
@@ -308,6 +325,9 @@ export async function addClip(input: AddClipInput): Promise<ClipRecord> {
     lat: input.lat,
     lng: input.lng,
     locationAccuracyM: input.locationAccuracyM,
+  }
+  if (input.audioVolume !== undefined) {
+    clip.audioVolume = clampVolume(input.audioVolume)
   }
 
   const tx = db.transaction(['clips', 'projects'], 'readwrite')
@@ -380,6 +400,152 @@ export async function updateClipTrim(
   await db.put('clips', updated)
   await touchProject(clip.projectId)
   return toMeta(updated)
+}
+
+/** Set a clip's background-music volume override; null returns it to the
+ * project audio track's default. */
+export async function updateClipAudioVolume(
+  clipId: ClipId,
+  volume: number | null,
+): Promise<ClipMeta> {
+  const db = await getDb()
+  // Read + merge + write in one transaction so a concurrent clip mutation
+  // (trim, thumbs) can never be clobbered by a stale snapshot.
+  const tx = db.transaction('clips', 'readwrite')
+  const clip = await tx.store.get(clipId)
+  if (!clip) {
+    await tx.done.catch(() => undefined)
+    throw new Error('Clip not found')
+  }
+  const updated: ClipRecord = { ...clip }
+  if (volume === null) {
+    delete updated.audioVolume
+  } else {
+    updated.audioVolume = clampVolume(volume)
+  }
+  await completeTransaction([tx.store.put(updated)], tx)
+  await touchProject(clip.projectId)
+  return toMeta(updated)
+}
+
+export async function getProjectAudio(
+  projectId: ProjectId,
+): Promise<ProjectAudioRecord | undefined> {
+  const db = await getDb()
+  return db.get('audio', projectId)
+}
+
+export interface AddProjectAudioTrackInput {
+  projectId: ProjectId
+  blob: Blob
+  mimeType: string
+  durationMs: number
+  name: string
+  /** Initial playlist settings — only honored when this is the first track. */
+  defaultVolume?: number
+  fadeIn?: boolean
+  fadeOut?: boolean
+}
+
+/** Append a track to the project's background-music playlist (creating the
+ * playlist with default settings when this is the first track). */
+export async function addProjectAudioTrack(
+  input: AddProjectAudioTrackInput,
+): Promise<ProjectAudioRecord> {
+  const db = await getDb()
+  // Background music is a Kody Video Plus perk — enforced here so every
+  // path that could attach a track (editor picker, backup import) hits the
+  // same gate, like the project cap in createProject.
+  const settings = await getSettings()
+  if (settings.watermarkRemoved !== true) {
+    throw new Error('Background music is part of Kody Video Plus — the one-time $0.99 unlock.')
+  }
+  const durableBlob = await toStoredBlob(input.blob, input.mimeType)
+  const track: ProjectAudioTrack = {
+    id: newId('track'),
+    blob: durableBlob,
+    mimeType: input.mimeType,
+    durationMs: input.durationMs,
+    name: input.name,
+    addedAt: Date.now(),
+  }
+  // Read + merge + write in one transaction so overlapping playlist
+  // mutations can never clobber each other's tracks or settings.
+  const tx = db.transaction('audio', 'readwrite')
+  const existing = await tx.store.get(input.projectId)
+  const record: ProjectAudioRecord = existing
+    ? { ...existing, tracks: [...existing.tracks, track] }
+    : {
+        projectId: input.projectId,
+        tracks: [track],
+        defaultVolume: clampVolume(input.defaultVolume ?? DEFAULT_AUDIO_VOLUME),
+        fadeIn: input.fadeIn ?? true,
+        fadeOut: input.fadeOut ?? true,
+      }
+  await completeTransaction([tx.store.put(record)], tx)
+  await touchProject(input.projectId)
+  return record
+}
+
+/** Remove one playlist track; removing the last one drops the playlist. */
+export async function removeProjectAudioTrack(
+  projectId: ProjectId,
+  trackId: string,
+): Promise<void> {
+  const db = await getDb()
+  const tx = db.transaction('audio', 'readwrite')
+  const audio = await tx.store.get(projectId)
+  if (!audio) {
+    await tx.done
+    return
+  }
+  const tracks = audio.tracks.filter((track) => track.id !== trackId)
+  await completeTransaction(
+    [
+      tracks.length === 0
+        ? tx.store.delete(projectId)
+        : tx.store.put({ ...audio, tracks }),
+    ],
+    tx,
+  )
+  await touchProject(projectId)
+}
+
+export async function removeProjectAudio(projectId: ProjectId): Promise<void> {
+  const db = await getDb()
+  await db.delete('audio', projectId)
+  await touchProject(projectId)
+}
+
+export interface ProjectAudioSettings {
+  defaultVolume?: number
+  fadeIn?: boolean
+  fadeOut?: boolean
+}
+
+export async function updateProjectAudioSettings(
+  projectId: ProjectId,
+  settings: ProjectAudioSettings,
+): Promise<ProjectAudioRecord> {
+  const db = await getDb()
+  const tx = db.transaction('audio', 'readwrite')
+  const audio = await tx.store.get(projectId)
+  if (!audio) {
+    await tx.done.catch(() => undefined)
+    throw new Error('This project has no background music')
+  }
+  const updated: ProjectAudioRecord = {
+    ...audio,
+    defaultVolume:
+      settings.defaultVolume !== undefined
+        ? clampVolume(settings.defaultVolume)
+        : audio.defaultVolume,
+    fadeIn: settings.fadeIn ?? audio.fadeIn,
+    fadeOut: settings.fadeOut ?? audio.fadeOut,
+  }
+  await completeTransaction([tx.store.put(updated)], tx)
+  await touchProject(projectId)
+  return updated
 }
 
 export async function reorderClips(projectId: ProjectId, clipIds: ClipId[]): Promise<Project> {

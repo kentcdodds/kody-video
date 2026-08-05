@@ -8,6 +8,7 @@ import { PlaybackOverlay } from '../components/playback-overlay'
 import { RecordScreen, type ToastAction } from '../components/record-screen'
 import { createCamera } from '../lib/camera'
 import { RestoreSheet } from '../components/restore-sheet'
+import { UpsellSheet } from '../components/upsell-sheet'
 import { REMOVE_WATERMARK_LINK } from '../lib/entitlement'
 import { buildClipsZip } from '../lib/clips-zip'
 import { clearExportMarker, markExportStarted, reportError } from '../lib/error-reporting'
@@ -87,6 +88,7 @@ export function ProjectPage(handle: Handle<ProjectPageProps>) {
   let toast: ToastState | null = null
   let exportState: ExportUiState | null = null
   let restoring = false
+  let upselling = false
   /** In-flight share/save COUNT (concurrent actions must not clear each
    * other's busy state) — the export sheet must not dismiss while > 0. */
   let exportActionCount = 0
@@ -122,6 +124,7 @@ export function ProjectPage(handle: Handle<ProjectPageProps>) {
         data = {
           project: null,
           clips: [],
+          audio: null,
           canUndo: false,
           onboardingDismissed: true,
           watermarkRemoved: false,
@@ -194,6 +197,7 @@ export function ProjectPage(handle: Handle<ProjectPageProps>) {
     if (!data) return
     const clips = data.clips
     const project = data.project
+    const audio = data.audio
     if (clips.length === 0) return
     const runId = exportRun + 1
     exportRun = runId
@@ -212,7 +216,7 @@ export function ProjectPage(handle: Handle<ProjectPageProps>) {
     }
 
     const watermarked = !data.watermarkRemoved
-    const signature = exportSignature(clips, watermarked)
+    const signature = exportSignature(clips, watermarked, audio)
     // Stop camera/mic immediately rather than waiting on record-screen
     // unmount. On iOS the combined mic+camera session can hold decoder
     // slots past the first paints, and WebKit reports that race as
@@ -284,6 +288,15 @@ export function ProjectPage(handle: Handle<ProjectPageProps>) {
         const result = await exportProject(clips, {
           audioContext,
           watermark: watermarked,
+          background:
+            audio && audio.tracks.length > 0
+              ? {
+                  tracks: audio.tracks.map((track) => ({ blob: track.blob })),
+                  defaultVolume: audio.defaultVolume,
+                  fadeIn: audio.fadeIn,
+                  fadeOut: audio.fadeOut,
+                }
+              : undefined,
           getPreviewCanvas: () => previewCanvas,
           onProgress: (ratio) => {
             if (exportRun !== runId) return
@@ -438,6 +451,12 @@ export function ProjectPage(handle: Handle<ProjectPageProps>) {
             project={project}
             ensureProjectId={ensureProjectId}
             clips={clips}
+            audio={data.audio}
+            plus={data.watermarkRemoved}
+            onUpsell={() => {
+              upselling = true
+              void handle.update()
+            }}
             canUndo={data.canUndo}
             interactionLocked={overlayOpen}
             onOpenCamera={() => {
@@ -457,6 +476,7 @@ export function ProjectPage(handle: Handle<ProjectPageProps>) {
         {playing ? (
           <PlaybackOverlay
             clips={clips}
+            audio={data.audio}
             onClose={() => {
               playing = false
               void handle.update()
@@ -540,6 +560,20 @@ export function ProjectPage(handle: Handle<ProjectPageProps>) {
             onRetry={() => startExport({ force: true })}
             onReExport={() => startExport({ force: true })}
             onClose={closeExport}
+          />
+        ) : null}
+
+        {upselling ? (
+          <UpsellSheet
+            onClose={() => {
+              upselling = false
+              void handle.update()
+            }}
+            onRestore={() => {
+              upselling = false
+              restoring = true
+              void handle.update()
+            }}
           />
         ) : null}
 

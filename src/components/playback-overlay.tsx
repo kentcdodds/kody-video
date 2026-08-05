@@ -1,14 +1,20 @@
 import type { Handle } from 'remix/ui'
 import { on, ref } from 'remix/ui'
 import { planExport } from '../lib/export'
-import type { ClipRecord } from '../lib/types'
+import { FADE_OUT_MS } from '../lib/export/background-audio'
+import { clipAudioVolume, type ClipRecord, type ProjectAudioRecord } from '../lib/types'
 import { IconPlay } from './icons'
 import { isInteractiveTarget } from '../lib/keyboard'
 
 interface PlaybackOverlayProps {
   clips: ClipRecord[]
+  /** Background-music track played under the clips (null when none). */
+  audio: ProjectAudioRecord | null
   onClose: () => void
 }
+
+/** Smoothing time constant for music volume moves (~settles in 3×). */
+const MUSIC_VOLUME_TAU_MS = 200
 
 /**
  * Sequential project preview, OK Video style: one persistent video element
@@ -41,6 +47,17 @@ export function PlaybackOverlay(handle: Handle<PlaybackOverlayProps>) {
    * events from the previous clip that fire before the new source is ready. */
   let loadedIndex = -1
 
+  // Background music: one audio element under the whole preview, playing
+  // the playlist's tracks one after the other (nothing loops — when the
+  // playlist runs out the rest of the preview is music-free). Its volume
+  // glides toward the current clip's music volume every frame, so
+  // transitions between clips ramp instead of jumping — the same behavior
+  // the export renders, heard live.
+  let audioEl: HTMLAudioElement | null = null
+  /** Lazily created object URL per playlist track (revoked on unmount). */
+  const trackUrls = new Map<number, string>()
+  let musicTrackIndex = -1
+
   const currentSegment = () => resolveSegments()[index] ?? null
   const startSec = () => {
     const segment = currentSegment()
@@ -53,6 +70,143 @@ export function PlaybackOverlay(handle: Handle<PlaybackOverlayProps>) {
   const segmentMs = () => {
     const segment = currentSegment()
     return segment ? segment.endMs - segment.startMs : 0
+  }
+
+  const segmentMusicVolume = () => {
+    const segment = currentSegment()
+    const track = props.audio
+    if (!segment || !track) return 0
+    return clipAudioVolume(segment.clip, track.defaultVolume) * fadeOutScale()
+  }
+
+  /** Mirror the export's end-of-film fade-out in the live preview: inside
+   * the final FADE_OUT_MS the music target scales down toward silence. */
+  const fadeOutScale = () => {
+    if (!props.audio?.fadeOut) return 1
+    const segs = resolveSegments()
+    const last = segs[segs.length - 1]
+    if (!last) return 1
+    const totalMs = last.offsetMs + (last.endMs - last.startMs)
+    const remainingMs = totalMs - timelinePositionMs()
+    return Math.max(0, Math.min(1, remainingMs / FADE_OUT_MS))
+  }
+
+  /** Playhead position on the output timeline, in ms. */
+  const timelinePositionMs = () => {
+    const segment = currentSegment()
+    if (!segment) return 0
+    const elapsedSec = videoEl ? Math.max(0, videoEl.currentTime - segment.startMs / 1000) : 0
+    return segment.offsetMs + elapsedSec * 1000
+  }
+
+  /** Playlist track and in-track offset covering an output position, or
+   * null when the playlist has already run out there. */
+  const trackAtMs = (positionMs: number): { index: number; offsetMs: number } | null => {
+    const tracks = props.audio?.tracks ?? []
+    let cursor = 0
+    for (let i = 0; i < tracks.length; i += 1) {
+      if (positionMs < cursor + tracks[i].durationMs) {
+        return { index: i, offsetMs: positionMs - cursor }
+      }
+      cursor += tracks[i].durationMs
+    }
+    return null
+  }
+
+  const urlForTrack = (trackIndex: number): string => {
+    let url = trackUrls.get(trackIndex)
+    if (!url) {
+      url = URL.createObjectURL(props.audio!.tracks[trackIndex].blob)
+      trackUrls.set(trackIndex, url)
+    }
+    return url
+  }
+
+  /** Put the right playlist track under the playhead. Small drift within a
+   * track is left alone — a re-seek every segment would audibly hiccup
+   * continuous playback. Returns false when there is no music to play. */
+  const syncMusicPosition = (): boolean => {
+    const audio = audioEl
+    if (!audio || !props.audio) return false
+    const positionMs = timelinePositionMs()
+    const target = trackAtMs(positionMs)
+    if (!target) {
+      audio.pause()
+      return false
+    }
+    if (musicTrackIndex !== target.index) {
+      // Metadata durations can run slightly past the decoded length, so a
+      // just-ended track briefly still "covers" the playhead — moving back
+      // to it would restart it. Only genuine backward skips switch back.
+      const boundaryMs = props.audio.tracks
+        .slice(0, target.index + 1)
+        .reduce((sum, track) => sum + track.durationMs, 0)
+      const nearHandOff = target.index < musicTrackIndex && boundaryMs - positionMs < 1500
+      if (!nearHandOff) {
+        musicTrackIndex = target.index
+        audio.src = urlForTrack(target.index)
+        audio.currentTime = target.offsetMs / 1000
+      }
+    } else if (Math.abs(audio.currentTime - target.offsetMs / 1000) > 0.35) {
+      audio.currentTime = target.offsetMs / 1000
+    }
+    return true
+  }
+
+  /** A track finished — hand off to the next one (never replay the ended
+   * track: metadata duration may outlast the decoded audio, so a
+   * position-based sync could still map into it). */
+  const advanceMusicTrack = () => {
+    const tracks = props.audio?.tracks ?? []
+    const audio = audioEl
+    if (!audio) return
+    const next = musicTrackIndex + 1
+    if (next >= tracks.length) return // Playlist over — the rest is music-free.
+    musicTrackIndex = next
+    audio.src = urlForTrack(next)
+    audio.currentTime = 0
+    if (videoEl && !videoEl.paused) void audio.play().catch(() => undefined)
+  }
+
+  const playMusic = () => {
+    if (!syncMusicPosition()) return
+    void audioEl?.play().catch(() => undefined)
+  }
+
+  const pauseMusic = () => {
+    audioEl?.pause()
+  }
+
+  const bindAudio = (el: HTMLAudioElement, signal: AbortSignal) => {
+    const track = props.audio
+    if (!track) return
+    audioEl = el
+    // No fade-in means the music opens at full clip volume; otherwise the
+    // per-frame glide below fades it in from silence.
+    el.volume = track.fadeIn ? 0 : segmentMusicVolume()
+
+    // Per-frame volume glide toward the current clip's target.
+    let last = performance.now()
+    let raf = 0
+    const tick = (now: number) => {
+      const dt = Math.min(100, now - last)
+      last = now
+      const target = segmentMusicVolume()
+      const alpha = 1 - Math.exp(-dt / MUSIC_VOLUME_TAU_MS)
+      const next = el.volume + (target - el.volume) * alpha
+      el.volume = Math.abs(next - target) < 0.005 ? target : next
+      raf = requestAnimationFrame(tick)
+    }
+    raf = requestAnimationFrame(tick)
+
+    signal.addEventListener('abort', () => {
+      cancelAnimationFrame(raf)
+      el.pause()
+      if (audioEl === el) audioEl = null
+      for (const url of trackUrls.values()) URL.revokeObjectURL(url)
+      trackUrls.clear()
+      musicTrackIndex = -1
+    })
   }
 
   /** Bind the current segment's blob to the persistent video element.
@@ -80,15 +234,21 @@ export function PlaybackOverlay(handle: Handle<PlaybackOverlayProps>) {
       const video = videoEl
       if (video) {
         video.currentTime = startSec()
-        void video.play().catch(() => {
-          needsTap = true
-          void handle.update()
-        })
+        void video
+          .play()
+          .then(() => playMusic())
+          .catch(() => {
+            needsTap = true
+            void handle.update()
+          })
       }
       void handle.update()
       return
     }
     index = Math.max(0, Math.min(resolveSegments().length - 1, nextIndex))
+    // Jump the music to the new position now — waiting for the next clip's
+    // metadata would leave the old position playing through the load gap.
+    syncMusicPosition()
     void handle.update()
   }
 
@@ -101,6 +261,9 @@ export function PlaybackOverlay(handle: Handle<PlaybackOverlayProps>) {
     }
     segmentProgress = 0
     index = index + 1
+    // Positionally a no-op (segments abut on the timeline), but keeps the
+    // playlist hand-off logic on one path with manual skips.
+    syncMusicPosition()
     void handle.update()
   }
 
@@ -110,6 +273,7 @@ export function PlaybackOverlay(handle: Handle<PlaybackOverlayProps>) {
       .play()
       .then(() => {
         needsTap = false
+        playMusic()
         void handle.update()
       })
       .catch(() => {
@@ -146,6 +310,7 @@ export function PlaybackOverlay(handle: Handle<PlaybackOverlayProps>) {
             .play()
             .then(() => {
               needsTap = false
+              playMusic()
               void handle.update()
             })
             .catch(() => {
@@ -154,6 +319,7 @@ export function PlaybackOverlay(handle: Handle<PlaybackOverlayProps>) {
             })
         } else {
           video.pause()
+          pauseMusic()
         }
         return
       }
@@ -241,6 +407,18 @@ export function PlaybackOverlay(handle: Handle<PlaybackOverlayProps>) {
           ))}
         </div>
 
+        {props.audio ? (
+          <audio
+            preload="auto"
+            aria-hidden="true"
+            mix={[
+              ref((node, signal) => bindAudio(node as HTMLAudioElement, signal)),
+              // A track running out mid-preview hands off to the next one.
+              on('ended', () => advanceMusicTrack()),
+            ]}
+          />
+        ) : null}
+
         <video
           className="playback-video"
           playsInline
@@ -291,6 +469,7 @@ export function PlaybackOverlay(handle: Handle<PlaybackOverlayProps>) {
                   .play()
                   .then(() => {
                     needsTap = false
+                    playMusic()
                     void handle.update()
                   })
                   .catch(() => undefined)

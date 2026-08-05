@@ -32,6 +32,8 @@ interface TimelineProps {
   /** Open the device file picker to append gallery videos. */
   onAddFromDevice?: () => void
   addingFromDevice?: boolean
+  /** Show per-clip music-volume badges (project has a background track). */
+  showAudioBadges?: boolean
   refresh: () => void
 }
 
@@ -333,7 +335,11 @@ export function Timeline(handle: Handle<TimelineProps>) {
                 className={`clip-thumb${selected ? ' selected' : ''}${isDragging ? ' lifting' : ''}`}
                 role="option"
                 aria-selected={selected}
-                aria-label={`Clip ${index + 1}, ${formatDuration(effectiveDurationMs(clip))}`}
+                aria-label={`Clip ${index + 1}, ${formatDuration(effectiveDurationMs(clip))}${
+                  props.showAudioBadges && clip.audioVolume !== undefined
+                    ? `, music ${Math.round(clip.audioVolume * 100)}%`
+                    : ''
+                }`}
                 data-clip-id={clip.id}
                 style={{ width: `${width}px` }}
                 mix={[
@@ -372,6 +378,11 @@ export function Timeline(handle: Handle<TimelineProps>) {
                   )}
                 </div>
                 <span className="clip-dur">{formatDuration(effectiveDurationMs(clip))}</span>
+                {props.showAudioBadges && clip.audioVolume !== undefined ? (
+                  <span className="clip-audio-badge" aria-hidden="true">
+                    ♪ {Math.round(clip.audioVolume * 100)}%
+                  </span>
+                ) : null}
               </button>
             </div>
           )

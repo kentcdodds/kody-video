@@ -415,6 +415,26 @@ async function decodeBlobAudio(blob: Blob, sampleRate: number): Promise<AudioBuf
   return offline.startRendering()
 }
 
+/**
+ * Decode the project's background-audio track for export mixing. Never
+ * contributes to the per-clip silence diagnostics — a loud music bed must
+ * not mask dead-mic clips (and a broken music decode must not fail the
+ * export, just export without music).
+ */
+export async function decodeBackgroundAudio(
+  blob: Blob,
+  sampleRate = 48000,
+): Promise<AudioBuffer | null> {
+  try {
+    return await decodeBlobAudio(blob, sampleRate)
+  } catch {
+    reportError(new Error('Background audio decode failed — exporting without music'), 'export-audio', {
+      mimeType: blob.type,
+    })
+    return null
+  }
+}
+
 export async function decodeClipAudio(
   blob: Blob,
   sampleRate = 48000,

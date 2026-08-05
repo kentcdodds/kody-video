@@ -1,8 +1,11 @@
 import { pickRecorderMimeType } from '../media'
+import { clipAudioVolume } from '../types'
+import type { BackgroundAudio } from './background-audio'
 import { clampSegmentToMedia, type ExportPlan } from './plan'
 import {
   PREVIEW_EVERY_N_FRAMES,
   blitPreview,
+  decodeBackgroundAudio,
   decodeClipAudio,
   drawCover,
   drawWatermark,
@@ -27,6 +30,8 @@ export interface RealtimeExportOptions {
   getPreviewCanvas?: () => HTMLCanvasElement | null
   /** Mark stamped onto each frame; null when the user purchased removal. */
   watermarkImage?: HTMLImageElement | null
+  /** Background-music playlist mixed under the clips (per-clip volumes). */
+  background?: BackgroundAudio | null
 }
 
 /**
@@ -92,6 +97,59 @@ export async function exportRealtime(
     dest = null
   }
 
+  // Background music rides sequentially chained buffer sources behind a
+  // gain node: each track starts when the previous one ends (nothing
+  // loops), and the gain glides toward each clip's volume as the export
+  // reaches it — this engine paints in realtime, so Web Audio's own
+  // ramping does the work.
+  let backgroundGain: GainNode | null = null
+  let startBackground: (() => void) | null = null
+  let stopBackground: (() => void) | null = null
+  const backgroundTracks = options.background?.tracks ?? []
+  if (backgroundTracks.length > 0 && audioContext && dest) {
+    try {
+      const gain = audioContext.createGain()
+      gain.gain.value = 0
+      gain.connect(dest)
+      let stopped = false
+      let activeSource: AudioBufferSourceNode | null = null
+      const playFrom = async (index: number): Promise<void> => {
+        if (stopped || index >= backgroundTracks.length || !audioContext) return
+        // Undecodable tracks are skipped; the next one starts in their place.
+        const buffer = await decodeBackgroundAudio(backgroundTracks[index].blob)
+        if (stopped) return
+        if (!buffer) return playFrom(index + 1)
+        const source = audioContext.createBufferSource()
+        source.buffer = buffer
+        source.connect(gain)
+        source.onended = () => {
+          void playFrom(index + 1)
+        }
+        activeSource = source
+        source.start()
+      }
+      // Deferred to the first painted segment: starting here would let the
+      // music advance through clip preload before any frame is recorded.
+      startBackground = () => {
+        startBackground = null
+        void playFrom(0)
+      }
+      stopBackground = () => {
+        stopped = true
+        try {
+          activeSource?.stop()
+        } catch {
+          // already stopped
+        }
+      }
+      backgroundGain = gain
+    } catch {
+      backgroundGain = null
+      startBackground = null
+      stopBackground = null
+    }
+  }
+
   const mixedStream = new MediaStream([
     ...canvasStream.getVideoTracks(),
     ...(dest?.stream.getAudioTracks() ?? []),
@@ -138,6 +196,29 @@ export async function exportRealtime(
       try {
         const clamped = clampSegmentToMedia(segment, loaded.mediaDurationMs)
         if (!clamped) continue
+        if (backgroundGain && audioContext && options.background) {
+          startBackground?.()
+          const volume = clipAudioVolume(segment.clip, options.background.defaultVolume)
+          const now = audioContext.currentTime
+          if (segmentIndex === 0 && !options.background.fadeIn) {
+            // No fade-in: music opens at full clip volume.
+            backgroundGain.gain.setValueAtTime(volume, now)
+          } else {
+            backgroundGain.gain.setTargetAtTime(volume, now, 0.2)
+          }
+          // This engine paints in realtime, so the last segment's end lands
+          // roughly `segment length` from now — schedule the musical
+          // fade-out to finish there, shrinking it on short final clips
+          // (like the WebCodecs envelope) instead of dropping it.
+          const isLast = segmentIndex === plan.segments.length - 1
+          const segmentSec = (clamped.endMs - clamped.startMs) / 1000
+          if (isLast && options.background.fadeOut) {
+            const fadeSec = Math.min(1.2, segmentSec / 2)
+            if (fadeSec > 0.05) {
+              backgroundGain.gain.setTargetAtTime(0, now + segmentSec - fadeSec, fadeSec / 3)
+            }
+          }
+        }
         const paintedMs = await paintSegment({
           video: loaded.video,
           blob: segment.clip.blob,
@@ -168,10 +249,18 @@ export async function exportRealtime(
       throw new Error('No video frames could be exported')
     }
 
+    // End-of-film safety ramp: with Fade out on it just finishes what the
+    // scheduled fade started; with it off, a click-kill too short to hear
+    // as a fade (mirrors the WebCodecs edge ramp).
+    if (backgroundGain && audioContext) {
+      const tau = options.background?.fadeOut ? 0.06 : 0.008
+      backgroundGain.gain.setTargetAtTime(0, audioContext.currentTime, tau)
+    }
     // Hold the last frame briefly so the final GOP isn't truncated.
     await wait(180)
     options.onProgress?.(1)
   } finally {
+    stopBackground?.()
     if (recorder.state !== 'inactive') recorder.stop()
     canvasStream.getTracks().forEach((t) => t.stop())
     if (audioContext) {

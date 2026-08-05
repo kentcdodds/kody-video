@@ -3,6 +3,7 @@ import {
   DB_NAME,
   __resetDbForTests,
   addClip,
+  addProjectAudioTrack,
   createProject,
   ProjectLimitError,
   deleteClip,
@@ -10,18 +11,22 @@ import {
   duplicateClip,
   getClip,
   getClipsForProject,
+  getProjectAudio,
   getSettings,
   getUndoSnapshot,
   listProjects,
   moveClip,
+  removeProjectAudioTrack,
   renameProject,
   setOnboardingDismissed,
   toStoredBlob,
   undoDeleteLastClip,
+  updateClipAudioVolume,
   updateClipTrim,
+  updateProjectAudioSettings,
 } from './storage'
 import { markWatermarkRemoved } from './entitlement'
-import { MAX_PROJECTS, effectiveDurationMs } from './types'
+import { DEFAULT_AUDIO_VOLUME, MAX_PROJECTS, effectiveDurationMs } from './types'
 
 function fakeBlob(label: string): Blob {
   return new Blob([label], { type: 'video/webm' })
@@ -171,6 +176,102 @@ describe('storage layer', () => {
     const stored = await getClip(clip.id)
     expect(stored?.blob).not.toBe(original)
     expect(await stored!.blob.text()).toBe('take-1')
+  })
+
+  it('gates background music behind the Plus purchase', async () => {
+    const project = await createProject('Free plan')
+    await expect(
+      addProjectAudioTrack({
+        projectId: project.id,
+        blob: new Blob(['song'], { type: 'audio/mpeg' }),
+        mimeType: 'audio/mpeg',
+        durationMs: 30_000,
+        name: 'song.mp3',
+      }),
+    ).rejects.toThrow(/plus/i)
+    expect(await getProjectAudio(project.id)).toBeUndefined()
+  })
+
+  it('builds a playlist of sequential tracks with shared settings', async () => {
+    await markWatermarkRemoved('cs_test_storage')
+    const project = await createProject('With music')
+    const first = await addProjectAudioTrack({
+      projectId: project.id,
+      blob: new Blob(['song'], { type: 'audio/mpeg' }),
+      mimeType: 'audio/mpeg',
+      durationMs: 30_000,
+      name: 'song.mp3',
+    })
+    expect(first.defaultVolume).toBe(DEFAULT_AUDIO_VOLUME)
+    expect(first.fadeIn).toBe(true)
+    expect(first.fadeOut).toBe(true)
+    expect(first.tracks).toHaveLength(1)
+    expect(await first.tracks[0].blob.text()).toBe('song')
+
+    await updateProjectAudioSettings(project.id, { defaultVolume: 0.6, fadeOut: false })
+    let audio = await getProjectAudio(project.id)
+    expect(audio?.defaultVolume).toBe(0.6)
+    expect(audio?.fadeIn).toBe(true)
+    expect(audio?.fadeOut).toBe(false)
+
+    // A second track appends and keeps the chosen settings.
+    const second = await addProjectAudioTrack({
+      projectId: project.id,
+      blob: new Blob(['other'], { type: 'audio/wav' }),
+      mimeType: 'audio/wav',
+      durationMs: 12_000,
+      name: 'other.wav',
+    })
+    expect(second.tracks.map((track) => track.name)).toEqual(['song.mp3', 'other.wav'])
+    expect(second.defaultVolume).toBe(0.6)
+    expect(second.fadeOut).toBe(false)
+
+    // Removing one track keeps the playlist; removing the last drops it.
+    await removeProjectAudioTrack(project.id, second.tracks[0].id)
+    audio = await getProjectAudio(project.id)
+    expect(audio?.tracks.map((track) => track.name)).toEqual(['other.wav'])
+    await removeProjectAudioTrack(project.id, audio!.tracks[0].id)
+    expect(await getProjectAudio(project.id)).toBeUndefined()
+  })
+
+  it('drops the audio playlist when the project is deleted', async () => {
+    await markWatermarkRemoved('cs_test_storage')
+    const project = await createProject('Doomed')
+    await addProjectAudioTrack({
+      projectId: project.id,
+      blob: new Blob(['song'], { type: 'audio/mpeg' }),
+      mimeType: 'audio/mpeg',
+      durationMs: 30_000,
+      name: 'song.mp3',
+    })
+    await deleteProject(project.id)
+    expect(await getProjectAudio(project.id)).toBeUndefined()
+  })
+
+  it('sets, clamps, clears, and duplicates per-clip music volumes', async () => {
+    const project = await createProject('Volumes')
+    const clip = await addClip({
+      projectId: project.id,
+      blob: fakeBlob('v'),
+      mimeType: 'video/webm',
+      durationMs: 1000,
+    })
+    expect(clip.audioVolume).toBeUndefined()
+
+    await updateClipAudioVolume(clip.id, 1.7)
+    expect((await getClip(clip.id))?.audioVolume).toBe(1)
+
+    await updateClipAudioVolume(clip.id, 0.4)
+    expect((await getClip(clip.id))?.audioVolume).toBe(0.4)
+
+    // Duplicates inherit the override.
+    const copy = await duplicateClip(clip.id)
+    expect((await getClip(copy.id))?.audioVolume).toBe(0.4)
+
+    await updateClipAudioVolume(clip.id, null)
+    const cleared = await getClip(clip.id)
+    expect(cleared?.audioVolume).toBeUndefined()
+    expect(cleared && 'audioVolume' in cleared).toBe(false)
   })
 
   it('does not leak AbortError unhandled rejections when a clip put fails', async () => {
