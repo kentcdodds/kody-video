@@ -297,7 +297,11 @@ export function EditorClipPreview(handle: Handle<EditorClipPreviewProps>) {
         resyncMusicIfPlaying()
       }
       const position = filmPositionMs()
-      const mix = musicShare() * (position === null ? 1 : fadeScaleAt(position))
+      // Live playlist coverage at the playhead — the playhead can pass the
+      // last decoded sample before the `ended` handler runs, and the mix
+      // must go to zero there like the export's (no bed past the playlist).
+      const musicHere = !musicExhausted && position !== null && trackAtMs(position) !== null
+      const mix = musicHere ? musicShare() * fadeScaleAt(position) : 0
       const trackBlob = props.audio?.tracks[musicTrackIndex]?.blob
       const musicScale = trackBlob ? (peekAudioNormalization(trackBlob)?.scale ?? 1) : 1
       musicVol = glide(musicVol, musicElementVolume(mix, musicScale))
@@ -305,12 +309,9 @@ export function EditorClipPreview(handle: Handle<EditorClipPreviewProps>) {
       const video = media
       if (video) {
         // The clip ducks only under a bed that is actually SOUNDING here:
-        // live playlist coverage (the playhead can pass the last decoded
-        // sample before the `ended` handler runs) and a playing element (a
-        // rejected music play() must not leave the clip quietly ducked
-        // under silence).
-        const covered =
-          !musicExhausted && position !== null && trackAtMs(position) !== null && !el.paused
+        // playlist coverage plus a playing element (a rejected music
+        // play() must not leave the clip quietly ducked under silence).
+        const covered = musicHere && !el.paused
         const clipScale = peekAudioNormalization(props.clip.blob)?.scale ?? 1
         // Where the playlist covers this clip the export blends the clip
         // at its normalized complement; where it doesn't, the clip's own
