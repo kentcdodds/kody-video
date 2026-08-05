@@ -271,15 +271,19 @@ export async function exportRealtime(
       try {
         const clamped = clampSegmentToMedia(segment, loaded.mediaDurationMs)
         if (!clamped) continue
-        if (audioContext && clipMixGain) {
+        if (audioContext) {
           const now = audioContext.currentTime
           // The clip's own sound glides toward this clip's volume (a step
           // at the very first segment — nothing is sounding before it).
-          const clipLevel = clipSoundVolume(segment.clip)
-          if (segmentIndex === 0) {
-            clipMixGain.gain.setValueAtTime(clipLevel, now)
-          } else {
-            clipMixGain.gain.setTargetAtTime(clipLevel, now, 0.2)
+          // Each bus is guarded on its own — a failed clip gain node must
+          // not leave the music bus unscheduled (parked at 0) too.
+          if (clipMixGain) {
+            const clipLevel = clipSoundVolume(segment.clip)
+            if (segmentIndex === 0) {
+              clipMixGain.gain.setValueAtTime(clipLevel, now)
+            } else {
+              clipMixGain.gain.setTargetAtTime(clipLevel, now, 0.2)
+            }
           }
           if (backgroundGain && options.background) {
             startBackground?.()

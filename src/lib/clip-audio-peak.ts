@@ -32,10 +32,13 @@ export async function measureClipAudioPeak(blob: Blob): Promise<number> {
 }
 
 /** Measure and persist the clip's audio peak when it is still unmeasured.
- * Returns the (possibly updated) record for immediate use. */
+ * Returns the (possibly updated) record for immediate use. Persistence is
+ * best-effort: a write failure (quota, transient) must not fail the
+ * project load — the measured value still serves this session, and the
+ * next load retries the write. */
 export async function ensureClipAudioPeak(clip: ClipRecord): Promise<ClipRecord> {
   if (clip.audioPeak !== undefined) return clip
   const audioPeak = await measureClipAudioPeak(clip.blob)
-  await updateClipAudioPeak(clip.id, audioPeak)
+  await updateClipAudioPeak(clip.id, audioPeak).catch(() => undefined)
   return { ...clip, audioPeak }
 }
