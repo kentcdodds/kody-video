@@ -51,6 +51,10 @@ export interface ProjectLoaderData {
   onboardingDismissed: boolean
   /** True when the one-time "Remove Watermark" purchase is unlocked. */
   watermarkRemoved: boolean
+  /**
+   * Plus opt-in: keep the Kody mark on exports after purchase (default off).
+   */
+  keepWatermark: boolean
   /** Device storage estimate (null when the API is unavailable). */
   storage: StorageSpace | null
   /** Opt-in: tag new clips with device location. */
@@ -132,6 +136,7 @@ export async function loadProjectPage(projectId: ProjectId): Promise<ProjectLoad
         canUndo: false,
         onboardingDismissed: settings.onboardingDismissed,
         watermarkRemoved: settings.watermarkRemoved === true,
+        keepWatermark: settings.keepWatermark === true,
         storage,
         locationTaggingEnabled: settings.locationTaggingEnabled === true,
         error: null,
@@ -154,6 +159,7 @@ export async function loadProjectPage(projectId: ProjectId): Promise<ProjectLoad
         canUndo: false,
         onboardingDismissed: settings.onboardingDismissed,
         watermarkRemoved: settings.watermarkRemoved === true,
+        keepWatermark: settings.keepWatermark === true,
         storage,
         locationTaggingEnabled: settings.locationTaggingEnabled === true,
         error: 'Project not found',
@@ -176,6 +182,7 @@ export async function loadProjectPage(projectId: ProjectId): Promise<ProjectLoad
       canUndo: !!undo,
       onboardingDismissed: settings.onboardingDismissed,
       watermarkRemoved: settings.watermarkRemoved === true,
+      keepWatermark: settings.keepWatermark === true,
       storage,
       locationTaggingEnabled: settings.locationTaggingEnabled === true,
       error: null,
@@ -188,6 +195,7 @@ export async function loadProjectPage(projectId: ProjectId): Promise<ProjectLoad
       canUndo: false,
       onboardingDismissed: true,
       watermarkRemoved: false,
+      keepWatermark: false,
       storage: null,
       locationTaggingEnabled: false,
       error: err instanceof Error ? err.message : 'Failed to load project',

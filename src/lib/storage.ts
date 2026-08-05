@@ -136,6 +136,12 @@ export async function setLocationTaggingEnabled(locationTaggingEnabled: boolean)
   await db.put('meta', { ...settings, locationTaggingEnabled })
 }
 
+export async function setKeepWatermark(keepWatermark: boolean): Promise<void> {
+  const db = await getDb()
+  const settings = await getSettings()
+  await db.put('meta', { ...settings, keepWatermark })
+}
+
 export async function listProjects(): Promise<Project[]> {
   const db = await getDb()
   const projects = await db.getAllFromIndex('projects', 'by-updated')

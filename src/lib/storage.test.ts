@@ -20,6 +20,7 @@ import {
   removeProjectAudioTrack,
   renameProject,
   setOnboardingDismissed,
+  setKeepWatermark,
   toStoredBlob,
   undoDeleteLastClip,
   updateClipAudioVolume,
@@ -45,6 +46,14 @@ describe('storage layer', () => {
     await setOnboardingDismissed(true)
 
     expect((await getSettings()).onboardingDismissed).toBe(true)
+  })
+
+  it('defaults keepWatermark off and persists the Plus opt-in', async () => {
+    expect((await getSettings()).keepWatermark).toBeUndefined()
+    await setKeepWatermark(true)
+    expect((await getSettings()).keepWatermark).toBe(true)
+    await setKeepWatermark(false)
+    expect((await getSettings()).keepWatermark).toBe(false)
   })
 
   it('gates the second project behind the Plus purchase', async () => {

@@ -1,4 +1,5 @@
 import { getDb, getSettings } from './storage'
+import type { AppMeta } from './types'
 
 /** Stripe Payment Link for the one-time "Remove Watermark" unlock ($0.99). */
 export const REMOVE_WATERMARK_LINK = 'https://buy.stripe.com/00wfZi71ibU30rk9hU2Ry07'
@@ -14,6 +15,17 @@ export async function markWatermarkRemoved(sessionId: string): Promise<void> {
   const db = await getDb()
   const settings = await getSettings()
   await db.put('meta', { ...settings, watermarkRemoved: true, purchaseSessionId: sessionId })
+}
+
+/**
+ * Whether new exports should stamp the Kody mark.
+ * Free plan: always. Plus: only when the user opted to keep it.
+ */
+export function shouldWatermarkExports(
+  settings: Pick<AppMeta, 'watermarkRemoved' | 'keepWatermark'>,
+): boolean {
+  if (settings.keepWatermark === true) return true
+  return settings.watermarkRemoved !== true
 }
 
 export interface VerifyResult {
