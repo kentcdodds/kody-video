@@ -31,6 +31,7 @@ import {
 import { injectMp4Metadata, type Mp4Chapter } from './mp4-metadata'
 import { createOpfsExportFile } from './opfs'
 import { clampSegmentToMedia, type ExportPlan } from './plan'
+import { CROSSFADE_HALF_MS, flushCarry, sliceSegmentAudio } from './segment-audio'
 import {
   PREVIEW_INTERVAL_MS,
   blitPreview,
@@ -114,7 +115,8 @@ async function pickCodecs(width: number, height: number): Promise<CodecChoice | 
  * by Mediabunny, which owns the codec-config, packet-ordering, and
  * container details we used to hand-roll (and debug, chunk by chunk, on
  * iOS). Audio is decoded per clip and appended sample-accurately, so clips
- * can never drift against their soundtrack.
+ * can never drift against their soundtrack; adjacent clips crossfade at
+ * each joint instead of dipping to silence (see segment-audio.ts).
  */
 export async function exportWithWebCodecs(
   plan: ExportPlan,
@@ -231,6 +233,14 @@ export async function exportWithWebCodecs(
   /** Volume + real duration of the previous MIXED segment (dropped
    * segments must not become ramp anchors). */
   let previousMixed: { volume: number; durationMs: number } | null = null
+  /** Tail withheld from the previous EMITTED segment for the joint
+   * crossfade (see segment-audio.ts); null until a segment emits. */
+  let crossfadeCarry: Float32Array[] | null = null
+  /** Audio frames actually appended. At a joint the audio buffer boundary
+   * sits half a crossfade before the video cut, so this can differ from
+   * outputOffsetSec by CROSSFADE_HALF_MS — the music mixer needs the real
+   * audio position. */
+  let audioFramesWritten = 0
 
   try {
     for (const [segmentIndex, segment] of plan.segments.entries()) {
@@ -268,6 +278,12 @@ export async function exportWithWebCodecs(
         }
         if (!clamped) continue
         const segmentMs = clamped.endMs - clamped.startMs
+        const hasNext = segmentIndex < plan.segments.length - 1
+        // Each joint overlaps the neighbors' audio for CROSSFADE_HALF_MS on
+        // both sides of the cut; the video gives up that half on each side
+        // (sub-frame at 30fps) so the timeline matches the overlapped audio.
+        const headChopMs = crossfadeCarry ? CROSSFADE_HALF_MS : 0
+        const tailChopMs = hasNext ? CROSSFADE_HALF_MS : 0
 
         if (choice.container === 'mp4') {
           chapters.push({
@@ -278,24 +294,36 @@ export async function exportWithWebCodecs(
 
         // Audio first: decoded per clip, sliced to the exact segment window
         // (silence-padded), appended sequentially — timestamps are implied
-        // by position, so segments can never drift.
+        // by position, so segments can never drift. Adjacent segments
+        // CROSSFADE at the joint: the previous slice withheld its tail, and
+        // this slice mixes it into its own head (see segment-audio.ts).
         const buffer = await decodeClipAudio(segment.clip.blob, AUDIO_SAMPLE_RATE)
-        const slice = sliceSegmentAudio(buffer, clamped.startMs, segmentMs)
+        const { channels: sliceChannels, carryOut } = sliceSegmentAudio({
+          source: buffer
+            ? Array.from({ length: buffer.numberOfChannels }, (_, ch) =>
+                buffer.getChannelData(ch),
+              )
+            : null,
+          startMs: clamped.startMs,
+          segmentMs,
+          sampleRate: AUDIO_SAMPLE_RATE,
+          channelCount: AUDIO_CHANNELS,
+          carryIn: crossfadeCarry,
+          hasNext,
+        })
+        crossfadeCarry = carryOut
         if (backgroundMixer && background) {
           const volume = segmentVolume(segment, background.defaultVolume)
           const nextPlanned = plan.segments[segmentIndex + 1]
-          const sliceChannels = Array.from(
-            { length: slice.numberOfChannels },
-            (_, ch) => slice.getChannelData(ch),
-          )
           await backgroundMixer.mixInto(
             sliceChannels,
             // Frames already written = the real position of this slice, even
             // when clamping shortened an earlier segment.
-            Math.round(state.outputOffsetSec * AUDIO_SAMPLE_RATE),
+            audioFramesWritten,
             planSegmentGain({
               volume,
-              durationMs: segmentMs,
+              // The slice's real span (joints shift it by half a crossfade).
+              durationMs: (sliceChannels[0]!.length / AUDIO_SAMPLE_RATE) * 1000,
               entry: previousMixed
                 ? {
                     fromVolume: previousMixed.volume,
@@ -330,11 +358,12 @@ export async function exportWithWebCodecs(
           )
           previousMixed = { volume, durationMs: segmentMs }
         }
-        await audioSource.add(slice)
+        await audioSource.add(toAudioBuffer(sliceChannels))
+        audioFramesWritten += sliceChannels[0]!.length
 
         const pumpShared: PumpSharedArgs = {
-          startSec: clamped.startMs / 1000,
-          endSec: clamped.endMs / 1000,
+          startSec: (clamped.startMs + headChopMs) / 1000,
+          endSec: (clamped.endMs - tailChopMs) / 1000,
           canvas,
           ctx,
           videoSource,
@@ -368,12 +397,19 @@ export async function exportWithWebCodecs(
           await pumpSegmentVideo({ video: loaded.video, ...pumpShared })
         }
 
-        state.outputOffsetSec += segmentMs / 1000
+        state.outputOffsetSec += (segmentMs - headChopMs - tailChopMs) / 1000
         state.doneMs += segmentMs
         onProgress?.(plan.totalMs > 0 ? Math.min(1, state.doneMs / plan.totalMs) : 1)
       } finally {
         loaded?.release()
       }
+    }
+
+    if (crossfadeCarry) {
+      // Every planned segment after the last emitted one was dropped at
+      // encode time, so the joint its tail was withheld for never happened:
+      // emit the tail so the audio track ends exactly where the video does.
+      await audioSource.add(toAudioBuffer(flushCarry(crossfadeCarry, AUDIO_SAMPLE_RATE)))
     }
 
     if (state.lastVideoTsSec < 0) {
@@ -765,56 +801,13 @@ async function pumpSegmentVideo({
   }
 }
 
-/** Boundary ramp length: long enough to kill clicks, far too short to hear. */
-const AUDIO_FADE_FRAMES = Math.round(0.003 * AUDIO_SAMPLE_RATE)
-
-/**
- * Exactly `segmentMs` of audio for a segment: the decoded clip audio sliced
- * at the trim-in point, padded with silence where the clip has less audio
- * than video. Slice edges get ~3ms fades — a hard cut mid-waveform at every
- * clip joint is an audible click, which is exactly the "audio isn't
- * seamless like the video" report.
- */
-function sliceSegmentAudio(
-  buffer: AudioBuffer | null,
-  startMs: number,
-  segmentMs: number,
-): AudioBuffer {
-  const totalFrames = Math.max(1, Math.round((segmentMs / 1000) * AUDIO_SAMPLE_RATE))
-  const slice = new AudioBuffer({
-    length: totalFrames,
+/** Wrap raw channel data in an AudioBuffer for the encoder. */
+function toAudioBuffer(channels: Float32Array[]): AudioBuffer {
+  const buffer = new AudioBuffer({
+    length: channels[0]!.length,
     sampleRate: AUDIO_SAMPLE_RATE,
-    numberOfChannels: AUDIO_CHANNELS,
+    numberOfChannels: channels.length,
   })
-  if (!buffer) return slice
-
-  const sourceRate = buffer.sampleRate
-  const sourceStartFrame = Math.floor((startMs / 1000) * sourceRate)
-  let copiedFrames = 0
-  for (let ch = 0; ch < AUDIO_CHANNELS; ch += 1) {
-    const source = buffer.getChannelData(Math.min(ch, buffer.numberOfChannels - 1))
-    const target = slice.getChannelData(ch)
-    let copied = 0
-    for (let i = 0; i < totalFrames; i += 1) {
-      const src = sourceStartFrame + i
-      if (src >= source.length) break
-      target[i] = source[src]!
-      copied += 1
-    }
-    copiedFrames = Math.max(copiedFrames, copied)
-  }
-
-  // Fade in from the cut point and out into the cut/padding.
-  const fade = Math.min(AUDIO_FADE_FRAMES, Math.floor(copiedFrames / 2))
-  if (fade > 0) {
-    for (let ch = 0; ch < AUDIO_CHANNELS; ch += 1) {
-      const target = slice.getChannelData(ch)
-      for (let i = 0; i < fade; i += 1) {
-        const gain = i / fade
-        target[i]! *= gain
-        target[copiedFrames - 1 - i]! *= gain
-      }
-    }
-  }
-  return slice
+  channels.forEach((data, ch) => buffer.copyToChannel(data, ch))
+  return buffer
 }
