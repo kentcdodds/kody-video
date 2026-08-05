@@ -1,9 +1,11 @@
 import {
+  AudioBufferSource,
   BufferTarget,
   CanvasSource,
   Output,
   Quality,
   WebMOutputFormat,
+  getFirstEncodableAudioCodec,
   getFirstEncodableVideoCodec,
 } from 'mediabunny'
 
@@ -16,8 +18,11 @@ import {
  * recorder starves for frames and a multi-second hold can measure under the
  * 120ms minimum take. This encodes faster than realtime via WebCodecs with
  * an exact duration instead.
+ *
+ * Pass `toneHz` for a clip WITH an audio track: a steady sine tone, which
+ * audio-continuity assertions (e.g. the clip-joint crossfade) can measure.
  */
-export async function makeTestClipBlob(durationMs: number): Promise<Blob> {
+export async function makeTestClipBlob(durationMs: number, toneHz?: number): Promise<Blob> {
   const width = 320
   const height = 568
   const fps = 15
@@ -37,7 +42,34 @@ export async function makeTestClipBlob(durationMs: number): Promise<Blob> {
     quality: new Quality({ bitrate: 400_000 }),
   })
   output.addVideoTrack(source, { frameRate: fps })
+
+  let audioSource: AudioBufferSource | null = null
+  if (toneHz) {
+    const audioCodec = await getFirstEncodableAudioCodec(['opus'], {
+      numberOfChannels: 1,
+      sampleRate: 48000,
+    })
+    if (!audioCodec) throw new Error('No encodable test audio codec')
+    audioSource = new AudioBufferSource({
+      codec: audioCodec,
+      quality: new Quality({ bitrate: 96_000 }),
+    })
+    output.addAudioTrack(audioSource)
+  }
+
   await output.start()
+
+  if (audioSource && toneHz) {
+    const rate = 48000
+    const frames = Math.max(1, Math.round((durationMs / 1000) * rate))
+    const buffer = new AudioBuffer({ length: frames, sampleRate: rate, numberOfChannels: 1 })
+    const data = buffer.getChannelData(0)
+    for (let i = 0; i < frames; i += 1) {
+      data[i] = 0.5 * Math.sin((2 * Math.PI * toneHz * i) / rate)
+    }
+    await audioSource.add(buffer)
+    audioSource.close()
+  }
 
   const totalSec = durationMs / 1000
   const frames = Math.max(2, Math.ceil(totalSec * fps))
