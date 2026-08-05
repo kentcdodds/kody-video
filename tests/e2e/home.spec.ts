@@ -149,6 +149,13 @@ test.describe('home & app shell', () => {
     // Escape / outside click dismisses without consuming the prompt.
     await page.keyboard.press('Escape')
     await expect(explainer).toBeHidden()
+
+    // The corner button is a toggle: tap to open, tap again to dismiss.
+    await page.getByRole('button', { name: 'Install app' }).click()
+    await expect(explainer).toBeVisible()
+    await page.getByRole('button', { name: 'Install app' }).click()
+    await expect(explainer).toBeHidden()
+    await expect(page.getByRole('button', { name: 'Install app' })).toBeVisible()
     await page.getByRole('button', { name: 'Install app' }).click()
     await expect(explainer).toBeVisible()
 

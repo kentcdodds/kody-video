@@ -241,7 +241,9 @@ export function HomePage(handle: Handle) {
                 popover.anchor({ placement: 'bottom-start', offsetY: 8 }),
                 popover.focusOnHide(),
                 on('click', () => {
-                  installPopoverOpen = true
+                  // Explicit toggle (with closeOnAnchorClick: false below):
+                  // a second tap on the corner button dismisses the popover.
+                  installPopoverOpen = !installPopoverOpen
                   void handle.update()
                 }),
               ]}
@@ -254,6 +256,10 @@ export function HomePage(handle: Handle) {
               aria-label="Install Kody Video"
               mix={popover.surface({
                 open: installPopoverOpen,
+                // The anchor's own click handler owns toggling; letting the
+                // surface also request close on anchor taps double-handles
+                // the same click.
+                closeOnAnchorClick: false,
                 onHide: () => {
                   installPopoverOpen = false
                   void handle.update()
@@ -269,12 +275,17 @@ export function HomePage(handle: Handle) {
                 className="btn btn-primary install-popover-action"
                 mix={[
                   popover.focusOnShow(),
-                  on('click', async () => {
-                    // Close (and unlock scroll) before the prompt consumes
-                    // the one-shot install event and unmounts this subtree.
+                  on('click', (event) => {
+                    // Hide the native popover synchronously — its toggle
+                    // events release the scroll lock and restore focus —
+                    // because consuming the one-shot install event unmounts
+                    // this subtree without ever firing those events. Then
+                    // prompt in the same tick: Chromium wants prompt()
+                    // during the tap's transient user activation.
+                    ;(event.currentTarget as HTMLElement).closest<HTMLElement>('[popover]')?.hidePopover()
                     installPopoverOpen = false
-                    await handle.update()
                     void promptInstall()
+                    void handle.update()
                   }),
                 ]}
               >
