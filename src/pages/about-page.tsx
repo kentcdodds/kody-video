@@ -256,7 +256,15 @@ export function AboutPage(handle: Handle) {
                 watch the tour on YouTube
               </a>
               . The same video plays right in the quick-start card the first time you open the
-              camera.
+              camera. Want a real result straight out of the app? Here&rsquo;s{' '}
+              <a
+                href="https://x.com/kentcdodds/status/2084891368724533456"
+                target="_blank"
+                rel="noreferrer noopener"
+              >
+                a video Kent made with Kody Video
+              </a>
+              .
             </p>
           </section>
 
