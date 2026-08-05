@@ -168,6 +168,9 @@
       @media (min-width: 720px) {
         body {
           overflow: auto;
+          /* Must match global.css: BFC keeps #root margins from collapsing
+             through the 100%-tall body (phantom scroll below the fold). */
+          display: flow-root;
         }
         #boot-hero {
           display: none;

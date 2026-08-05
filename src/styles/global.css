@@ -765,6 +765,9 @@ a {
 @media (min-width: 720px) {
   body {
     overflow: auto;
+    /* BFC so #root's 24px margins can't collapse through the 100%-tall body
+       and add phantom scrollable space below the fold. */
+    display: flow-root;
   }
 
   /* Chrome lives on #root (also reserved in index.html critical CSS) so the
