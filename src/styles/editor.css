@@ -559,16 +559,17 @@
   flex: 0 0 auto;
 }
 
-.audio-volume-row {
+/* Balance slider: clip sound on the left, music on the right. */
+.audio-mix-row {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 7px;
   min-height: 26px;
 }
 
 .audio-volume-label {
-  flex: 0 0 74px;
-  font-size: 0.74rem;
+  flex: 0 0 64px;
+  font-size: 0.72rem;
   font-weight: 600;
   color: var(--ink-muted);
   overflow: hidden;
@@ -576,20 +577,25 @@
   white-space: nowrap;
 }
 
-.audio-volume-row input[type='range'] {
+.audio-mix-row input[type='range'] {
   flex: 1 1 auto;
-  min-width: 0;
+  min-width: 40px;
   height: 26px;
   accent-color: var(--accent);
   touch-action: pan-y;
 }
 
-.audio-volume-value {
-  flex: 0 0 38px;
-  text-align: right;
-  font-size: 0.76rem;
+.audio-mix-side {
+  flex: 0 0 auto;
+  font-size: 0.7rem;
+  color: var(--ink-muted);
   font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.audio-mix-side strong {
   color: var(--ink);
+  font-weight: 700;
 }
 
 .audio-volume-reset {

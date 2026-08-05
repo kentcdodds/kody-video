@@ -3,10 +3,14 @@ import {
   EDGE_RAMP_MS,
   FADE_IN_MS,
   FADE_OUT_MS,
+  MAX_NORMALIZATION_BOOST,
+  NORMALIZED_PEAK,
   VOLUME_RAMP_MS,
   boundaryRampHalfMs,
+  channelPeak,
   createBackgroundMixer,
   gainAtMs,
+  normalizationScale,
   planSegmentGain,
   segmentVolume,
   type GainPoint,
@@ -135,6 +139,36 @@ describe('planSegmentGain', () => {
   })
 })
 
+describe('normalization', () => {
+  it('measures the peak across channels', () => {
+    expect(
+      channelPeak([new Float32Array([0.1, -0.6]), new Float32Array([0.3, 0.2])]),
+    ).toBeCloseTo(0.6)
+    expect(channelPeak([new Float32Array(4)])).toBe(0)
+  })
+
+  it('never misses a lone transient (exact scan, no striding)', () => {
+    // One full-scale spike buried in a long quiet buffer: a strided scan
+    // would miss it, derive a big boost, and clip it against the clamp.
+    const data = new Float32Array(100_000).fill(0.05)
+    data[73_331] = -1
+    expect(channelPeak([data])).toBe(1)
+    expect(normalizationScale(channelPeak([data]))).toBeCloseTo(NORMALIZED_PEAK)
+  })
+
+  it('scales toward the target peak, bounded on both sides', () => {
+    expect(normalizationScale(NORMALIZED_PEAK)).toBeCloseTo(1)
+    expect(normalizationScale(0.45)).toBeCloseTo(NORMALIZED_PEAK / 0.45)
+    // Loud sources come DOWN toward the target too.
+    expect(normalizationScale(1)).toBeCloseTo(0.9)
+    // Quiet audio is never boosted more than the cap…
+    expect(normalizationScale(0.05)).toBe(MAX_NORMALIZATION_BOOST)
+    // …and near-silence (dead mic) is left alone entirely.
+    expect(normalizationScale(0.001)).toBe(1)
+    expect(normalizationScale(0)).toBe(1)
+  })
+})
+
 describe('createBackgroundMixer', () => {
   const flatEnvelope = (volume: number): GainPoint[] => [
     { tMs: 0, volume },
@@ -148,16 +182,46 @@ describe('createBackgroundMixer', () => {
     }
   }
 
-  it('adds a track at the envelope gain', async () => {
-    const slice = [new Float32Array([0.1, 0.1, 0.1, 0.1])]
+  it('blends complementary shares: music at g, clip at 1 − g', async () => {
+    const slice = [new Float32Array([0.6, 0.6, 0.6, 0.6])]
     const mixer = createBackgroundMixer(
       sourceOf([[new Float32Array([0.4, 0.4, 0.4, 0.4])]]),
       48000,
     )
-    await mixer.mixInto(slice, 0, flatEnvelope(0.5))
+    // 30% music: out = 0.6·0.7 + 0.4·0.3 = 0.54.
+    await mixer.mixInto(slice, 0, flatEnvelope(0.3))
     for (const sample of slice[0]) {
-      expect(sample).toBeCloseTo(0.1 + 0.4 * 0.5)
+      expect(sample).toBeCloseTo(0.6 * 0.7 + 0.4 * 0.3)
     }
+  })
+
+  it('applies the foreground normalization scale to the clip side only', async () => {
+    const slice = [new Float32Array([0.2, 0.2])]
+    const mixer = createBackgroundMixer(
+      sourceOf([[new Float32Array([0.4, 0.4])]]),
+      48000,
+    )
+    // Clip normalized 2×: out = 0.2·2·0.5 + 0.4·0.5 = 0.4.
+    await mixer.mixInto(slice, 0, flatEnvelope(0.5), 2)
+    for (const sample of slice[0]) {
+      expect(sample).toBeCloseTo(0.4)
+    }
+  })
+
+  it('eases the clip back to full volume when the playlist runs out', async () => {
+    // 1 frame = 30ms (sampleRate ~33.33) would be awkward; use sampleRate 10
+    // so the 300ms end ramp spans exactly 3 frames.
+    const mixer = createBackgroundMixer(
+      sourceOf([[new Float32Array([0, 0])]]), // 2 frames of silent music
+      10,
+    )
+    const slice = [new Float32Array(6).fill(0.6)]
+    await mixer.mixInto(slice, 0, flatEnvelope(0.8))
+    // Frames 0–1: clip at 1 − 0.8 = 0.2 share. From frame 2 the playlist is
+    // over and the clip ramps 0.2 → 1 over 3 frames.
+    expect(Array.from(slice[0]).map((v) => Number(v.toFixed(2)))).toEqual([
+      0.12, 0.12, 0.12, 0.28, 0.44, 0.6,
+    ])
   })
 
   it('plays tracks one after the other and goes silent when they run out', async () => {
@@ -215,15 +279,17 @@ describe('createBackgroundMixer', () => {
     expect(Array.from(slice[0]).map((v) => Number(v.toFixed(2)))).toEqual([0.2, 0.2, 0])
   })
 
-  it('spreads a mono track across stereo slices and clamps the sum', async () => {
+  it('spreads a mono track across stereo slices and hard-clamps the blend', async () => {
     const slice = [new Float32Array([0.9]), new Float32Array([-0.9])]
     const mixer = createBackgroundMixer(sourceOf([[new Float32Array([1])]]), 48000)
-    await mixer.mixInto(slice, 0, flatEnvelope(1))
+    // An extreme normalization boost is the only way past 1 now that the
+    // shares themselves are complementary: 0.9·4·0.5 + 1·0.5 = 2.3 → 1.
+    await mixer.mixInto(slice, 0, flatEnvelope(0.5), 4)
     expect(slice[0][0]).toBe(1)
-    expect(slice[1][0]).toBeCloseTo(0.1)
+    expect(slice[1][0]).toBe(-1)
   })
 
-  it('leaves slices untouched when the gain is zero', async () => {
+  it('leaves slices untouched when the music share is zero', async () => {
     const slice = [new Float32Array([0.3, 0.3])]
     const before = Array.from(slice[0])
     const mixer = createBackgroundMixer(sourceOf([[new Float32Array([0.5, 0.5])]]), 48000)

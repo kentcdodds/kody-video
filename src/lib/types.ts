@@ -26,8 +26,9 @@ export interface ClipMeta {
   lat?: number
   lng?: number
   locationAccuracyM?: number
-  /** Background-music volume (0–1) while this clip plays. Absent = the
-   * project audio track's default volume. */
+  /** Music's share (0–1) of the audio mix while this clip plays: the clip's
+   * own sound gets the complement (0.8 music ⇒ 0.2 clip sound), so the mix
+   * can never clip. Absent = the project playlist's default share. */
   audioVolume?: number
 }
 
@@ -64,7 +65,8 @@ export interface ProjectAudioTrack {
 export interface ProjectAudioRecord {
   projectId: ProjectId
   tracks: ProjectAudioTrack[]
-  /** Baseline volume (0–1) for clips without a per-clip override. */
+  /** Music's default share (0–1) of the audio mix for clips without a
+   * per-clip override; clip sound gets the complement. */
   defaultVolume: number
   /** Ease the music in at the start of the film (default on). */
   fadeIn: boolean
@@ -72,7 +74,7 @@ export interface ProjectAudioRecord {
   fadeOut: boolean
 }
 
-/** Sits under speech without drowning it — the out-of-the-box music level. */
+/** 25% music / 75% clip sound — sits under speech without drowning it. */
 export const DEFAULT_AUDIO_VOLUME = 0.25
 
 /** Total playlist length — what the music can cover before going silent. */
@@ -85,7 +87,7 @@ export function clampVolume(volume: number): number {
   return Math.max(0, Math.min(1, volume))
 }
 
-/** Background-music volume while a clip plays: its override or the default. */
+/** Music's share of the mix while a clip plays: its override or the default. */
 export function clipAudioVolume(
   clip: Pick<ClipMeta, 'audioVolume'>,
   defaultVolume: number,

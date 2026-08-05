@@ -152,16 +152,20 @@ test.describe('background music', () => {
     await expect.poll(async () => (await storedAudio(page))?.fadeIn).toBe(false)
     await expect.poll(async () => (await storedAudio(page))?.fadeOut).toBe(true)
 
-    // Default volume slider persists.
-    await setSlider(page, 'Default music volume', 40)
+    // Default mix slider persists (value = music's share).
+    await setSlider(page, 'Default audio mix', 40)
     await expect.poll(async () => (await storedAudio(page))?.defaultVolume).toBeCloseTo(0.4)
 
-    // Per-clip override on the selected (last) clip.
+    // Per-clip override on the selected (last) clip. The row shows both
+    // sides of the balance: clip sound left, music right.
     const tiles = page.locator('.clip-thumb[data-clip-id]')
     await expect(tiles.last()).toHaveClass(/selected/)
-    await setSlider(page, /Music volume during clip 2/, 60)
+    await setSlider(page, /Audio mix during clip 2/, 60)
     await expect.poll(async () => await storedClipVolumes(page)).toEqual([null, 0.6])
     await expect(tiles.last().locator('.clip-audio-badge')).toHaveText(/60%/)
+    const clipMixRow = page.locator('.audio-mix-row').first()
+    await expect(clipMixRow).toContainText('Clip 40%')
+    await expect(clipMixRow).toContainText('60% Music')
 
     // Selecting the other clip shows the default-following row.
     await tiles.first().click()
@@ -181,7 +185,7 @@ test.describe('background music', () => {
     expect(await storedAudio(page)).toBeNull()
   })
 
-  test('export sequences the playlist at per-clip volumes with fades', async ({ page }) => {
+  test('export sequences the playlist at per-clip mixes with fades', async ({ page }) => {
     test.slow()
     // Two 3s fixture clips (video-only — the fixture encoder adds no audio
     // track), so every decodable sample in the export's audio IS the music.
@@ -195,11 +199,14 @@ test.describe('background music', () => {
       const project = (await storage.listProjects())[0]!
       const clips = await storage.getClipsForProject(project.id)
 
-      // Two in-page sine WAVs: track A (4s, full amplitude) then track B
-      // (20s, HALF amplitude) — the amplitude step at the 4s hand-off
-      // proves sequential playback (looping track A would keep it loud;
-      // a broken hand-off would go silent).
-      const makeWav = (seconds: number, amplitude: number): Blob => {
+      // Two in-page sine WAVs at DIFFERENT frequencies: track A (4s,
+      // 440 Hz, full amplitude) then track B (20s, 880 Hz, HALF
+      // amplitude). The frequency step at the 4s hand-off proves
+      // sequential playback (a looping track A would keep 440 Hz), and
+      // peak normalization should erase the 2× amplitude difference —
+      // making the RMS ratio between the windows track the mix shares
+      // alone.
+      const makeWav = (seconds: number, amplitude: number, freq: number): Blob => {
         const rate = 8000
         const samples = rate * seconds
         const bytes = new DataView(new ArrayBuffer(44 + samples * 2))
@@ -220,20 +227,20 @@ test.describe('background music', () => {
         writeAscii(36, 'data')
         bytes.setUint32(40, samples * 2, true)
         for (let i = 0; i < samples; i += 1) {
-          bytes.setInt16(44 + i * 2, Math.round(Math.sin((2 * Math.PI * 440 * i) / rate) * amplitude), true)
+          bytes.setInt16(44 + i * 2, Math.round(Math.sin((2 * Math.PI * freq * i) / rate) * amplitude), true)
         }
         return new Blob([bytes.buffer], { type: 'audio/wav' })
       }
       await storage.addProjectAudioTrack({
         projectId: project.id,
-        blob: makeWav(4, 16000),
+        blob: makeWav(4, 16000, 440),
         mimeType: 'audio/wav',
         durationMs: 4000,
         name: 'track-a.wav',
       })
       const audio = await storage.addProjectAudioTrack({
         projectId: project.id,
-        blob: makeWav(20, 8000),
+        blob: makeWav(20, 8000, 880),
         mimeType: 'audio/wav',
         durationMs: 20000,
         name: 'track-b.wav',
@@ -262,13 +269,25 @@ test.describe('background music', () => {
         for (let i = from; i < to; i += 1) sum += data[i]! * data[i]!
         return Math.sqrt(sum / Math.max(1, to - from))
       }
+      // Dominant frequency proxy: sign changes per second (~2× frequency).
+      const crossingsPerSec = (fromSec: number, toSec: number) => {
+        const from = Math.floor(fromSec * decoded.sampleRate)
+        const to = Math.min(Math.floor(toSec * decoded.sampleRate), data.length)
+        let crossings = 0
+        for (let i = from + 1; i < to; i += 1) {
+          if (data[i - 1]! < 0 !== data[i]! < 0) crossings += 1
+        }
+        return crossings / Math.max(0.001, toSec - fromSec)
+      }
       return {
         durationSec: decoded.duration,
-        // Track A under clip 1 (gain 0.25), past the 800ms fade-in.
+        // Track A under clip 1 (music share 0.25), past the 800ms fade-in.
         clip1: rms(1.2, 2.6),
-        // Track B under clip 2 (gain 1.0), past the 4s hand-off, before
+        clip1Freq: crossingsPerSec(1.2, 2.6) / 2,
+        // Track B under clip 2 (share 1.0), past the 4s hand-off, before
         // the fade-out begins at 4.8s.
         clip2: rms(4.2, 4.7),
+        clip2Freq: crossingsPerSec(4.2, 4.7) / 2,
         fadeIn: rms(0, 0.08),
         fadeOut: rms(5.7, 5.95),
       }
@@ -277,24 +296,30 @@ test.describe('background music', () => {
     expect(measured).not.toBeNull()
     // Clip 1 carries audible music from track A.
     expect(measured!.clip1).toBeGreaterThan(0.02)
-    // Track B at gain 1.0 vs track A at gain 0.25, half the amplitude:
-    // expected RMS ratio ≈ 2 (looping track A would read ≈ 4; silence ≈ 0).
-    expect(measured!.clip2 / measured!.clip1).toBeGreaterThan(1.4)
-    expect(measured!.clip2 / measured!.clip1).toBeLessThan(2.8)
+    // Sequencing: clip 1 hears track A (440 Hz), clip 2 hears track B
+    // (880 Hz) — a looping track A would keep 440 Hz after the hand-off.
+    expect(measured!.clip1Freq).toBeGreaterThan(340)
+    expect(measured!.clip1Freq).toBeLessThan(540)
+    expect(measured!.clip2Freq).toBeGreaterThan(700)
+    expect(measured!.clip2Freq).toBeLessThan(1060)
+    // Normalization + mix shares: both tracks normalize to the same peak
+    // despite track B being mastered at HALF the amplitude, so the RMS
+    // ratio tracks the shares alone (1.0 / 0.25 ≈ 4). Without
+    // normalization it would read ≈ 2.
+    expect(measured!.clip2 / measured!.clip1).toBeGreaterThan(2.8)
+    expect(measured!.clip2 / measured!.clip1).toBeLessThan(5.5)
     // The film opens inside the fade-in and closes inside the fade-out.
     expect(measured!.fadeIn).toBeLessThan(measured!.clip1 * 0.5)
     expect(measured!.fadeOut).toBeLessThan(measured!.clip2 * 0.5)
     expect(measured!.durationSec).toBeGreaterThan(5.5)
   })
 
-  test('preview playback plays the music and ramps toward each clip volume', async ({
-    page,
-  }) => {
+  test('preview playback ramps both sides of the mix per clip', async ({ page }) => {
     await openPlusEditorWithClips(page, 2)
     await addMusic(page)
 
-    // Clip 2 (selected) gets a louder override so the ramp is observable.
-    await setSlider(page, /Music volume during clip 2/, 80)
+    // Clip 2 (selected) gets a music-heavy override so the ramp is observable.
+    await setSlider(page, /Audio mix during clip 2/, 80)
     await expect.poll(async () => await storedClipVolumes(page)).toEqual([null, 0.8])
 
     await page.getByRole('button', { name: 'Play project preview' }).click()
@@ -323,6 +348,13 @@ test.describe('background music', () => {
     await expect
       .poll(() => music.evaluate((el) => (el as HTMLAudioElement).volume), { timeout: 5000 })
       .toBeGreaterThan(0.6)
+    // …and the clip's own sound ducks toward the complement (1 − 0.8).
+    await expect
+      .poll(
+        () => overlay.locator('.playback-video').evaluate((el) => (el as HTMLVideoElement).volume),
+        { timeout: 5000 },
+      )
+      .toBeLessThan(0.35)
 
     await overlay.getByRole('button', { name: 'Stop preview' }).click()
     await expect(overlay).toBeHidden()

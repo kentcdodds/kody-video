@@ -57,6 +57,11 @@ export function PlaybackOverlay(handle: Handle<PlaybackOverlayProps>) {
   /** Lazily created object URL per playlist track (revoked on unmount). */
   const trackUrls = new Map<number, string>()
   let musicTrackIndex = -1
+  /** True once the LAST track actually finished playing — decoded audio can
+   * end before its stored metadata duration, and the clip's own sound must
+   * come back up as soon as the music is really over, not when the
+   * metadata window says so. Cleared when a skip seeks music again. */
+  let playlistDone = false
 
   const currentSegment = () => resolveSegments()[index] ?? null
   const startSec = () => {
@@ -137,18 +142,35 @@ export function PlaybackOverlay(handle: Handle<PlaybackOverlayProps>) {
     if (musicTrackIndex !== target.index) {
       // Metadata durations can run slightly past the decoded length, so a
       // just-ended track briefly still "covers" the playhead — moving back
-      // to it would restart it. Only genuine backward skips switch back.
+      // to it mid-playback would restart it. The guard protects that
+      // playback continuity only: once the current element has ENDED there
+      // is nothing to protect (and play() on it would restart it from 0),
+      // so a backward skip switches to the covering track instead.
       const boundaryMs = props.audio.tracks
         .slice(0, target.index + 1)
         .reduce((sum, track) => sum + track.durationMs, 0)
-      const nearHandOff = target.index < musicTrackIndex && boundaryMs - positionMs < 1500
+      const nearHandOff =
+        target.index < musicTrackIndex && boundaryMs - positionMs < 1500 && !audio.ended
       if (!nearHandOff) {
         musicTrackIndex = target.index
         audio.src = urlForTrack(target.index)
         audio.currentTime = target.offsetMs / 1000
+        playlistDone = false
       }
-    } else if (Math.abs(audio.currentTime - target.offsetMs / 1000) > 0.35) {
-      audio.currentTime = target.offsetMs / 1000
+      return true
+    }
+    const expectedSec = target.offsetMs / 1000
+    // Positions inside a finished track's metadata overshoot have no
+    // decoded audio behind them — playing there would RESTART the ended
+    // element (play() on an ended media element seeks back to 0).
+    const decodedEndSec = Number.isFinite(audio.duration) ? audio.duration : Infinity
+    if (playlistDone && expectedSec >= decodedEndSec - 0.05) {
+      return false
+    }
+    if (Math.abs(audio.currentTime - expectedSec) > 0.35) {
+      audio.currentTime = expectedSec
+      // A genuine seek into real decoded audio — music is live again.
+      playlistDone = false
     }
     return true
   }
@@ -161,7 +183,12 @@ export function PlaybackOverlay(handle: Handle<PlaybackOverlayProps>) {
     const audio = audioEl
     if (!audio) return
     const next = musicTrackIndex + 1
-    if (next >= tracks.length) return // Playlist over — the rest is music-free.
+    if (next >= tracks.length) {
+      // Playlist over — the rest is music-free (and the clip's own sound
+      // comes back up right away, even inside the metadata overshoot).
+      playlistDone = true
+      return
+    }
     musicTrackIndex = next
     audio.src = urlForTrack(next)
     audio.currentTime = 0
@@ -185,7 +212,10 @@ export function PlaybackOverlay(handle: Handle<PlaybackOverlayProps>) {
     // per-frame glide below fades it in from silence.
     el.volume = track.fadeIn ? 0 : segmentMusicVolume()
 
-    // Per-frame volume glide toward the current clip's target.
+    // Per-frame glide of BOTH sides of the mix: the music toward the
+    // current clip's share, the clip's own sound toward the complement
+    // (1 − share) — mirroring the export blend. Where the playlist has run
+    // out, the clip glides back to full volume.
     let last = performance.now()
     let raf = 0
     const tick = (now: number) => {
@@ -195,6 +225,22 @@ export function PlaybackOverlay(handle: Handle<PlaybackOverlayProps>) {
       const alpha = 1 - Math.exp(-dt / MUSIC_VOLUME_TAU_MS)
       const next = el.volume + (target - el.volume) * alpha
       el.volume = Math.abs(next - target) < 0.005 ? target : next
+      const video = videoEl
+      if (video) {
+        const musicHere =
+          props.audio && !playlistDone ? trackAtMs(timelinePositionMs()) !== null : false
+        if (musicHere) {
+          // Exact mirror of the export blend: the clip's own sound always
+          // carries the complement of the music's CURRENT (gliding)
+          // volume — during the fade-in the clip starts at full and only
+          // comes down as the bed actually rises.
+          video.volume = Math.max(0, Math.min(1, 1 - el.volume))
+        } else {
+          // No music here (playlist over) — glide back up to full.
+          const nextClip = video.volume + (1 - video.volume) * alpha
+          video.volume = Math.min(1, nextClip > 0.995 ? 1 : nextClip)
+        }
+      }
       raf = requestAnimationFrame(tick)
     }
     raf = requestAnimationFrame(tick)
