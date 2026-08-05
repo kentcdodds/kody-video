@@ -1,8 +1,10 @@
 import type { Handle } from 'remix/ui'
 import { on, ref } from 'remix/ui'
 import { planExport } from '../lib/export'
+import { FADE_IN_MS, FADE_OUT_MS } from '../lib/export/background-audio'
 import {
   clipElementVolume,
+  measureAudioNormalization,
   musicElementVolume,
   peekAudioNormalization,
 } from '../lib/preview-audio-normalization'
@@ -86,13 +88,35 @@ export function EditorClipPreview(handle: Handle<EditorClipPreviewProps>) {
 
   /** Film (output-timeline) position for the current video time, clamped
    * into the clip's exported window — while trimming, the stage plays the
-   * whole clip, including parts outside the trim that never export. */
+   * whole clip, including parts outside the trim that never export. The
+   * mapping always follows the SAVED trims (the plan the export would
+   * render right now); draft handle positions only exist inside TrimStrip
+   * until Done commits them, and threading them through here would remount
+   * the stage video on every drag. */
   const filmPositionMs = (): number | null => {
     const segment = ownSegment()
     if (!segment) return null
     const videoMs = (media?.currentTime ?? 0) * 1000
     const elapsed = Math.max(0, Math.min(videoMs - segment.startMs, segment.endMs - segment.startMs))
     return segment.offsetMs + elapsed
+  }
+
+  /** The export's film-edge fade envelope at a film position: the music
+   * eases in over the first FADE_IN_MS and out over the last FADE_OUT_MS
+   * (when the toggles are on) — the first/last clips must sound like the
+   * exported film, not open at full level. */
+  const fadeScaleAt = (positionMs: number): number => {
+    const audio = props.audio
+    if (!audio) return 1
+    const segs = resolveSegments()
+    const last = segs[segs.length - 1]
+    const totalMs = last ? last.offsetMs + (last.endMs - last.startMs) : 0
+    const fadeIn = audio.fadeIn ? Math.max(0, Math.min(1, positionMs / FADE_IN_MS)) : 1
+    const fadeOut =
+      audio.fadeOut && totalMs > 0
+        ? Math.max(0, Math.min(1, (totalMs - positionMs) / FADE_OUT_MS))
+        : 1
+    return Math.min(fadeIn, fadeOut)
   }
 
   const trackDurationMs = (track: ProjectAudioTrack): number =>
@@ -152,6 +176,34 @@ export function EditorClipPreview(handle: Handle<EditorClipPreviewProps>) {
     musicEl?.pause()
   }
 
+  /** A landed measurement can move the playlist's boundaries (decoded
+   * lengths replace metadata durations) — realign a PLAYING bed to the
+   * corrected, export-true position. Small in-track drift is left alone,
+   * same stance as the project preview, so accurate metadata re-seeks
+   * nothing. */
+  const resyncMusicIfPlaying = () => {
+    const audio = musicEl
+    if (!audio || audio.paused) return
+    const positionMs = filmPositionMs()
+    const target = positionMs === null ? null : trackAtMs(positionMs)
+    if (!target) {
+      musicExhausted = true
+      audio.pause()
+      return
+    }
+    musicExhausted = false
+    if (musicTrackIndex !== target.index) {
+      musicTrackIndex = target.index
+      audio.src = urlForTrack(target.index)
+      audio.currentTime = target.offsetMs / 1000
+      void audio.play().catch(() => undefined)
+      return
+    }
+    if (Math.abs(audio.currentTime - target.offsetMs / 1000) > 0.35) {
+      audio.currentTime = target.offsetMs / 1000
+    }
+  }
+
   /** A track ran out mid-clip — hand off to the next one. */
   const advanceMusicTrack = () => {
     const tracks = props.audio?.tracks ?? []
@@ -170,20 +222,30 @@ export function EditorClipPreview(handle: Handle<EditorClipPreviewProps>) {
 
   const bindMusic = (el: HTMLAudioElement, signal: AbortSignal) => {
     musicEl = el
-    // Kick the normalization measurements now so the levels are right by
-    // the time playback starts (cached across previews and the overlay).
-    for (const track of props.audio?.tracks ?? []) peekAudioNormalization(track.blob)
-    peekAudioNormalization(props.clip.blob)
+    // Measure every source now (one decode at a time, cached across
+    // previews and the overlay) so the levels and playlist boundaries are
+    // right by the time playback starts — and realign a bed that already
+    // started if a landed measurement moved a boundary under it.
+    void (async () => {
+      const blobs = [...(props.audio?.tracks ?? []).map((t) => t.blob), props.clip.blob]
+      for (const blob of blobs) {
+        if (musicEl !== el) return
+        await measureAudioNormalization(blob)
+        resyncMusicIfPlaying()
+      }
+    })()
 
-    // Per-frame level hold: constant share for one clip, but the measured
-    // scales land asynchronously and the video element remounts on trim
-    // changes — recomputing every frame keeps both sides correct.
+    // Per-frame level hold: constant share for one clip (times the film's
+    // edge-fade envelope at the playhead), but the measured scales land
+    // asynchronously and the video element remounts on trim changes —
+    // recomputing every frame keeps both sides correct.
     let raf = 0
     const tick = () => {
-      const share = musicShare()
+      const position = filmPositionMs()
+      const mix = musicShare() * (position === null ? 1 : fadeScaleAt(position))
       const trackBlob = props.audio?.tracks[musicTrackIndex]?.blob
       const musicScale = trackBlob ? (peekAudioNormalization(trackBlob)?.scale ?? 1) : 1
-      el.volume = musicElementVolume(share, musicScale)
+      el.volume = musicElementVolume(mix, musicScale)
       const video = media
       if (video) {
         const covered = !musicExhausted
@@ -191,7 +253,7 @@ export function EditorClipPreview(handle: Handle<EditorClipPreviewProps>) {
         // Where the playlist covers this clip the export blends the clip
         // at its normalized complement; where it doesn't, the clip's own
         // sound plays at its normalized full level.
-        video.volume = covered ? clipElementVolume(share, clipScale) : Math.min(1, clipScale)
+        video.volume = covered ? clipElementVolume(mix, clipScale) : Math.min(1, clipScale)
       }
       raf = requestAnimationFrame(tick)
     }
