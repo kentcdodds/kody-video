@@ -381,6 +381,15 @@ describe('storage layer', () => {
     expect(nudged.tracks[0].trimStartMs).toBe(2_000)
     expect(nudged.tracks[0].trimEndMs).toBe(2_000)
 
+    // Non-finite trim requests keep the stored values — NaN never persists.
+    const junkTrim = await updateProjectAudioTrack(project.id, trackId, {
+      trimStartMs: Number.NaN,
+      trimEndMs: 10_000,
+    })
+    expect(junkTrim.tracks[0].trimStartMs).toBe(2_000)
+    expect(junkTrim.tracks[0].trimEndMs).toBe(10_000)
+    await updateProjectAudioTrack(project.id, trackId, { trimEndMs: 1_000 })
+
     // The level clamps to 0–1 and junk falls back to full volume.
     expect(
       (await updateProjectAudioTrack(project.id, trackId, { volume: 7 })).tracks[0].volume,

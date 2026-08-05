@@ -592,9 +592,13 @@ export async function updateProjectAudioTrack(
     throw new Error(!audio ? 'This project has no background music' : 'Music track not found')
   }
   const updatedTrack: ProjectAudioTrack = { ...track }
+  // Non-finite trim requests fall back to the stored values — a NaN must
+  // never persist (it would poison every consumer's playback math).
+  const finiteOr = (value: number | undefined, fallback: number): number =>
+    value !== undefined && Number.isFinite(value) ? value : fallback
   if (settings.trimStartMs !== undefined || settings.trimEndMs !== undefined) {
-    const requestedStart = settings.trimStartMs ?? track.trimStartMs ?? 0
-    const requestedEnd = settings.trimEndMs ?? track.trimEndMs ?? track.durationMs
+    const requestedStart = finiteOr(settings.trimStartMs, track.trimStartMs ?? 0)
+    const requestedEnd = finiteOr(settings.trimEndMs, track.trimEndMs ?? track.durationMs)
     const start = Math.max(0, Math.min(requestedStart, track.durationMs))
     updatedTrack.trimStartMs = start
     updatedTrack.trimEndMs = Math.max(start, Math.min(requestedEnd, track.durationMs))

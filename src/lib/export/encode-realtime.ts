@@ -133,6 +133,11 @@ export async function exportRealtime(
       clipGain.gain.value = 1
       clipGain.connect(dest)
       let stopped = false
+      /** True once a track actually started — the FILM-start fade rides the
+       * master gain glide, so only tracks starting mid-film fade themselves
+       * in (matches the mixer's trackStartFrame > 0 gate, even when skipped
+       * tracks leave the first playable one at a later index). */
+      let anyTrackStarted = false
       let activeSource: AudioBufferSourceNode | null = null
       const playFrom = async (index: number): Promise<void> => {
         if (stopped || !audioContext) return
@@ -169,7 +174,7 @@ export async function exportRealtime(
         // Interior fades: the film-start fade rides the master gain glide
         // below, so a track fade-in only applies mid-film; a fade-out past
         // the film's end simply never gets heard.
-        if (index > 0 && playback.fadeIn) {
+        if (anyTrackStarted && playback.fadeIn) {
           const fadeSec = Math.min(FADE_IN_MS / 1000, keptSec / 2)
           normalize.gain.setValueAtTime(0, now)
           normalize.gain.linearRampToValueAtTime(trackGain, now + fadeSec)
@@ -185,6 +190,7 @@ export async function exportRealtime(
           void playFrom(index + 1)
         }
         activeSource = source
+        anyTrackStarted = true
         source.start(now, trimStartSec, keptSec)
       }
       // Deferred to the first painted segment: starting here would let the

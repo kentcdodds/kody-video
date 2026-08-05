@@ -446,6 +446,10 @@ export function PlaybackOverlay(handle: Handle<PlaybackOverlayProps>) {
           const mediaEndSec = Number.isFinite(el.duration) ? el.duration : Infinity
           if (endSec < mediaEndSec - 0.05 && el.currentTime >= endSec - 0.03) {
             advanceMusicTrack()
+            // A trimmed LAST track still has media past its kept window —
+            // the playlist ending here must silence the element (an
+            // untrimmed last track ends itself via 'ended').
+            if (playlistDone) el.pause()
           }
         }
       }
