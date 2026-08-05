@@ -576,10 +576,10 @@ a {
   top: calc(10px + var(--safe-top));
   left: 50%;
   transform: translateX(-50%);
+  /* Above #boot-hero (z-index 0) and in-app sheets/overlays. */
   z-index: 20;
   display: flex;
   align-items: center;
-  gap: 12px;
   max-width: calc(100% - 24px);
   background: var(--toast-bg);
   border: 1px solid var(--line);
@@ -587,6 +587,7 @@ a {
   padding: 10px 14px;
   border-radius: 999px;
   font-size: 0.9rem;
+  white-space: nowrap;
   box-shadow: var(--shadow);
   animation: rise-in 220ms ease both;
 }
@@ -594,6 +595,7 @@ a {
 .update-toast button {
   color: var(--accent);
   font-weight: 700;
+  padding: 0;
 }
 
 .toast {
