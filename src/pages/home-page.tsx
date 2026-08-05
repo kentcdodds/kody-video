@@ -16,6 +16,7 @@ import {
 import { UpsellSheet } from '../components/upsell-sheet'
 import { RestoreSheet } from '../components/restore-sheet'
 import { RenameSheet } from '../components/rename-sheet'
+import { StorageMeter } from '../components/storage-meter'
 import { downloadBlob, shareOrDownload } from '../lib/media'
 import { loadHomePage, type HomeLoaderData, type ProjectSummary } from '../lib/project-actions'
 import {
@@ -415,10 +416,8 @@ export function HomePage(handle: Handle) {
         </section>
 
         <p className="home-privacy">
-          Clips stay on this phone until you share.
-          {storage
-            ? ` ${formatBytes(storage.usedBytes)} of ${formatBytes(storage.quotaBytes)} used.`
-            : ''}
+          <span>Clips stay on this phone until you share.</span>
+          {storage ? <StorageMeter storage={storage} /> : null}
         </p>
 
         <div className="home-footer">
