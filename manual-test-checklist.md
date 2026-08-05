@@ -143,6 +143,9 @@ see the README) — plain `http://<lan-ip>` fails in most browsers.
   not the app
 - [ ] On kody-video.pages.dev, home shows the "moved to kody.video" migration
   banner (absent on kody.video)
+- [ ] On remix.kody.video, home shows the dismissible showcase note linking
+  kody.video and PR #87; dismissing hides it across reloads (absent on
+  kody.video)
 - [ ] Import a backup on another domain/device: clips, trims, and geo survive
 - [ ] ≥92% storage: the record screen pill turns red and starting a recording
   shows the warning toast

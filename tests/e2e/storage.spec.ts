@@ -65,7 +65,9 @@ test.describe('storage management', () => {
     expect(await listExportCache(page)).toEqual(['clips.zip', 'export-123.mp4', 'last-export.mp4'])
 
     await page.reload()
-    await expect(page.locator('.home-hero')).toBeVisible()
+    // `.home-hero` is a hidden layout spacer on mobile viewports; wait for
+    // the project slots to confirm home (and its boot sweep) ran.
+    await expect(page.locator('.project-slot').first()).toBeVisible()
     await expect.poll(() => listExportCache(page)).toEqual(['last-export.mp4'])
   })
 
