@@ -102,8 +102,10 @@ export function isStaleConnectionError(error: unknown): boolean {
 }
 
 function forgetCachedDb(closedDb?: IDBPDatabase<ClipsDB> | null): void {
-  // A concurrent reopen may already own the cache — don't clobber it.
-  if (closedDb && activeDb && closedDb !== activeDb) return
+  // Only clear when the terminating handle is still the active one (or no
+  // handle was supplied). If activeDb is null, a reconnect may already be
+  // in flight — leave that pending promise alone.
+  if (closedDb != null && activeDb !== closedDb) return
   activeDb = null
   dbPromise = null
 }
@@ -125,6 +127,16 @@ function openTrackedDb(): Promise<IDBPDatabase<ClipsDB>> {
     return db
   })
   return tracked
+}
+
+function discardStaleDb(stale: IDBPDatabase<ClipsDB> | null, pending: Promise<IDBPDatabase<ClipsDB>> | null): void {
+  if (pending && dbPromise !== pending) return
+  forgetCachedDb(stale)
+  try {
+    stale?.close()
+  } catch {
+    // Already closing/closed.
+  }
 }
 
 /**
@@ -152,19 +164,26 @@ export async function getDb(): Promise<IDBPDatabase<ClipsDB>> {
       return db
     } catch (error) {
       if (!isStaleConnectionError(error) || attempt === 1) throw error
-      if (dbPromise === pending) {
-        const stale = activeDb
-        forgetCachedDb(stale)
-        try {
-          stale?.close()
-        } catch {
-          // Already closing/closed.
-        }
-      }
+      discardStaleDb(activeDb, pending)
     }
   }
   // Unreachable: the loop either returns or throws on the final attempt.
   throw new Error('Failed to open IndexedDB')
+}
+
+/**
+ * Run an IndexedDB op, reopening once if Safari closes the connection after
+ * getDb()'s liveness probe (or mid-await inside an idempotent read/write).
+ */
+export async function withDb<T>(fn: (db: IDBPDatabase<ClipsDB>) => Promise<T>): Promise<T> {
+  try {
+    const db = await getDb()
+    return await fn(db)
+  } catch (error) {
+    if (!isStaleConnectionError(error)) throw error
+    discardStaleDb(activeDb, dbPromise)
+    return await fn(await getDb())
+  }
 }
 
 /** Test helper: close open connections and clear the module-level DB handle. */
@@ -183,19 +202,20 @@ export async function __resetDbForTests(): Promise<void> {
 }
 
 export async function getSettings(): Promise<AppMeta> {
-  const db = await getDb()
-  const existing = await db.get('meta', 'settings')
-  const defaults: AppMeta = {
-    key: 'settings',
-    maxProjects: MAX_PROJECTS,
-    lastOpenedProjectId: null,
-    onboardingDismissed: false,
-  }
-  const settings = existing ? { ...defaults, ...existing } : defaults
-  if (!existing || existing.onboardingDismissed === undefined) {
-    await db.put('meta', settings)
-  }
-  return settings
+  return withDb(async (db) => {
+    const existing = await db.get('meta', 'settings')
+    const defaults: AppMeta = {
+      key: 'settings',
+      maxProjects: MAX_PROJECTS,
+      lastOpenedProjectId: null,
+      onboardingDismissed: false,
+    }
+    const settings = existing ? { ...defaults, ...existing } : defaults
+    if (!existing || existing.onboardingDismissed === undefined) {
+      await db.put('meta', settings)
+    }
+    return settings
+  })
 }
 
 export async function setLastOpenedProjectId(projectId: ProjectId | null): Promise<void> {

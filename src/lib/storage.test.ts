@@ -68,6 +68,29 @@ describe('storage layer', () => {
     })
   })
 
+  it('retries getSettings when the connection dies after the liveness probe', async () => {
+    const db = await getDb()
+    const originalTransaction = db.transaction.bind(db)
+    let metaProbes = 0
+    db.transaction = ((storeNames: string | string[], mode?: IDBTransactionMode) => {
+      const names = Array.isArray(storeNames) ? storeNames : [storeNames]
+      // getDb() probes with transaction('meta'); let that succeed, then close
+      // before the real getSettings read — the TOCTOU CodeRabbit flagged.
+      if (names.length === 1 && names[0] === 'meta' && mode === undefined) {
+        metaProbes += 1
+        if (metaProbes === 1) {
+          const tx = originalTransaction(storeNames, mode)
+          db.close()
+          return tx
+        }
+      }
+      return originalTransaction(storeNames, mode)
+    }) as typeof db.transaction
+
+    await expect(getSettings()).resolves.toMatchObject({ key: 'settings' })
+    expect(await getDb()).not.toBe(db)
+  })
+
   it('recognizes the IndexedDB closing/closed InvalidStateError signature', () => {
     expect(
       isStaleConnectionError(
