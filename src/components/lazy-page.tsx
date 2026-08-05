@@ -48,30 +48,17 @@ export function lazyPage(
     } catch {
       return false
     }
-    // A failed chunk can be worse than a stale hash: during a deploy window
-    // the response for a chunk URL could be cached wrong in the HTTP cache
-    // OR in the service worker's install-time precache (which intercepts
-    // fetches, so an HTTP reprime alone cannot reach past it). Recovery
-    // drops the worker + Cache Storage (never IndexedDB), re-primes the
-    // HTTP cache for the shell and the failing chunk, then reloads — all
-    // best-effort with a short deadline so the reload is never held
-    // hostage by a slow network.
+    // A failed chunk URL can be HTTP-cache poisoning (an SPA-fallback HTML
+    // body cached under the .js URL during a deploy window), which a plain
+    // reload re-reads from cache. cache:'reload' replaces the poisoned
+    // entries before reloading; best-effort with a short deadline so the
+    // reload is never held hostage by a slow network.
     const message = err instanceof Error ? err.message : String(err)
     const chunkUrl = message.match(/https?:\/\/\S+\/assets\/\S+?\.js/)?.[0]
-    const recover = (async () => {
-      try {
-        const regs = await (navigator.serviceWorker?.getRegistrations?.() ?? [])
-        await Promise.all(regs.map((reg) => reg.unregister()))
-        const keys = await (self.caches?.keys?.() ?? [])
-        await Promise.all(keys.map((key) => caches.delete(key)))
-      } catch {
-        // storage access blocked — the reload below is still worth trying
-      }
-      await Promise.allSettled(
-        ['/', ...(chunkUrl ? [chunkUrl] : [])].map((url) => fetch(url, { cache: 'reload' })),
-      )
-    })()
-    void Promise.race([recover, new Promise((resolve) => setTimeout(resolve, 4000))]).then(() => {
+    const reprime = Promise.allSettled(
+      ['/', ...(chunkUrl ? [chunkUrl] : [])].map((url) => fetch(url, { cache: 'reload' })),
+    )
+    void Promise.race([reprime, new Promise((resolve) => setTimeout(resolve, 3000))]).then(() => {
       location.reload()
     })
     return true
