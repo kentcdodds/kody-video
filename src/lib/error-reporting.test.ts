@@ -6,6 +6,7 @@ import {
   isMonitoringSelfTestEvent,
   isProjectLimitEvent,
   isReportingHostname,
+  isViteCssPreloadError,
   reportComponentError,
   reportError,
 } from './error-reporting'
@@ -282,6 +283,53 @@ describe('isCloudflareInsightsBeaconEvent', () => {
       isCloudflareInsightsBeaconEvent({
         exception: {
           values: [{ type: 'TypeError', value: 't.entries.at is not a function' }],
+        },
+      }),
+    ).toBe(false)
+  })
+})
+
+describe('isViteCssPreloadError', () => {
+  it('drops Vite CSS preload helper failures for hashed assets', () => {
+    expect(
+      isViteCssPreloadError({
+        exception: {
+          values: [
+            {
+              type: 'Error',
+              value: 'Unable to preload CSS for /assets/fonts-CbakDoPd.css',
+            },
+          ],
+        },
+      }),
+    ).toBe(true)
+  })
+
+  it('drops when the signature appears only in message', () => {
+    expect(
+      isViteCssPreloadError({
+        message: 'Unable to preload CSS for /assets/home-abc123.css',
+      }),
+    ).toBe(true)
+  })
+
+  it('keeps ordinary application errors', () => {
+    expect(
+      isViteCssPreloadError({
+        exception: {
+          values: [{ type: 'Error', value: 'Export failed: encoder closed' }],
+        },
+      }),
+    ).toBe(false)
+  })
+
+  it('keeps unrelated preload wording', () => {
+    expect(
+      isViteCssPreloadError({
+        exception: {
+          values: [
+            { type: 'Error', value: 'Unable to preload image for /assets/hero.webp' },
+          ],
         },
       }),
     ).toBe(false)

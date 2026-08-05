@@ -126,6 +126,24 @@ export function isCloudflareInsightsBeaconEvent(
   )
 }
 
+/**
+ * Vite's CSS preload helper rejects when a hashed stylesheet link errors
+ * (deploy/edge race, stale HTTP cache, brief network blip). Same class as
+ * the boot/lazy-page chunk recoveries — not an app logic bug. Narrow match
+ * on Vite's exact message (KODY-VIDEO-J).
+ */
+export function isViteCssPreloadError(event: FilterableSentryEvent): boolean {
+  const exceptionValues = event.exception?.values ?? []
+  for (const value of exceptionValues) {
+    const text = value.value ?? ''
+    if (/^Unable to preload CSS for \S+/.test(text)) return true
+  }
+  return (
+    typeof event.message === 'string' &&
+    /^Unable to preload CSS for \S+/.test(event.message)
+  )
+}
+
 /** Marker set while an export runs; still present at boot = the page died
  * mid-export (tab crash / out-of-memory kill — no JS error ever fires). */
 const EXPORT_MARKER_KEY = 'kodyVideo.exportInFlight'
@@ -242,6 +260,7 @@ function loadSentry(): Promise<SentryLike> | null {
         if (isCloudflareInsightsBeaconEvent(event)) return null
         if (isProjectLimitEvent(event)) return null
         if (isBrowserExtensionHostObjectNoiseEvent(event)) return null
+        if (isViteCssPreloadError(event)) return null
         return event
       },
     })

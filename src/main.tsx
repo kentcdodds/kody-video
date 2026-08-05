@@ -36,8 +36,10 @@ queueMicrotask(() => {
 })
 
 // Fonts after first paint so ~74KB of woff2 never contends with LCP.
+// Swallow preload failures (deploy-window / cache races): system fonts are
+// fine, and an unhandled rejection here was opening Sentry issues (KODY-VIDEO-J).
 const loadFonts = () => {
-  void import('./styles/fonts.css')
+  void import('./styles/fonts.css').catch(() => undefined)
 }
 if (document.readyState === 'complete') {
   loadFonts()
