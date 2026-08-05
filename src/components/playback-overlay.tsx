@@ -107,6 +107,16 @@ export function PlaybackOverlay(handle: Handle<PlaybackOverlayProps>) {
   const trackDurationMs = (track: ProjectAudioTrack): number =>
     measured.get(track.blob)?.decodedDurationMs ?? track.durationMs
 
+  /** Synchronous, gesture-time nudge for a suspended context: Safari (and
+   * iOS in particular) only honors resume() called from inside a
+   * user-gesture handler — the async promise continuations where playback
+   * starts are too late there. Called at the top of every tap/key path. */
+  const resumeAudioContextFromGesture = () => {
+    if (audioContext?.state === 'suspended') {
+      void audioContext.resume().catch(() => undefined)
+    }
+  }
+
   /** Route both elements through per-source normalization gains. Wired only
    * once the context is RUNNING: elements captured by a suspended graph go
    * silent, while unwired elements still play (at share volume, just
@@ -308,6 +318,18 @@ export function PlaybackOverlay(handle: Handle<PlaybackOverlayProps>) {
     // per-frame glide below fades it in from silence.
     el.volume = track.fadeIn ? 0 : segmentMusicVolume()
 
+    // Create the context NOW — as close to the opening tap as possible, so
+    // browsers that gate Web Audio on user activation start it running
+    // (created any later, only a fresh gesture could unsuspend it).
+    try {
+      audioContext ??= new AudioContext()
+      if (audioContext.state === 'suspended') {
+        void audioContext.resume().catch(() => undefined)
+      }
+    } catch {
+      graphFailed = true
+    }
+
     // Measure every source up front, one decode at a time: the scales and
     // decoded track lengths should be ready by the time the playhead needs
     // them (results are cached per blob, so reopening is instant).
@@ -319,6 +341,13 @@ export function PlaybackOverlay(handle: Handle<PlaybackOverlayProps>) {
       for (const blob of blobs) {
         if (audioEl !== el) return
         measured.set(blob, await measureAudioNormalization(blob))
+        // A decoded track length that differs from the stored metadata
+        // duration moves the playlist's boundaries — realign the bed to
+        // the corrected (export-true) position right away instead of
+        // waiting for the next skip. Guarded inside syncMusicPosition:
+        // in-track drift under 350ms and imminent hand-offs are left
+        // alone, so an accurate metadata duration re-seeks nothing.
+        if (musicTrackIndex >= 0) syncMusicPosition()
       }
     })()
 
@@ -388,6 +417,8 @@ export function PlaybackOverlay(handle: Handle<PlaybackOverlayProps>) {
   }
 
   const goTo = (nextIndex: number) => {
+    // Skips arrive from taps/keys — the moment a suspended graph may start.
+    resumeAudioContextFromGesture()
     advancedFor = -1
     segmentProgress = 0
     needsTap = false
@@ -464,6 +495,7 @@ export function PlaybackOverlay(handle: Handle<PlaybackOverlayProps>) {
         event.preventDefault()
         // Auto-repeat while held must not rapid-toggle pause/resume.
         if (event.repeat) return
+        resumeAudioContextFromGesture()
         const video = videoEl
         if (!video) return
         if (video.paused) {
@@ -624,6 +656,7 @@ export function PlaybackOverlay(handle: Handle<PlaybackOverlayProps>) {
             type="button"
             className="playback-resume"
             mix={on('click', () => {
+              resumeAudioContextFromGesture()
               const video = videoEl
               if (video)
                 void video
