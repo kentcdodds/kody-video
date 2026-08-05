@@ -1,11 +1,19 @@
 /**
- * Manual update checking for the About page. The service worker registration
- * and the apply function come from the `useRegisterSW` hook in app.tsx; this
- * module just holds them so any screen can trigger a check.
+ * Service-worker update helpers. Registration + apply come from
+ * `registerSW` in app.tsx; this module holds them so any screen can
+ * trigger a check, and so the app can re-check when the user returns.
  */
 
 let registration: ServiceWorkerRegistration | null = null
 let applyUpdate: ((reloadPage?: boolean) => Promise<void>) | null = null
+
+/** Minimum gap between quiet resume probes (visibility/focus/pageshow burst). */
+const DEFAULT_RESUME_MIN_INTERVAL_MS = 30_000
+
+let resumeChecksAttached = false
+let lastQuietProbeAt = 0
+let quietProbeInFlight = false
+let resumeMinIntervalMs = DEFAULT_RESUME_MIN_INTERVAL_MS
 
 export function registerUpdateHandles(
   reg: ServiceWorkerRegistration | null | undefined,
@@ -13,6 +21,10 @@ export function registerUpdateHandles(
 ): void {
   registration = reg ?? null
   applyUpdate = apply
+  // The initial registerSW({ immediate: true }) already probed once —
+  // don't fire again from the first focus/pageshow burst after load.
+  lastQuietProbeAt = Date.now()
+  attachResumeUpdateChecks()
 }
 
 export type UpdateCheckResult = 'updated' | 'current' | 'downloading' | 'unavailable'
@@ -72,6 +84,53 @@ export async function checkForUpdates(): Promise<UpdateCheckResult> {
   return 'current'
 }
 
+/**
+ * Quietly ask the service worker whether a newer version exists. Does not
+ * apply the update — when one is found, vite-plugin-pwa's `onNeedRefresh`
+ * shows the existing toast so the user can choose when to reload.
+ */
+export function probeForUpdates(): void {
+  const reg = registration
+  if (!reg || quietProbeInFlight) return
+  quietProbeInFlight = true
+  lastQuietProbeAt = Date.now()
+  void reg
+    .update()
+    .catch(() => undefined)
+    .finally(() => {
+      quietProbeInFlight = false
+    })
+}
+
+function shouldProbeOnResume(): boolean {
+  if (!registration) return false
+  if (typeof document !== 'undefined' && document.visibilityState === 'hidden') {
+    return false
+  }
+  return Date.now() - lastQuietProbeAt >= resumeMinIntervalMs
+}
+
+function onAppResume(): void {
+  if (!shouldProbeOnResume()) return
+  probeForUpdates()
+}
+
+function onVisibilityChange(): void {
+  if (document.visibilityState !== 'visible') return
+  onAppResume()
+}
+
+function attachResumeUpdateChecks(): void {
+  if (resumeChecksAttached) return
+  if (typeof document === 'undefined' || typeof window === 'undefined') return
+  resumeChecksAttached = true
+  document.addEventListener('visibilitychange', onVisibilityChange)
+  // iOS Safari sometimes skips visibilitychange on PWA resume — focus and
+  // pageshow cover that long-standing gap (same pattern as the camera).
+  window.addEventListener('focus', onAppResume)
+  window.addEventListener('pageshow', onAppResume)
+}
+
 async function applyAndReload(
   apply: (reloadPage?: boolean) => Promise<void>,
 ): Promise<UpdateCheckResult> {
@@ -88,4 +147,23 @@ async function applyAndReload(
     window.location.reload()
   }, 1500)
   return 'updated'
+}
+
+/** Test-only: reset module listeners/state between Vitest cases. */
+export function resetAppUpdateForTests(options?: {
+  minIntervalMs?: number
+}): void {
+  if (resumeChecksAttached && typeof document !== 'undefined') {
+    document.removeEventListener('visibilitychange', onVisibilityChange)
+  }
+  if (resumeChecksAttached && typeof window !== 'undefined') {
+    window.removeEventListener('focus', onAppResume)
+    window.removeEventListener('pageshow', onAppResume)
+  }
+  registration = null
+  applyUpdate = null
+  resumeChecksAttached = false
+  lastQuietProbeAt = 0
+  quietProbeInFlight = false
+  resumeMinIntervalMs = options?.minIntervalMs ?? DEFAULT_RESUME_MIN_INTERVAL_MS
 }
