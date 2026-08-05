@@ -176,10 +176,12 @@ export function EditorClipPreview(handle: Handle<EditorClipPreviewProps>) {
     normalizedElementVolume(clipSoundVolume(props.clip), clipAudioScale(props.clip))
 
   /** Without music there is no per-frame tick — apply the clip's own
-   * level (and normalization) directly whenever it may have changed. */
+   * level (and normalization) directly whenever it may have changed. The
+   * gate matches the music element's mount condition (tracks present):
+   * only a MOUNTED bed runs the tick that owns the volume instead. */
   const applyClipVolume = () => {
     const video = media
-    if (!video || props.audio) return
+    if (!video || (props.audio?.tracks.length ?? 0) > 0) return
     video.volume = clipElementVolumeNow()
   }
 
