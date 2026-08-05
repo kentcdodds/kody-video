@@ -17,6 +17,10 @@ import {
   type ProjectAudioTrack,
 } from '../lib/types'
 
+/** Smoothing time constant for level moves (~settles in 3×) — matches the
+ * project preview's glide feel. */
+const MIX_GLIDE_TAU_MS = 200
+
 export interface EditorClipPreviewHandle {
   seekToMs: (timeMs: number) => void
   pause: () => void
@@ -263,7 +267,21 @@ export function EditorClipPreview(handle: Handle<EditorClipPreviewProps>) {
     // asynchronously and the video element remounts on trim changes —
     // recomputing every frame keeps both sides correct.
     let raf = 0
-    const tick = () => {
+    let last = performance.now()
+    /** Gliding element volumes (null = snap to the first computed target).
+     * Stepping them instead can click — e.g. the export eases the clip
+     * back over PLAYLIST_END_RAMP_MS when the playlist runs out. */
+    let musicVol: number | null = null
+    let clipVol: number | null = null
+    const tick = (now: number) => {
+      const dt = Math.min(100, now - last)
+      last = now
+      const alpha = 1 - Math.exp(-dt / MIX_GLIDE_TAU_MS)
+      const glide = (current: number | null, target: number): number => {
+        if (current === null) return target
+        const next = current + (target - current) * alpha
+        return Math.abs(next - target) < 0.005 ? target : next
+      }
       // A playlist edit (add / remove / reorder) swaps the record identity
       // while this stage stays mounted — the loaded track index and cached
       // URLs belong to the old playlist then.
@@ -271,24 +289,34 @@ export function EditorClipPreview(handle: Handle<EditorClipPreviewProps>) {
         audioFor = props.audio
         resetMusicForPlaylistChange()
       }
+      // A timeline edit (reorder, delete, another clip's trim) moves this
+      // clip's film offset — a playing bed must follow to the new
+      // export-true position instead of playing on from the old one.
+      if (planFor !== props.clips) {
+        resolveSegments()
+        resyncMusicIfPlaying()
+      }
       const position = filmPositionMs()
       const mix = musicShare() * (position === null ? 1 : fadeScaleAt(position))
       const trackBlob = props.audio?.tracks[musicTrackIndex]?.blob
       const musicScale = trackBlob ? (peekAudioNormalization(trackBlob)?.scale ?? 1) : 1
-      el.volume = musicElementVolume(mix, musicScale)
+      musicVol = glide(musicVol, musicElementVolume(mix, musicScale))
+      el.volume = musicVol
       const video = media
       if (video) {
-        // Live per-frame coverage (same stance as the project preview):
-        // the playhead can sit past the playlist's last decoded sample
-        // before the element's `ended` handler runs, and the clip must not
-        // stay ducked under music that is not playing.
+        // The clip ducks only under a bed that is actually SOUNDING here:
+        // live playlist coverage (the playhead can pass the last decoded
+        // sample before the `ended` handler runs) and a playing element (a
+        // rejected music play() must not leave the clip quietly ducked
+        // under silence).
         const covered =
-          !musicExhausted && position !== null && trackAtMs(position) !== null
+          !musicExhausted && position !== null && trackAtMs(position) !== null && !el.paused
         const clipScale = peekAudioNormalization(props.clip.blob)?.scale ?? 1
         // Where the playlist covers this clip the export blends the clip
         // at its normalized complement; where it doesn't, the clip's own
         // sound plays at its normalized full level.
-        video.volume = covered ? clipElementVolume(mix, clipScale) : Math.min(1, clipScale)
+        clipVol = glide(clipVol, covered ? clipElementVolume(mix, clipScale) : Math.min(1, clipScale))
+        video.volume = clipVol
       }
       raf = requestAnimationFrame(tick)
     }
