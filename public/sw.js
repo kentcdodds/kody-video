@@ -13,7 +13,7 @@
  * script, so no module-scope `declare const self` — that would force an
  * `export {}` into the emitted JS). */
 const sw = self;
-const CACHE_VERSION = 'typescript-1';
+const CACHE_VERSION = 'typescript-2';
 const CACHE_NAME = `kody-video-${CACHE_VERSION}`;
 // The app shell. `og-image.png` and `art/kody-video-icon.png` are excluded
 // on purpose: the social card is for link scrapers and the icon master is
@@ -77,6 +77,7 @@ const PRECACHE = [
     '/js/lib/recorder.js',
     '/js/lib/screen-recorder.js',
     '/js/lib/sheet-modal.js',
+    '/js/lib/showcase.js',
     '/js/lib/storage.js',
     '/js/lib/storage-space.js',
     '/js/lib/thumbs.js',

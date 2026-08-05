@@ -14,7 +14,7 @@
  * `export {}` into the emitted JS). */
 const sw = self as unknown as ServiceWorkerGlobalScope
 
-const CACHE_VERSION = 'typescript-1'
+const CACHE_VERSION = 'typescript-2'
 const CACHE_NAME = `kody-video-${CACHE_VERSION}`
 
 // The app shell. `og-image.png` and `art/kody-video-icon.png` are excluded
@@ -79,6 +79,7 @@ const PRECACHE = [
   '/js/lib/recorder.js',
   '/js/lib/screen-recorder.js',
   '/js/lib/sheet-modal.js',
+  '/js/lib/showcase.js',
   '/js/lib/storage.js',
   '/js/lib/storage-space.js',
   '/js/lib/thumbs.js',
