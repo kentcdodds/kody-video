@@ -10,6 +10,12 @@ export function shortVersion(): string {
   return COMMIT_SHA === 'dev' ? 'dev' : COMMIT_SHA.slice(0, 7)
 }
 
+/** GitHub commit URL for this build, or null for local/dev builds. */
+export function commitUrl(): string | null {
+  if (COMMIT_SHA === 'dev') return null
+  return `https://github.com/kentcdodds/kody-video/commit/${COMMIT_SHA}`
+}
+
 export function buildDateLabel(): string {
   const date = new Date(BUILD_DATE)
   if (Number.isNaN(date.getTime())) return BUILD_DATE

@@ -3,7 +3,7 @@ import { on } from 'remix/ui'
 import { IconBack } from '../components/icons'
 import { BrandMark } from '../components/brand-mark'
 import { checkForUpdates } from '../lib/app-update'
-import { buildDateLabel, shortVersion } from '../lib/build-info'
+import { buildDateLabel, commitUrl, shortVersion } from '../lib/build-info'
 import { reportError } from '../lib/error-reporting'
 import { clearExportCache, estimateExportCacheBytes } from '../lib/export/export-cache'
 import { listRearCameras } from '../lib/media'
@@ -209,6 +209,8 @@ export function AboutPage(handle: Handle) {
 
   return () => {
     const { storage, exportCacheBytes } = data
+    const version = <code>{shortVersion()}</code>
+    const versionUrl = commitUrl()
     return (
       <div className="screen about-screen">
         <div className="about-top">
@@ -390,7 +392,14 @@ export function AboutPage(handle: Handle) {
           <section className="about-section">
             <h2>Version</h2>
             <p>
-              <code>{shortVersion()}</code> · built {buildDateLabel()}
+              {versionUrl ? (
+                <a href={versionUrl} target="_blank" rel="noreferrer noopener">
+                  {version}
+                </a>
+              ) : (
+                version
+              )}{' '}
+              · built {buildDateLabel()}
               {' · '}
               <button
                 type="button"
