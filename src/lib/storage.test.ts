@@ -23,6 +23,7 @@ import {
   removeProjectAudioTrack,
   renameProject,
   setOnboardingDismissed,
+  setTourCardDismissed,
   setKeepWatermark,
   toStoredBlob,
   undoDeleteLastClip,
@@ -46,10 +47,13 @@ describe('storage layer', () => {
   it('uses Kody Video storage settings', async () => {
     expect(DB_NAME).toBe('kody-video')
     expect((await getSettings()).onboardingDismissed).toBe(false)
+    expect((await getSettings()).tourCardDismissed).toBeUndefined()
 
     await setOnboardingDismissed(true)
+    await setTourCardDismissed(true)
 
     expect((await getSettings()).onboardingDismissed).toBe(true)
+    expect((await getSettings()).tourCardDismissed).toBe(true)
   })
 
   it('reopens when the cached IDB connection is closing (iOS Safari)', async () => {

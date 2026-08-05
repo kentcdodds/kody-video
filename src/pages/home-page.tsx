@@ -14,6 +14,7 @@ import {
   IconPlus,
   IconShareIos,
 } from '../components/icons'
+import { TourCard } from '../components/tour-card'
 import { UpsellSheet } from '../components/upsell-sheet'
 import { RestoreSheet } from '../components/restore-sheet'
 import { RenameSheet } from '../components/rename-sheet'
@@ -21,7 +22,13 @@ import { StorageMeter } from '../components/storage-meter'
 import { downloadBlob, shareOrDownload } from '../lib/media'
 import { loadHomePage, type HomeLoaderData, type ProjectSummary } from '../lib/project-actions'
 import { projectBackupFilename, serializeProject } from '../lib/project-transfer'
-import { deleteProject, getClipsForProject, getProjectAudio, renameProject } from '../lib/storage'
+import {
+  deleteProject,
+  getClipsForProject,
+  getProjectAudio,
+  renameProject,
+  setTourCardDismissed,
+} from '../lib/storage'
 import { clearExportCache } from '../lib/export/export-cache'
 import { reportError } from '../lib/error-reporting'
 import { canPromptInstall, promptInstall, subscribeInstallPrompt } from '../lib/install-prompt'
@@ -66,6 +73,7 @@ export function HomePage(handle: Handle) {
   let busy = false
   let notice: string | null = null
   let showInstallHint = shouldShowIosInstallHint()
+  let tourCardHidden = false
   let upselling = false
   let restoring = false
   let installPopoverOpen = false
@@ -381,6 +389,16 @@ export function HomePage(handle: Handle) {
               <IconClose size={16} />
             </button>
           </div>
+        ) : null}
+
+        {projects.length === 0 && !data.tourCardDismissed && !tourCardHidden ? (
+          <TourCard
+            onDismiss={() => {
+              tourCardHidden = true
+              void setTourCardDismissed(true)
+              void handle.update()
+            }}
+          />
         ) : null}
 
         <section className="project-slots" aria-label="Kody Video projects">

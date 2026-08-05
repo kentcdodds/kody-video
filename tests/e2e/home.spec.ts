@@ -9,30 +9,40 @@ test.describe('home & app shell', () => {
     await expect(overlay).toBeVisible()
     await expect(overlay).toContainText('Hold to record')
     await expect(overlay).toContainText('Tap Go')
-
-    // Tour teaser swaps to an inline player that streams from media.kody.video.
-    const tourTeaser = overlay.getByRole('button', { name: /watch the tour/i })
-    await expect(tourTeaser).toBeVisible()
-    await tourTeaser.click()
-    const tourVideo = overlay.locator('video.onboarding-tour-video')
-    await expect(tourVideo).toBeVisible()
-    await expect(tourVideo).toHaveAttribute(
-      'src',
-      /^https:\/\/media\.kody\.video\//,
-    )
-    // The tap itself must start playback (in-gesture play() is what mobile
-    // autoplay policies require) — rendered state alone can't prove that.
-    await expect
-      .poll(() => tourVideo.evaluate((video: HTMLVideoElement) => video.currentTime))
-      .toBeGreaterThan(0)
-    await expect(tourTeaser).toBeHidden()
-
     await page.getByRole('button', { name: 'Start recording' }).click()
     await expect(overlay).toBeHidden()
 
     await page.reload()
     await expect(page.locator('.record-stage')).toBeVisible()
     await expect(page.locator('.onboarding-overlay')).toBeHidden()
+  })
+
+  test('first-timer tour card plays the tour and dismisses for good', async ({ page }) => {
+    await page.goto('/')
+    const card = page.locator('.tour-card')
+    await expect(card).toBeVisible()
+
+    // Teaser swaps to an inline player that streams from media.kody.video.
+    const teaser = card.getByRole('button', { name: /watch the tour/i })
+    await teaser.click()
+    const video = card.locator('video.tour-card-video')
+    await expect(video).toBeVisible()
+    await expect(video).toHaveAttribute('src', /^https:\/\/media\.kody\.video\//)
+    // The tap itself must start playback (in-gesture play() is what mobile
+    // autoplay policies require) — rendered state alone can't prove that.
+    // Generous timeout: the video streams over the real network and the
+    // parallel suite competes for bandwidth.
+    await expect
+      .poll(() => video.evaluate((el: HTMLVideoElement) => el.currentTime), { timeout: 20_000 })
+      .toBeGreaterThan(0)
+    await expect(teaser).toBeHidden()
+
+    // Dismissal persists across reloads.
+    await card.getByRole('button', { name: 'Dismiss tour' }).click()
+    await expect(card).toBeHidden()
+    await page.reload()
+    await expect(page.locator('.project-slots')).toBeVisible()
+    await expect(page.locator('.tour-card')).toBeHidden()
   })
 
   test('footer shows privacy line with a tappable storage gauge', async ({ page }) => {

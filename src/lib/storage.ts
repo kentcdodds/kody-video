@@ -230,6 +230,12 @@ export async function setOnboardingDismissed(onboardingDismissed: boolean): Prom
   await db.put('meta', { ...settings, onboardingDismissed })
 }
 
+export async function setTourCardDismissed(tourCardDismissed: boolean): Promise<void> {
+  const db = await getDb()
+  const settings = await getSettings()
+  await db.put('meta', { ...settings, tourCardDismissed })
+}
+
 export async function setLocationTaggingEnabled(locationTaggingEnabled: boolean): Promise<void> {
   const db = await getDb()
   const settings = await getSettings()
