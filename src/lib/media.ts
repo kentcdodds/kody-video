@@ -313,6 +313,11 @@ export function pickRecordingMimeType(): string {
   return cachedRecordingMimeType
 }
 
+/** Test-only: clear the cached probe so each Vitest case re-probes. */
+export function resetRecordingMimeTypeForTests(): void {
+  cachedRecordingMimeType = null
+}
+
 function probeRecordingMimeType(): string {
   if (typeof MediaRecorder === 'undefined') return ''
   const mobile = [

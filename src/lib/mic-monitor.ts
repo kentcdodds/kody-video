@@ -22,6 +22,11 @@ export interface MicLevelMonitor {
  */
 let sharedContext: AudioContext | null = null
 
+/** Test-only: drop the shared context so each Vitest case starts fresh. */
+export function resetMicMonitorForTests(): void {
+  sharedContext = null
+}
+
 function acquireContext(): AudioContext | null {
   if (typeof AudioContext === 'undefined') return null
   try {

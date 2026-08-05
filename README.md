@@ -16,7 +16,7 @@ Open the printed localhost URL in Chrome (desktop or Android). Camera/microphone
 ```bash
 npm run build      # production build + service worker
 npm run preview    # serve dist (PWA cache active)
-npm test           # storage/export-planner unit tests
+npm test           # storage/export-planner unit tests (Vitest browser mode, real Chromium)
 npm run test:e2e   # Playwright e2e suite (fake camera/mic; recording, editor, playback, export, plans)
 npm run test:smoke # Playwright UX smoke (fake camera, records + exports)
 ```
@@ -273,7 +273,7 @@ under `/api/` so no service worker or cached shell can interfere:
 | `npm run dev`                        | Vite dev server                            |
 | `npm run build`                      | Typecheck + production bundle              |
 | `npm run preview`                    | Preview production build                   |
-| `npm test`                           | Vitest storage/export-planner tests        |
+| `npm test`                           | Vitest storage/export-planner tests (browser mode, Chromium) |
 | `npm run test:e2e`                   | Playwright e2e suite (`tests/e2e/`): recording, editor, playback, export, plans, keyboard |
 | `npm run test:smoke`                 | Playwright smoke: record → edit → export   |
 | `node scripts/probe-export-chrome.mjs` | Export validation in Chrome stable (real codecs) |

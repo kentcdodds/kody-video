@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { beforeEach, describe, expect, it } from 'vitest'
 import {
   dismissShowcaseBanner,
   isShowcaseBannerDismissed,
@@ -27,22 +27,9 @@ describe('showcaseForHostname', () => {
 })
 
 describe('showcase banner dismissal', () => {
-  // Node test environment has no localStorage; back it with a Map.
-  const backing = new Map<string, string>()
-
+  // Browser mode has the real localStorage; just start each test clean.
   beforeEach(() => {
-    backing.clear()
-    Object.defineProperty(globalThis, 'localStorage', {
-      configurable: true,
-      value: {
-        getItem: (key: string) => backing.get(key) ?? null,
-        setItem: (key: string, value: string) => void backing.set(key, value),
-      },
-    })
-  })
-
-  afterEach(() => {
-    delete (globalThis as { localStorage?: unknown }).localStorage
+    localStorage.clear()
   })
 
   it('starts visible and stays dismissed after dismissal', () => {

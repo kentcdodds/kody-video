@@ -20,43 +20,28 @@ function mockRegistration(
   } as unknown as ServiceWorkerRegistration
 }
 
-type Listener = EventListenerOrEventListenerObject
-
+// Browser mode: app-update listens on the real document/window, so tests
+// dispatch real events. `document` itself cannot be replaced in Chromium,
+// but its visibilityState getter can be shadowed on the instance.
 function createDomStub(initialVisibility: DocumentVisibilityState = 'visible') {
-  const listeners = new Map<string, Set<Listener>>()
   let visibilityState = initialVisibility
-
-  const dispatch = (type: string) => {
-    const event = { type } as Event
-    for (const listener of listeners.get(type) ?? []) {
-      if (typeof listener === 'function') listener(event)
-      else listener.handleEvent(event)
-    }
-  }
-
-  const target = {
-    addEventListener(type: string, listener: Listener) {
-      if (!listeners.has(type)) listeners.set(type, new Set())
-      listeners.get(type)!.add(listener)
-    },
-    removeEventListener(type: string, listener: Listener) {
-      listeners.get(type)?.delete(listener)
-    },
-    dispatchEvent(event: Event) {
-      dispatch(event.type)
-      return true
-    },
-    get visibilityState() {
-      return visibilityState
-    },
+  Object.defineProperty(document, 'visibilityState', {
+    configurable: true,
+    get: () => visibilityState,
+  })
+  return {
     setVisibility(next: DocumentVisibilityState) {
       visibilityState = next
     },
+    dispatch(type: 'visibilitychange' | 'focus' | 'pageshow') {
+      const target = type === 'visibilitychange' ? document : window
+      target.dispatchEvent(new Event(type))
+    },
   }
+}
 
-  vi.stubGlobal('document', target)
-  vi.stubGlobal('window', target)
-  return { ...target, dispatch }
+function restoreVisibilityState() {
+  Reflect.deleteProperty(document, 'visibilityState')
 }
 
 describe('app-update resume checks', () => {
@@ -66,7 +51,7 @@ describe('app-update resume checks', () => {
 
   afterEach(() => {
     resetAppUpdateForTests()
-    vi.unstubAllGlobals()
+    restoreVisibilityState()
     vi.restoreAllMocks()
   })
 
@@ -147,7 +132,7 @@ describe('checkForUpdates (manual)', () => {
 
   afterEach(() => {
     resetAppUpdateForTests()
-    vi.unstubAllGlobals()
+    restoreVisibilityState()
     vi.restoreAllMocks()
   })
 

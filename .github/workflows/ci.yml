@@ -29,11 +29,13 @@ jobs:
       - name: Lint / typecheck
         run: npm run lint
 
-      - name: Unit tests
-        run: npm test
-
+      # Vitest runs in browser mode (real Chromium), so the browser must be
+      # installed before the unit tests too, not just the e2e suite.
       - name: Install Playwright Chromium
         run: npx playwright install --with-deps chromium
+
+      - name: Unit tests
+        run: npm test
 
       # The preview-audio e2e tests need a running audio server: without an
       # output device Chromium keeps realtime AudioContexts suspended and the
