@@ -170,6 +170,7 @@ export function isChunkLoadErrorEvent(event: FilterableSentryEvent): boolean {
  * nodes so the framework's next removeChild/insertBefore throws NotFoundError.
  * Safari uses the short DOMException message; Chromium names the method.
  * Same class as KCD-S5 / KCD-XQ / KCD-ZE on kentcdodds.com (KODY-VIDEO-D).
+ * See also facebook/react#11538.
  *
  * Remix 3 is not React — do not require a react-dom frame. Keep events that
  * have in-app frames or a `step` tag (intentional reportError captures such
