@@ -22,12 +22,17 @@ import {
   isIosBrowser,
   projectFilename,
   shareFile,
+  shareOrDownload,
 } from '../lib/media'
 import { loadProjectPage, type ProjectLoaderData } from '../lib/project-actions'
+import { projectBackupFilename, serializeProject } from '../lib/project-transfer'
 import { createProject, setKeepWatermark, setOnboardingDismissed } from '../lib/storage'
-import { requestPersistentStorage } from '../lib/storage-space'
+import { formatBytes, requestPersistentStorage } from '../lib/storage-space'
 import { navigate } from '../router'
 import { NEW_PROJECT_ID, type ProjectId } from '../lib/types'
+
+/** Android share targets get flaky well below this; bigger backups download. */
+const SHARE_BACKUP_LIMIT_BYTES = 50 * 1024 * 1024
 
 /** Resolve after the next animation frame (or a short timeout when rAF is busy). */
 function waitForNextPaint(): Promise<void> {
@@ -57,6 +62,8 @@ interface ExportUiState {
   notice: string | null
   /** Whether THIS export was stamped (entitlement can change mid-sheet). */
   watermarked: boolean
+  /** True once this run entered the realtime canvas fallback. */
+  usedFallback: boolean
 }
 
 interface ProjectPageProps {
@@ -230,6 +237,7 @@ export function ProjectPage(handle: Handle<ProjectPageProps>) {
       error: null,
       notice: null,
       watermarked,
+      usedFallback: false,
     })
     // Long exports must survive the screen dimming: without a wake lock the
     // OS suspends the tab mid-export and the user returns to a restart.
@@ -271,6 +279,7 @@ export function ProjectPage(handle: Handle<ProjectPageProps>) {
               error: null,
               notice: 'Restored your last export — nothing changed since. Retry re-renders.',
               watermarked: recovered.watermarked,
+              usedFallback: false,
             })
             return
           }
@@ -312,6 +321,13 @@ export function ProjectPage(handle: Handle<ProjectPageProps>) {
                 }
               : undefined,
           getPreviewCanvas: () => previewCanvas,
+          onFallback: () => {
+            if (exportRun !== runId) return
+            if (exportState && exportState.status === 'exporting' && !exportState.usedFallback) {
+              exportState = { ...exportState, usedFallback: true }
+              void handle.update()
+            }
+          },
           onProgress: (ratio) => {
             if (exportRun !== runId) return
             if (exportState && exportState.status === 'exporting') {
@@ -338,6 +354,7 @@ export function ProjectPage(handle: Handle<ProjectPageProps>) {
           error: null,
           notice: null,
           watermarked,
+          usedFallback: result.engine === 'realtime' || (exportState?.usedFallback ?? false),
         })
       } catch (err) {
         // Report even when the run was abandoned (closed sheet / retry) —
@@ -363,6 +380,7 @@ export function ProjectPage(handle: Handle<ProjectPageProps>) {
           error: err instanceof Error ? err.message : 'Export failed.',
           notice: null,
           watermarked,
+          usedFallback: exportState?.usedFallback ?? false,
         })
       } finally {
         // The export ended in this session (success or error) — it did not die.
@@ -503,6 +521,7 @@ export function ProjectPage(handle: Handle<ProjectPageProps>) {
             projectName={project.name}
             progress={exportState?.progress ?? 0}
             watermarked={exportState?.watermarked === true}
+            usedFallback={exportState?.usedFallback === true}
             bindPreviewCanvas={bindPreviewCanvas}
           />
         ) : null}
@@ -513,6 +532,7 @@ export function ProjectPage(handle: Handle<ProjectPageProps>) {
             error={exportState.error}
             notice={exportState.notice}
             watermarked={exportState.watermarked}
+            usedFallback={exportState.usedFallback}
             purchased={data.watermarkRemoved}
             keepWatermark={data.keepWatermark}
             busy={exportActionCount > 0}
@@ -579,6 +599,41 @@ export function ProjectPage(handle: Handle<ProjectPageProps>) {
                   setExportNotice('Zipping failed — try again.')
                 })
                 .finally(endExportAction)
+            }}
+            onSaveBackup={() => {
+              beginExportAction()
+              setExportNotice('Building project backup… keep this open.')
+              void (async () => {
+                try {
+                  if (clips.length === 0) {
+                    throw new Error('Nothing to back up — this project has no clips.')
+                  }
+                  const backup = serializeProject(project, clips, data!.audio)
+                  const filename = projectBackupFilename(project.name)
+                  const sizeLabel = formatBytes(backup.size)
+                  if (backup.size > SHARE_BACKUP_LIMIT_BYTES) {
+                    await downloadBlob(backup, filename)
+                    setExportNotice(
+                      `Backup (${sizeLabel}) saved to your downloads — too large for the share sheet. ` +
+                        'Open kody.video → About → Import a backup to restore it.',
+                    )
+                  } else {
+                    const outcome = await shareOrDownload(backup, filename)
+                    if (outcome !== 'cancelled') {
+                      setExportNotice(
+                        `Backup (${sizeLabel}) saved. Open kody.video → About → Import a backup to restore it.`,
+                      )
+                    }
+                  }
+                } catch (err) {
+                  reportError(err, 'export-backup')
+                  setExportNotice(
+                    err instanceof Error ? err.message : 'Could not create the backup — try again.',
+                  )
+                } finally {
+                  endExportAction()
+                }
+              })()
             }}
             onRetry={() => startExport({ force: true })}
             onReExport={() => startExport({ force: true })}

@@ -380,6 +380,7 @@ export async function exportRealtime(
     blob,
     mimeType: blob.type || 'video/webm',
     fileExtension: isMp4 ? 'mp4' : 'webm',
+    engine: 'realtime',
   }
   } finally {
     encodeCanvas.release()

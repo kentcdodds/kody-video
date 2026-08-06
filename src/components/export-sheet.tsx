@@ -5,6 +5,9 @@ import { BrandMark } from './brand-mark'
 
 export type ExportStatus = 'exporting' | 'ready' | 'error'
 
+/** Same destination the About page credits — native hold-to-record on iPhone. */
+export const OK_VIDEO_URL = 'https://okvideo.app'
+
 interface ExportSheetProps {
   /** The exporting state renders as the full-screen ExportOverlay instead. */
   status: 'ready' | 'error'
@@ -21,12 +24,18 @@ interface ExportSheetProps {
   purchased: boolean
   /** Plus opt-in: keep stamping the mark on future exports. */
   keepWatermark: boolean
+  /**
+   * True when this run used the realtime canvas fallback. Shows a dismissible
+   * backup / try-elsewhere hint (session-only; resets on the next export).
+   */
+  usedFallback: boolean
   /** A share/save is in flight — dismissal would drop its result notice. */
   busy: boolean
   onKeepWatermarkChange: (keep: boolean) => void
   onShare: () => void
   onSave: () => void
   onSaveClips: () => void
+  onSaveBackup: () => void
   onRemoveWatermark: () => void
   onRestorePurchase: () => void
   onRetry: () => void
@@ -42,6 +51,8 @@ interface ExportSheetProps {
  */
 export function ExportSheet(handle: Handle<ExportSheetProps>) {
   const { props } = handle
+  let fallbackHintDismissed = false
+
   return () => {
     const {
       status,
@@ -53,17 +64,20 @@ export function ExportSheet(handle: Handle<ExportSheetProps>) {
       watermarked,
       purchased,
       keepWatermark,
+      usedFallback,
       busy,
       onKeepWatermarkChange,
       onShare,
       onSave,
       onSaveClips,
+      onSaveBackup,
       onRemoveWatermark,
       onRestorePurchase,
       onRetry,
       onReExport,
       onClose,
     } = props
+    const showFallbackHint = usedFallback && !fallbackHintDismissed
     return (
       <>
         <div
@@ -92,6 +106,16 @@ export function ExportSheet(handle: Handle<ExportSheetProps>) {
                 {formatFileInfo(fileExtension, fileSizeBytes)} — it stays on this device until you
                 share it.
               </p>
+              {showFallbackHint
+                ? fallbackHint({
+                    busy,
+                    onSaveBackup,
+                    onDismiss: () => {
+                      fallbackHintDismissed = true
+                      void handle.update()
+                    },
+                  })
+                : null}
               {notice ? <p className="sheet-message">{notice}</p> : null}
               <div className="sheet-actions">
                 {canShare ? (
@@ -193,6 +217,16 @@ export function ExportSheet(handle: Handle<ExportSheetProps>) {
             <>
               <h3>Export hit a snag</h3>
               <p className="sheet-message is-error">{error ?? 'Something went wrong.'}</p>
+              {showFallbackHint
+                ? fallbackHint({
+                    busy,
+                    onSaveBackup,
+                    onDismiss: () => {
+                      fallbackHintDismissed = true
+                      void handle.update()
+                    },
+                  })
+                : null}
               {notice ? <p className="sheet-message">{notice}</p> : null}
               <div className="sheet-actions">
                 <button
@@ -226,6 +260,42 @@ export function ExportSheet(handle: Handle<ExportSheetProps>) {
       </>
     )
   }
+}
+
+function fallbackHint(props: {
+  busy: boolean
+  onSaveBackup: () => void
+  onDismiss: () => void
+}) {
+  const { busy, onSaveBackup, onDismiss } = props
+  return (
+    <div className="export-fallback-hint" role="status">
+      <p>
+        This device used a compatibility export. For higher quality, save a project backup and
+        import it on a computer (Chrome works best) via About → Import a backup.
+      </p>
+      <div className="export-fallback-hint-actions">
+        <button
+          type="button"
+          className="btn btn-secondary"
+          disabled={busy}
+          mix={on('click', () => onSaveBackup())}
+        >
+          Save project backup
+        </button>
+        <button type="button" className="link-button" disabled={busy} mix={on('click', onDismiss)}>
+          Dismiss
+        </button>
+      </div>
+      <p className="export-fallback-okvideo muted">
+        On iPhone,{' '}
+        <a href={OK_VIDEO_URL} target="_blank" rel="noreferrer noopener">
+          OK Video
+        </a>{' '}
+        is a native alternative.
+      </p>
+    </div>
+  )
 }
 
 function formatFileInfo(ext: string | null, bytes: number | null): string {

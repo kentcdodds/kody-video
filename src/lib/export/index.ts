@@ -39,6 +39,12 @@ export interface ExportOptions {
   /** Background-music playlist mixed under the clips at their per-clip
    * volumes; tracks play one after the other until the film ends. */
   background?: BackgroundAudio | null
+  /**
+   * Fired once when the export enters the realtime canvas + MediaRecorder
+   * path (no WebCodecs, or WebCodecs failed). Lets the UI offer a backup /
+   * try-elsewhere hint without waiting for the finished file.
+   */
+  onFallback?: () => void
 }
 
 /**
@@ -105,6 +111,7 @@ async function runExport(
     }
   }
 
+  options.onFallback?.()
   const result = await exportRealtime(plan, {
     audioContext: options.audioContext,
     onProgress: options.onProgress,

@@ -949,10 +949,14 @@ export function wait(ms: number): Promise<void> {
   })
 }
 
+export type ExportEngine = 'webcodecs' | 'realtime'
+
 export interface ExportResult {
   blob: Blob
   mimeType: string
   fileExtension: 'mp4' | 'webm'
+  /** Which stitcher produced this file. Omitted on recovered cache hits. */
+  engine?: ExportEngine
   /** Name of the OPFS exports-directory file this export streamed into. */
   opfsName?: string
   /** True when `blob` is exactly the bytes of the `opfsName` file (false
