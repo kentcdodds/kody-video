@@ -7,6 +7,7 @@ import {
   isMonitoringSelfTestEvent,
   isProjectLimitEvent,
   isReportingHostname,
+  isTranslatorDomMutationNoiseEvent,
   isViteCssPreloadError,
   isWebKitEmptyRangesNoiseEvent,
   reportComponentError,
@@ -446,6 +447,188 @@ describe('isWebKitEmptyRangesNoiseEvent', () => {
             {
               type: 'ReferenceError',
               value: "Can't find variable: importProgress",
+            },
+          ],
+        },
+      }),
+    ).toBe(false)
+  })
+})
+
+describe('isTranslatorDomMutationNoiseEvent', () => {
+  it('drops Chromium removeChild NotFoundError with mutation stack (KCD-S5 class)', () => {
+    expect(
+      isTranslatorDomMutationNoiseEvent({
+        exception: {
+          values: [
+            {
+              type: 'NotFoundError',
+              value:
+                "Failed to execute 'removeChild' on 'Node': The node to be removed is not a child of this node.",
+              stacktrace: {
+                frames: [
+                  {
+                    filename: '/assets/index-abc123.js',
+                    function: 'removeChild',
+                    in_app: false,
+                  },
+                ],
+              },
+            },
+          ],
+        },
+      }),
+    ).toBe(true)
+  })
+
+  it('drops Safari Translate NotFoundError with empty stack (KODY-VIDEO-D)', () => {
+    expect(
+      isTranslatorDomMutationNoiseEvent({
+        exception: {
+          values: [
+            {
+              type: 'NotFoundError',
+              value: 'The object can not be found here.',
+            },
+          ],
+        },
+      }),
+    ).toBe(true)
+  })
+
+  it('drops Safari NotFoundError with native removeChild frame (KCD-ZE class)', () => {
+    expect(
+      isTranslatorDomMutationNoiseEvent({
+        exception: {
+          values: [
+            {
+              type: 'NotFoundError',
+              value: 'The object can not be found here.',
+              stacktrace: {
+                frames: [
+                  {
+                    filename: '[native code]',
+                    function: 'removeChild',
+                    in_app: false,
+                  },
+                ],
+              },
+            },
+          ],
+        },
+      }),
+    ).toBe(true)
+  })
+
+  it('keeps intentional reportError captures tagged with step', () => {
+    expect(
+      isTranslatorDomMutationNoiseEvent({
+        tags: { step: 'export-audio' },
+        exception: {
+          values: [
+            {
+              type: 'NotFoundError',
+              value: 'The object can not be found here.',
+            },
+          ],
+        },
+      }),
+    ).toBe(false)
+  })
+
+  it('keeps in-app DOM bugs that happen to share the message', () => {
+    expect(
+      isTranslatorDomMutationNoiseEvent({
+        exception: {
+          values: [
+            {
+              type: 'NotFoundError',
+              value:
+                "Failed to execute 'removeChild' on 'Node': The node to be removed is not a child of this node.",
+              stacktrace: {
+                frames: [
+                  {
+                    filename: '/assets/project-page-abc.js',
+                    function: 'trimClip',
+                    in_app: true,
+                  },
+                  {
+                    filename: '[native code]',
+                    function: 'removeChild',
+                    in_app: false,
+                  },
+                ],
+              },
+            },
+          ],
+        },
+      }),
+    ).toBe(false)
+  })
+
+  it('keeps ordinary application errors', () => {
+    expect(
+      isTranslatorDomMutationNoiseEvent({
+        exception: {
+          values: [{ type: 'Error', value: 'Export failed: encoder closed' }],
+        },
+      }),
+    ).toBe(false)
+  })
+
+  it('keeps unrelated NotFoundError wording', () => {
+    expect(
+      isTranslatorDomMutationNoiseEvent({
+        exception: {
+          values: [
+            {
+              type: 'NotFoundError',
+              value: 'Requested device not found',
+            },
+          ],
+        },
+      }),
+    ).toBe(false)
+  })
+
+  it('does not pair type and message across chained exception values', () => {
+    expect(
+      isTranslatorDomMutationNoiseEvent({
+        exception: {
+          values: [
+            {
+              type: 'NotFoundError',
+              value: 'Requested device not found',
+            },
+            {
+              type: 'Error',
+              value:
+                "Failed to execute 'removeChild' on 'Node': The node to be removed is not a child of this node.",
+            },
+          ],
+        },
+      }),
+    ).toBe(false)
+  })
+
+  it('treats empty filename with real abs_path as a usable frame', () => {
+    expect(
+      isTranslatorDomMutationNoiseEvent({
+        exception: {
+          values: [
+            {
+              type: 'NotFoundError',
+              value: 'The object can not be found here.',
+              stacktrace: {
+                frames: [
+                  {
+                    filename: '',
+                    abs_path: 'https://kody.video/assets/index-abc123.js',
+                    function: 'trimClip',
+                    in_app: false,
+                  },
+                ],
+              },
             },
           ],
         },
