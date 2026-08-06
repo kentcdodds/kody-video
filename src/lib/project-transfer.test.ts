@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it } from 'vitest'
 import {
+  __resetProjectTransferForTests,
   BackupFormatError,
   dataTransferHasFiles,
   importKodyVideoBackupFile,
@@ -10,7 +11,13 @@ import {
   projectBackupFilename,
   serializeProject,
 } from './project-transfer'
-import { __resetDbForTests, getClipsForProject, getProjectAudio, listProjects } from './storage'
+import {
+  __resetDbForTests,
+  getClipsForProject,
+  getProjectAudio,
+  listProjects,
+  ProjectLimitError,
+} from './storage'
 import { markWatermarkRemoved } from './entitlement'
 import type { ClipRecord, Project, ProjectAudioRecord } from './types'
 
@@ -53,6 +60,7 @@ function fakeClip(id: string, content: string, extra: Partial<ClipRecord> = {}):
 
 describe('project backup round trip', () => {
   beforeEach(async () => {
+    __resetProjectTransferForTests()
     await __resetDbForTests()
   })
 
@@ -306,5 +314,24 @@ describe('project backup round trip', () => {
     expect(project.name).toBe('Dropped')
     expect(clips).toHaveLength(1)
     expect(await clips[0]!.blob.text()).toBe('MEDIA')
+  })
+
+  it('serializes overlapping imports so the free-plan cap still holds', async () => {
+    const backup = serializeProject(fakeProject('One'), [fakeClip('clip_a', 'MEDIA')])
+    const fileA = new File([backup], 'one.kodyvideo', { type: 'application/octet-stream' })
+    const fileB = new File([backup], 'two.kodyvideo', { type: 'application/octet-stream' })
+    const results = await Promise.allSettled([
+      importKodyVideoBackupFile(fileA),
+      importKodyVideoBackupFile(fileB),
+    ])
+    const fulfilled = results.filter((result) => result.status === 'fulfilled')
+    const rejected = results.filter((result) => result.status === 'rejected')
+    expect(fulfilled).toHaveLength(1)
+    expect(rejected).toHaveLength(1)
+    expect(rejected[0]).toMatchObject({ status: 'rejected' })
+    if (rejected[0]?.status === 'rejected') {
+      expect(rejected[0].reason).toBeInstanceOf(ProjectLimitError)
+    }
+    expect(await listProjects()).toHaveLength(1)
   })
 })

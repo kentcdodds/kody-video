@@ -297,6 +297,27 @@ export async function parseProjectBackup(file: Blob): Promise<ParsedBackup> {
   return { projectName: String(manifest.projectName || 'Imported project'), clips, audio }
 }
 
+let importLock: Promise<void> = Promise.resolve()
+
+/** Test-only: drop a hung lock so browser-mode cases start independent. */
+export function __resetProjectTransferForTests(): void {
+  importLock = Promise.resolve()
+}
+
+async function withImportLock<T>(run: () => Promise<T>): Promise<T> {
+  const previous = importLock
+  let release!: () => void
+  importLock = new Promise<void>((resolve) => {
+    release = resolve
+  })
+  await previous
+  try {
+    return await run()
+  } finally {
+    release()
+  }
+}
+
 function assertImportableClip(clip: ParsedBackup['clips'][number]): void {
   const finite =
     Number.isFinite(clip.durationMs) &&
@@ -324,6 +345,13 @@ export async function importKodyVideoBackupFile(
 
 /** Create a fresh project (new ids) from a parsed backup. */
 export async function importProjectBackup(
+  parsed: ParsedBackup,
+  onProgress?: (doneClips: number, totalClips: number) => void,
+): Promise<Project> {
+  return withImportLock(() => persistImportedProject(parsed, onProgress))
+}
+
+async function persistImportedProject(
   parsed: ParsedBackup,
   onProgress?: (doneClips: number, totalClips: number) => void,
 ): Promise<Project> {
