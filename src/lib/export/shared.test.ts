@@ -196,6 +196,8 @@ describe('waitForPreviewCanvas / resolveEncodeCanvas', () => {
     expect(resolved.canvas).toBe(preview)
     expect(resolved.canvas.isConnected).toBe(true)
     resolved.release()
+    // Caller-owned preview must survive release (only attached-fallback hosts detach).
+    expect(preview.isConnected).toBe(true)
     preview.remove()
   })
 

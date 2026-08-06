@@ -368,12 +368,13 @@ export interface ResolvedEncodeCanvas {
   release: () => void
 }
 
-/** Tiny on-DOM host: WebKit needs isConnected; CSS size is irrelevant. */
+/** Tiny on-DOM host: WebKit needs isConnected; keep it in the paint path
+ * (off-screen 1×1) — opacity:0 / display:none can skip captureStream frames. */
 function createAttachedEncodeCanvas(): HTMLCanvasElement {
   const canvas = document.createElement('canvas')
   canvas.setAttribute('aria-hidden', 'true')
   canvas.style.cssText =
-    'position:fixed;left:0;top:0;width:1px;height:1px;opacity:0;pointer-events:none;'
+    'position:fixed;left:-9999px;top:0;width:1px;height:1px;pointer-events:none;'
   document.body.appendChild(canvas)
   return canvas
 }
