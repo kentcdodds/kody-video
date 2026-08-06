@@ -101,7 +101,7 @@ export function kodyVideoBackupFilesFromList(
   files: Iterable<File> | ArrayLike<File> | null | undefined,
 ): File[] {
   if (!files) return []
-  return [...files].filter(isKodyVideoBackupFile)
+  return Array.from(files).filter(isKodyVideoBackupFile)
 }
 
 /** True when a drag payload may contain OS files (names are hidden until drop). */
