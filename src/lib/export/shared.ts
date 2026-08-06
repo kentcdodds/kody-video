@@ -389,13 +389,18 @@ function audioBufferPeak(buffer: AudioBuffer): number {
   return peak
 }
 
+/** Cap mime diagnostics — blob.type is caller-controlled (publishable DSN). */
+export function boundedAudioMimeType(mimeType: string): string {
+  return mimeType.trim().slice(0, 120) || 'unknown-mime'
+}
+
 /**
  * Short, non-PII detail for remote triage when clip audio decode throws.
  * The catch used to swallow the underlying error entirely (KODY-VIDEO-P),
  * which left Seer guessing at a retired media-element path.
  */
 export function audioDecodeFailureDetail(error: unknown, mimeType: string): string {
-  const mime = mimeType.trim() || 'unknown-mime'
+  const mime = boundedAudioMimeType(mimeType)
   if (error instanceof Error) {
     const name = error.name && error.name !== 'Error' ? error.name : ''
     const message = error.message.trim().slice(0, 120)
@@ -404,6 +409,11 @@ export function audioDecodeFailureDetail(error: unknown, mimeType: string): stri
   }
   const text = String(error).trim().slice(0, 120)
   return text ? ` (${mime}; ${text})` : ` (${mime})`
+}
+
+/** Permanent demux/lifecycle failures — retrying only burns ~3.7s per clip. */
+function isNonRetryableAudioDecodeError(error: unknown): boolean {
+  return error instanceof UnsupportedInputFormatError || error instanceof InputDisposedError
 }
 
 /**
@@ -417,10 +427,6 @@ export function audioDecodeFailureDetail(error: unknown, mimeType: string): stri
  * WebCodecs AudioDecoder reject a blob that decodes on the next attempt —
  * without retries every failed decode becomes a silent export.
  */
-/** Permanent demux/lifecycle failures — retrying only burns ~3.7s per clip. */
-function isNonRetryableAudioDecodeError(error: unknown): boolean {
-  return error instanceof UnsupportedInputFormatError || error instanceof InputDisposedError
-}
 
 export async function decodeBlobAudio(blob: Blob, sampleRate: number): Promise<AudioBuffer | null> {
   let lastError: unknown
@@ -522,29 +528,31 @@ export async function decodeClipAudio(
   sampleRate = 48000,
 ): Promise<AudioBuffer | null> {
   try {
+    const mimeType = boundedAudioMimeType(blob.type)
     const decoded = await decodeBlobAudio(blob, sampleRate)
     if (decoded) {
       audioObservations.push({
         path: 'decoded',
         peak: audioBufferPeak(decoded),
-        mimeType: blob.type,
+        mimeType,
       })
       return decoded
     }
-    audioObservations.push({ path: 'none', peak: 0, mimeType: blob.type })
+    audioObservations.push({ path: 'none', peak: 0, mimeType })
     return null
   } catch (error) {
-    audioObservations.push({ path: 'failed', peak: 0, mimeType: blob.type })
+    const mimeType = boundedAudioMimeType(blob.type)
+    audioObservations.push({ path: 'failed', peak: 0, mimeType })
     if (!audioDecodeFailureReported) {
       audioDecodeFailureReported = true
       reportError(
         new Error(
-          `Clip audio decode failed — export audio will be silent${audioDecodeFailureDetail(error, blob.type)}`,
+          `Clip audio decode failed — export audio will be silent${audioDecodeFailureDetail(error, mimeType)}`,
           { cause: error },
         ),
         'export-audio',
         {
-          mimeType: blob.type,
+          mimeType,
           cause: error instanceof Error ? `${error.name}: ${error.message}`.slice(0, 200) : String(error).slice(0, 200),
         },
       )

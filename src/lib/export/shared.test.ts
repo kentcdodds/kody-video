@@ -4,6 +4,7 @@ import {
   AUDIO_SILENCE_PEAK,
   audioDecodeFailureDetail,
   blobForPlayback,
+  boundedAudioMimeType,
   classifyOutputAudioPeak,
   decodeBlobAudio,
   decodeClipAudio,
@@ -72,6 +73,15 @@ describe('audioDecodeFailureDetail', () => {
   it('falls back when mime or message is empty', () => {
     expect(audioDecodeFailureDetail(new Error(''), '')).toBe(' (unknown-mime; unknown)')
     expect(audioDecodeFailureDetail('boom', 'audio/wav')).toBe(' (audio/wav; boom)')
+  })
+
+  it('caps oversized mime strings in both helper surfaces', () => {
+    const huge = `video/${'a'.repeat(500)}`
+    expect(boundedAudioMimeType(huge).length).toBe(120)
+    const detail = audioDecodeFailureDetail(new Error('nope'), huge)
+    expect(detail.length).toBeLessThan(280)
+    expect(detail).toContain(boundedAudioMimeType(huge))
+    expect(detail).not.toContain('a'.repeat(200))
   })
 })
 
