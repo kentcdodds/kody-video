@@ -251,6 +251,12 @@ export function ProjectPage(handle: Handle<ProjectPageProps>) {
 
     void (async () => {
       try {
+        // Flush the exporting UI so ExportOverlay's canvas is connected before
+        // engines poll for it. A fire-and-forget update raced the wait on
+        // slow iOS and fell back to a detached (black) canvas (KODY-VIDEO-Q).
+        await handle.update()
+        if (exportRun !== runId) return
+
         // Unchanged project + a persisted last export = instant "ready":
         // missing the share sheet must never cost a re-encode. Retry
         // bypasses this (force) and always renders fresh.

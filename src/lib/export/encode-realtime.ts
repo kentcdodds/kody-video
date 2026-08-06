@@ -1,4 +1,5 @@
 import { pickRecorderMimeType } from '../media'
+import { isIosBrowser } from '../platform'
 import { clipMusicVolume, clipSoundVolume, resolveAudioTrackPlayback } from '../types'
 import {
   FADE_IN_MS,
@@ -17,12 +18,13 @@ import {
   drawCover,
   drawWatermark,
   loadClipVideo,
+  noteEncodeCanvasKind,
   pickOutputSize,
   recordVideoLumaSample,
+  resolveEncodeCanvas,
   seekTo,
   tagExportError,
   wait,
-  waitForPreviewCanvas,
   type ExportResult,
 } from './shared'
 
@@ -67,25 +69,30 @@ export async function exportRealtime(
     }
   }
 
-  // Encode from the overlay's on-DOM canvas whenever possible: iOS Safari's
+  // Encode from an on-DOM canvas whenever possible: iOS Safari's
   // canvas.captureStream() delivers BLACK frames for canvases that aren't
-  // attached to the document (the preview looked fine — it was a different,
-  // visible canvas — while the detached encode canvas produced a black
-  // export). Rendering into the visible canvas fixes that and makes the
-  // preview show every frame. The overlay mounts a tick after the export
-  // starts, so wait briefly for it before falling back.
-  let canvas = await waitForPreviewCanvas(options.getPreviewCanvas)
-  const encodingIntoPreview = canvas !== null
-  if (!canvas) {
-    canvas = document.createElement('canvas')
-  }
+  // attached to the document (KODY-VIDEO-Q). Prefer the overlay preview; if
+  // it isn't mounted in time on iOS, attach a tiny host rather than a
+  // detached element. Chromium is fine with a detached fallback.
+  const ios = isIosBrowser()
+  const encodeCanvas = await resolveEncodeCanvas({
+    getPreviewCanvas: options.getPreviewCanvas,
+    preferPreview: true,
+    requireAttached: ios,
+  })
+  noteEncodeCanvasKind(encodeCanvas.kind)
+  const { canvas, encodingIntoPreview } = encodeCanvas
   canvas.width = width
   canvas.height = height
   const ctx = canvas.getContext('2d', { alpha: false })
-  if (!ctx) throw new Error('Canvas not available')
+  if (!ctx) {
+    encodeCanvas.release()
+    throw new Error('Canvas not available')
+  }
   ctx.fillStyle = '#000'
   ctx.fillRect(0, 0, width, height)
 
+  try {
   const canvasStream = canvas.captureStream(30)
   if (canvasStream.getVideoTracks().length === 0) {
     throw new Error('This browser cannot capture canvas video for export')
@@ -373,6 +380,9 @@ export async function exportRealtime(
     blob,
     mimeType: blob.type || 'video/webm',
     fileExtension: isMp4 ? 'mp4' : 'webm',
+  }
+  } finally {
+    encodeCanvas.release()
   }
 }
 

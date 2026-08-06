@@ -10,6 +10,8 @@ import {
   decodeBlobAudio,
   decodeClipAudio,
   resetAudioDiagnostics,
+  resolveEncodeCanvas,
+  waitForPreviewCanvas,
 } from './shared'
 
 describe('classifyOutputAudioPeak', () => {
