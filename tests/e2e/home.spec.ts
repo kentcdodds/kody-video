@@ -22,11 +22,17 @@ test.describe('home & app shell', () => {
     const card = page.locator('.tour-card')
     await expect(card).toBeVisible()
 
-    // Teaser swaps to an inline player that streams from media.kody.video.
+    // Teaser opens a top-layer <dialog> playing from media.kody.video —
+    // the page layout underneath must not reflow while it plays.
+    const slots = page.locator('.project-slots')
+    await expect(slots).toBeVisible()
+    const slotsBox = await slots.boundingBox()
+    expect(slotsBox).not.toBeNull()
     const teaser = card.getByRole('button', { name: /watch the tour/i })
     await teaser.click()
-    const video = card.locator('video.tour-card-video')
-    await expect(video).toBeVisible()
+    const dialog = page.locator('dialog.tour-dialog')
+    await expect(dialog).toBeVisible()
+    const video = dialog.locator('video.tour-dialog-video')
     await expect(video).toHaveAttribute('src', /^https:\/\/media\.kody\.video\//)
     // The tap itself must start playback (in-gesture play() is what mobile
     // autoplay policies require) — rendered state alone can't prove that.
@@ -35,7 +41,15 @@ test.describe('home & app shell', () => {
     await expect
       .poll(() => video.evaluate((el: HTMLVideoElement) => el.currentTime), { timeout: 20_000 })
       .toBeGreaterThan(0)
-    await expect(teaser).toBeHidden()
+    expect(await slots.boundingBox()).toEqual(slotsBox)
+
+    // Esc closes the dialog and stops the audio.
+    await page.keyboard.press('Escape')
+    await expect(dialog).toBeHidden()
+    await expect
+      .poll(() => video.evaluate((el: HTMLVideoElement) => el.paused))
+      .toBe(true)
+    await expect(teaser).toBeVisible()
 
     // Dismissal persists across SPA navigation (cached home data) …
     await card.getByRole('button', { name: 'Dismiss tour' }).click()
