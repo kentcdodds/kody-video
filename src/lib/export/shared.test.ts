@@ -166,3 +166,61 @@ describe('decodeClipAudio', () => {
     expect(__isAudioDecodeFailureReportArmedForTests()).toBe(true)
   })
 })
+
+describe('waitForPreviewCanvas / resolveEncodeCanvas', () => {
+  it('returns a connected preview canvas once it mounts', async () => {
+    let preview: HTMLCanvasElement | null = null
+    const pending = waitForPreviewCanvas(() => preview, 500)
+    const canvas = document.createElement('canvas')
+    document.body.appendChild(canvas)
+    preview = canvas
+    await expect(pending).resolves.toBe(canvas)
+    canvas.remove()
+  })
+
+  it('times out when the preview never connects', async () => {
+    await expect(waitForPreviewCanvas(() => null, 80)).resolves.toBeNull()
+  })
+
+  it('prefers the connected preview canvas', async () => {
+    const preview = document.createElement('canvas')
+    document.body.appendChild(preview)
+    const resolved = await resolveEncodeCanvas({
+      getPreviewCanvas: () => preview,
+      preferPreview: true,
+      requireAttached: true,
+      previewTimeoutMs: 200,
+    })
+    expect(resolved.kind).toBe('preview')
+    expect(resolved.encodingIntoPreview).toBe(true)
+    expect(resolved.canvas).toBe(preview)
+    expect(resolved.canvas.isConnected).toBe(true)
+    resolved.release()
+    preview.remove()
+  })
+
+  it('attaches an on-DOM host when requireAttached and preview is missing', async () => {
+    const resolved = await resolveEncodeCanvas({
+      getPreviewCanvas: () => null,
+      preferPreview: true,
+      requireAttached: true,
+      previewTimeoutMs: 80,
+    })
+    expect(resolved.kind).toBe('attached-fallback')
+    expect(resolved.encodingIntoPreview).toBe(false)
+    expect(resolved.canvas.isConnected).toBe(true)
+    expect(document.body.contains(resolved.canvas)).toBe(true)
+    resolved.release()
+    expect(resolved.canvas.isConnected).toBe(false)
+  })
+
+  it('returns a detached canvas when attachment is not required', async () => {
+    const resolved = await resolveEncodeCanvas({
+      preferPreview: false,
+      requireAttached: false,
+    })
+    expect(resolved.kind).toBe('detached')
+    expect(resolved.canvas.isConnected).toBe(false)
+    resolved.release()
+  })
+})
