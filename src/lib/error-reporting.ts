@@ -165,6 +165,31 @@ export function isChunkLoadErrorEvent(event: FilterableSentryEvent): boolean {
   return typeof event.message === 'string' && CHUNK_LOAD_ERROR.test(event.message)
 }
 
+
+/**
+ * WebKit modern-media-controls bug: MediaController.NullMedia.buffered /
+ * played / seekable return an unqualified `EmptyRanges` (should be
+ * MediaController.EmptyRanges). Surfaces as an unhandled ReferenceError with
+ * a non-app stack (`filename: "undefined"`) when the media weak ref is
+ * collected — Safari/iOS only, not in Kody Video (KODY-VIDEO-N).
+ * Fixed upstream: https://bugs.webkit.org/show_bug.cgi?id=318284
+ */
+const WEBKIT_EMPTY_RANGES_REF =
+  /Can't find variable: EmptyRanges|EmptyRanges is not defined/
+
+export function isWebKitEmptyRangesNoiseEvent(
+  event: FilterableSentryEvent,
+): boolean {
+  const exceptionValues = event.exception?.values ?? []
+  for (const value of exceptionValues) {
+    if (WEBKIT_EMPTY_RANGES_REF.test(value.value ?? '')) return true
+  }
+  return (
+    typeof event.message === 'string' &&
+    WEBKIT_EMPTY_RANGES_REF.test(event.message)
+  )
+}
+
 /**
  * Chrome / Chromium Google Translate (and Safari Translate) reparent text
  * nodes so the framework's next removeChild/insertBefore throws NotFoundError.
@@ -351,6 +376,7 @@ function loadSentry(): Promise<SentryLike> | null {
         if (isBrowserExtensionHostObjectNoiseEvent(event)) return null
         if (isViteCssPreloadError(event)) return null
         if (isChunkLoadErrorEvent(event)) return null
+        if (isWebKitEmptyRangesNoiseEvent(event)) return null
         if (isTranslatorDomMutationNoiseEvent(event)) return null
         return event
       },

@@ -9,6 +9,7 @@ import {
   isReportingHostname,
   isTranslatorDomMutationNoiseEvent,
   isViteCssPreloadError,
+  isWebKitEmptyRangesNoiseEvent,
   reportComponentError,
   reportError,
 } from './error-reporting'
@@ -390,6 +391,64 @@ describe('isChunkLoadErrorEvent', () => {
       isChunkLoadErrorEvent({
         exception: {
           values: [{ type: 'Error', value: 'Export failed: encoder closed' }],
+        },
+      }),
+    ).toBe(false)
+  })
+})
+
+describe('isWebKitEmptyRangesNoiseEvent', () => {
+  it('drops Safari EmptyRanges ReferenceError from media controls (KODY-VIDEO-N)', () => {
+    expect(
+      isWebKitEmptyRangesNoiseEvent({
+        exception: {
+          values: [
+            {
+              type: 'ReferenceError',
+              value: "Can't find variable: EmptyRanges",
+              stacktrace: {
+                frames: [{ filename: 'undefined' }],
+              },
+            },
+          ],
+        },
+      }),
+    ).toBe(true)
+  })
+
+  it('drops the V8 wording of the same missing binding', () => {
+    expect(
+      isWebKitEmptyRangesNoiseEvent({
+        exception: {
+          values: [
+            {
+              type: 'ReferenceError',
+              value: 'EmptyRanges is not defined',
+            },
+          ],
+        },
+      }),
+    ).toBe(true)
+  })
+
+  it('drops when the signature appears only in message', () => {
+    expect(
+      isWebKitEmptyRangesNoiseEvent({
+        message: "Can't find variable: EmptyRanges",
+      }),
+    ).toBe(true)
+  })
+
+  it('keeps ordinary application ReferenceErrors', () => {
+    expect(
+      isWebKitEmptyRangesNoiseEvent({
+        exception: {
+          values: [
+            {
+              type: 'ReferenceError',
+              value: "Can't find variable: importProgress",
+            },
+          ],
         },
       }),
     ).toBe(false)
