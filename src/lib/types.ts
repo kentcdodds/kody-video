@@ -183,7 +183,7 @@ export interface AppMeta {
   onboardingDismissed: boolean
   /** Home-page "Watch the tour" card dismissed (first-timer teaser). */
   tourCardDismissed?: boolean
-  /** One-time "Remove Watermark" purchase (verified via Stripe). */
+  /** One-time Kody Video Plus purchase (verified via Stripe). */
   watermarkRemoved?: boolean
   purchaseSessionId?: string | null
   /**

@@ -9,7 +9,7 @@ interface RestoreSheetProps {
 }
 
 /**
- * Restore the "Remove Watermark" purchase on a new device: paste the link
+ * Restore the Kody Video Plus purchase on a new device: paste the link
  * from the Stripe receipt email (or the checkout session id) and re-verify.
  */
 export function RestoreSheet(handle: Handle<RestoreSheetProps>) {
