@@ -32,6 +32,8 @@ const CLOUDFLARE_INSIGHTS_BEACON_URL_MARKER =
 type FilterableStackFrame = {
   filename?: string
   abs_path?: string
+  function?: string
+  in_app?: boolean
 }
 
 type FilterableSentryEvent = {
@@ -43,6 +45,7 @@ type FilterableSentryEvent = {
     }>
   }
   message?: string
+  tags?: Record<string, unknown>
 }
 
 type SentryLike = {
@@ -160,6 +163,84 @@ export function isChunkLoadErrorEvent(event: FilterableSentryEvent): boolean {
     if (CHUNK_LOAD_ERROR.test(value.value ?? '')) return true
   }
   return typeof event.message === 'string' && CHUNK_LOAD_ERROR.test(event.message)
+}
+
+/**
+ * Chrome / Chromium Google Translate (and Safari Translate) reparent text
+ * nodes so the framework's next removeChild/insertBefore throws NotFoundError.
+ * Safari uses the short DOMException message; Chromium names the method.
+ * Same class as KCD-S5 / KCD-XQ / KCD-ZE on kentcdodds.com (KODY-VIDEO-D).
+ *
+ * Remix 3 is not React — do not require a react-dom frame. Keep events that
+ * have in-app frames or a `step` tag (intentional reportError captures such
+ * as WebKit AudioDecoder NotFoundError during export).
+ */
+const TRANSLATOR_DOM_MUTATION_MESSAGE =
+  /Failed to execute '(?:removeChild|insertBefore)' on 'Node': The node (?:to be removed|before which the new node is to be inserted) is not a child of this node\.|The object can not be found here\./i
+
+const DOM_MUTATION_STACK = /removeChild|insertBefore|commitDeletion|commitMutation/i
+
+function eventExceptionMessages(event: FilterableSentryEvent): string[] {
+  const messages = (event.exception?.values ?? [])
+    .map((value) => value.value ?? '')
+    .filter(Boolean)
+  if (typeof event.message === 'string' && event.message) {
+    messages.push(event.message)
+  }
+  return messages
+}
+
+function exceptionFrames(event: FilterableSentryEvent): FilterableStackFrame[] {
+  return (event.exception?.values ?? []).flatMap(
+    (value) => value.stacktrace?.frames ?? [],
+  )
+}
+
+function hasOnlyUnusableStackFrames(event: FilterableSentryEvent): boolean {
+  const frames = exceptionFrames(event)
+  if (frames.length === 0) return true
+  return frames.every((frame) => {
+    const filename = frame.filename ?? frame.abs_path
+    return (
+      filename == null ||
+      filename === '' ||
+      filename === 'undefined' ||
+      filename === 'null'
+    )
+  })
+}
+
+export function isTranslatorDomMutationNoiseEvent(
+  event: FilterableSentryEvent,
+): boolean {
+  // Intentional app captures (export AudioDecoder failover, etc.) keep reporting.
+  if (event.tags?.step != null && event.tags.step !== '') return false
+
+  const exceptionValues = event.exception?.values ?? []
+  const messageMatches = eventExceptionMessages(event).some((message) =>
+    TRANSLATOR_DOM_MUTATION_MESSAGE.test(message),
+  )
+  if (!messageMatches) return false
+
+  const namedNotFound = exceptionValues.some(
+    (value) => value.type === 'NotFoundError' || value.type === 'DOMException',
+  )
+  // Message-only events without a typed exception are too ambiguous.
+  if (!namedNotFound && exceptionValues.length > 0) return false
+  if (exceptionValues.length === 0) return false
+
+  const frames = exceptionFrames(event)
+  if (frames.some((frame) => frame.in_app === true)) return false
+
+  const frameBlob = frames
+    .map((frame) => `${frameUrl(frame)} ${frame.function ?? ''}`)
+    .join('\n')
+  if (DOM_MUTATION_STACK.test(frameBlob)) return true
+
+  // Safari often delivers this DOMException as an unhandledrejection with no
+  // usable stack (KODY-VIDEO-D). Chromium's removeChild wording is distinctive
+  // enough to drop on empty frames too; both still require NotFoundError above.
+  return hasOnlyUnusableStackFrames(event)
 }
 
 /** Marker set while an export runs; still present at boot = the page died
@@ -280,6 +361,7 @@ function loadSentry(): Promise<SentryLike> | null {
         if (isBrowserExtensionHostObjectNoiseEvent(event)) return null
         if (isViteCssPreloadError(event)) return null
         if (isChunkLoadErrorEvent(event)) return null
+        if (isTranslatorDomMutationNoiseEvent(event)) return null
         return event
       },
     })
