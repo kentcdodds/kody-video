@@ -144,6 +144,24 @@ export function isViteCssPreloadError(event: FilterableSentryEvent): boolean {
   )
 }
 
+/**
+ * Dynamic import() of a content-hashed route chunk failed (Chrome/Vite,
+ * webpack, Safari/WebKit). lazy-page already auto-reloads once after
+ * purging SW/cache; these are deploy-race / transient network noise, not
+ * app logic bugs (KODY-VIDEO-S, KODY-VIDEO-G). Keep in sync with
+ * `isChunkLoadError` in lazy-page.tsx.
+ */
+const CHUNK_LOAD_ERROR =
+  /Failed to fetch dynamically imported module|error loading dynamically imported module|Loading chunk [\w-]+ failed|Importing a module script failed/i
+
+export function isChunkLoadErrorEvent(event: FilterableSentryEvent): boolean {
+  const exceptionValues = event.exception?.values ?? []
+  for (const value of exceptionValues) {
+    if (CHUNK_LOAD_ERROR.test(value.value ?? '')) return true
+  }
+  return typeof event.message === 'string' && CHUNK_LOAD_ERROR.test(event.message)
+}
+
 /** Marker set while an export runs; still present at boot = the page died
  * mid-export (tab crash / out-of-memory kill — no JS error ever fires). */
 const EXPORT_MARKER_KEY = 'kodyVideo.exportInFlight'
@@ -261,6 +279,7 @@ function loadSentry(): Promise<SentryLike> | null {
         if (isProjectLimitEvent(event)) return null
         if (isBrowserExtensionHostObjectNoiseEvent(event)) return null
         if (isViteCssPreloadError(event)) return null
+        if (isChunkLoadErrorEvent(event)) return null
         return event
       },
     })
