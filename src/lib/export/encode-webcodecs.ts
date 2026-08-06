@@ -506,6 +506,7 @@ export async function exportWithWebCodecs(
     blob,
     mimeType,
     fileExtension: choice.container,
+    engine: 'webcodecs',
     opfsName: opfs?.name,
     // Metadata injection returns a NEW in-memory blob; when it ran, the
     // on-disk file no longer matches what the user gets.

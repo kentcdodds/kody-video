@@ -681,6 +681,51 @@ a {
   margin: 0;
 }
 
+.export-fallback-notice {
+  margin: 0 0 12px;
+  padding: 10px 12px;
+  text-align: left;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--panel-bg) 88%, var(--accent) 12%);
+}
+
+.export-fallback-notice p {
+  margin: 0 0 6px;
+  font-size: 0.92rem;
+  line-height: 1.4;
+  color: var(--ink);
+}
+
+.export-fallback-hint {
+  margin: 12px 0 0;
+  padding: 12px;
+  text-align: left;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--panel-bg) 88%, var(--accent) 12%);
+}
+
+.export-fallback-hint > p {
+  margin: 0;
+  font-size: 0.92rem;
+  line-height: 1.45;
+}
+
+.export-fallback-hint-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  margin-top: 10px;
+}
+
+.export-fallback-okvideo {
+  margin: 10px 0 0;
+  font-size: 0.85rem;
+  line-height: 1.4;
+}
+
 /* Project preview playback (OK Video: tap edges to skip, middle to stop). */
 .playback-overlay {
   position: absolute;
