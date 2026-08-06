@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import {
   isBrowserExtensionHostObjectNoiseEvent,
+  isChunkLoadErrorEvent,
   isCloudflareInsightsBeaconEvent,
   isExpectedUserError,
   isMonitoringSelfTestEvent,
@@ -330,6 +331,64 @@ describe('isViteCssPreloadError', () => {
           values: [
             { type: 'Error', value: 'Unable to preload image for /assets/hero.webp' },
           ],
+        },
+      }),
+    ).toBe(false)
+  })
+})
+
+describe('isChunkLoadErrorEvent', () => {
+  it('drops Safari / WebKit module script import failures (KODY-VIDEO-S)', () => {
+    expect(
+      isChunkLoadErrorEvent({
+        exception: {
+          values: [
+            {
+              type: 'TypeError',
+              value: 'Importing a module script failed.',
+            },
+          ],
+        },
+      }),
+    ).toBe(true)
+  })
+
+  it('drops Chromium / Vite dynamic import failures (KODY-VIDEO-G)', () => {
+    expect(
+      isChunkLoadErrorEvent({
+        exception: {
+          values: [
+            {
+              type: 'TypeError',
+              value:
+                'Failed to fetch dynamically imported module: https://kody.video/assets/project-page-ZRp-szjZ.js',
+            },
+          ],
+        },
+      }),
+    ).toBe(true)
+  })
+
+  it('drops webpack-style and alternate dynamic-import wording', () => {
+    expect(
+      isChunkLoadErrorEvent({
+        exception: {
+          values: [{ type: 'Error', value: 'Loading chunk 5 failed' }],
+        },
+      }),
+    ).toBe(true)
+    expect(
+      isChunkLoadErrorEvent({
+        message: 'error loading dynamically imported module',
+      }),
+    ).toBe(true)
+  })
+
+  it('keeps ordinary application errors', () => {
+    expect(
+      isChunkLoadErrorEvent({
+        exception: {
+          values: [{ type: 'Error', value: 'Export failed: encoder closed' }],
         },
       }),
     ).toBe(false)
