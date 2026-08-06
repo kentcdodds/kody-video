@@ -24,7 +24,10 @@ test.describe('home & app shell', () => {
 
     // Teaser opens a top-layer <dialog> playing from media.kody.video —
     // the page layout underneath must not reflow while it plays.
-    const slotsBox = await page.locator('.project-slots').boundingBox()
+    const slots = page.locator('.project-slots')
+    await expect(slots).toBeVisible()
+    const slotsBox = await slots.boundingBox()
+    expect(slotsBox).not.toBeNull()
     const teaser = card.getByRole('button', { name: /watch the tour/i })
     await teaser.click()
     const dialog = page.locator('dialog.tour-dialog')
@@ -38,7 +41,7 @@ test.describe('home & app shell', () => {
     await expect
       .poll(() => video.evaluate((el: HTMLVideoElement) => el.currentTime), { timeout: 20_000 })
       .toBeGreaterThan(0)
-    expect(await page.locator('.project-slots').boundingBox()).toEqual(slotsBox)
+    expect(await slots.boundingBox()).toEqual(slotsBox)
 
     // Esc closes the dialog and stops the audio.
     await page.keyboard.press('Escape')
