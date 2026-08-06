@@ -50,7 +50,7 @@ export interface ProjectLoaderData {
   audio: ProjectAudioRecord | null
   canUndo: boolean
   onboardingDismissed: boolean
-  /** True when the one-time "Remove Watermark" purchase is unlocked. */
+  /** True when the one-time Kody Video Plus purchase is unlocked. */
   watermarkRemoved: boolean
   /**
    * Plus opt-in: keep the Kody mark on exports after purchase (default off).

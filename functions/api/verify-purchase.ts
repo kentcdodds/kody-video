@@ -1,6 +1,6 @@
 /**
  * Cloudflare Pages Function: verify a Stripe Checkout session for the
- * "Remove Watermark" purchase. The only backend surface in the app — it
+ * Kody Video Plus purchase. The only backend surface in the app — it
  * never stores anything and never sees media; it just asks Stripe whether
  * the session really completed (including 100%-off promo checkouts).
  *

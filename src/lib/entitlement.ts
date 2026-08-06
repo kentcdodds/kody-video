@@ -1,7 +1,7 @@
 import { getDb, getSettings } from './storage'
 import type { AppMeta } from './types'
 
-/** Stripe Payment Link for the one-time "Remove Watermark" unlock ($0.99). */
+/** Stripe Payment Link for the one-time Kody Video Plus unlock ($0.99). */
 export const REMOVE_WATERMARK_LINK = 'https://buy.stripe.com/00wfZi71ibU30rk9hU2Ry07'
 
 const SESSION_ID_PATTERN = /cs_(?:live|test)_[a-zA-Z0-9]+/
