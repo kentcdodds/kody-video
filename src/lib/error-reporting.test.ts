@@ -531,4 +531,49 @@ describe('isTranslatorDomMutationNoiseEvent', () => {
       }),
     ).toBe(false)
   })
+
+  it('does not pair type and message across chained exception values', () => {
+    expect(
+      isTranslatorDomMutationNoiseEvent({
+        exception: {
+          values: [
+            {
+              type: 'NotFoundError',
+              value: 'Requested device not found',
+            },
+            {
+              type: 'Error',
+              value:
+                "Failed to execute 'removeChild' on 'Node': The node to be removed is not a child of this node.",
+            },
+          ],
+        },
+      }),
+    ).toBe(false)
+  })
+
+  it('treats empty filename with real abs_path as a usable frame', () => {
+    expect(
+      isTranslatorDomMutationNoiseEvent({
+        exception: {
+          values: [
+            {
+              type: 'NotFoundError',
+              value: 'The object can not be found here.',
+              stacktrace: {
+                frames: [
+                  {
+                    filename: '',
+                    abs_path: 'https://kody.video/assets/index-abc123.js',
+                    function: 'trimClip',
+                    in_app: false,
+                  },
+                ],
+              },
+            },
+          ],
+        },
+      }),
+    ).toBe(false)
+  })
 })

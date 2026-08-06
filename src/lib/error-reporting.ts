@@ -180,14 +180,8 @@ const TRANSLATOR_DOM_MUTATION_MESSAGE =
 
 const DOM_MUTATION_STACK = /removeChild|insertBefore|commitDeletion|commitMutation/i
 
-function eventExceptionMessages(event: FilterableSentryEvent): string[] {
-  const messages = (event.exception?.values ?? [])
-    .map((value) => value.value ?? '')
-    .filter(Boolean)
-  if (typeof event.message === 'string' && event.message) {
-    messages.push(event.message)
-  }
-  return messages
+function isUnusableFramePath(path: string): boolean {
+  return path === '' || path === 'undefined' || path === 'null'
 }
 
 function exceptionFrames(event: FilterableSentryEvent): FilterableStackFrame[] {
@@ -199,15 +193,18 @@ function exceptionFrames(event: FilterableSentryEvent): FilterableStackFrame[] {
 function hasOnlyUnusableStackFrames(event: FilterableSentryEvent): boolean {
   const frames = exceptionFrames(event)
   if (frames.length === 0) return true
-  return frames.every((frame) => {
-    const filename = frame.filename ?? frame.abs_path
-    return (
-      filename == null ||
-      filename === '' ||
-      filename === 'undefined' ||
-      filename === 'null'
-    )
-  })
+  // Prefer frameUrl so empty filename still falls through to abs_path.
+  return frames.every((frame) => isUnusableFramePath(frameUrl(frame)))
+}
+
+function isTranslatorTypedMessage(
+  value: NonNullable<
+    NonNullable<FilterableSentryEvent['exception']>['values']
+  >[number],
+): boolean {
+  const typed =
+    value.type === 'NotFoundError' || value.type === 'DOMException'
+  return typed && TRANSLATOR_DOM_MUTATION_MESSAGE.test(value.value ?? '')
 }
 
 export function isTranslatorDomMutationNoiseEvent(
@@ -217,17 +214,9 @@ export function isTranslatorDomMutationNoiseEvent(
   if (event.tags?.step != null && event.tags.step !== '') return false
 
   const exceptionValues = event.exception?.values ?? []
-  const messageMatches = eventExceptionMessages(event).some((message) =>
-    TRANSLATOR_DOM_MUTATION_MESSAGE.test(message),
-  )
-  if (!messageMatches) return false
-
-  const namedNotFound = exceptionValues.some(
-    (value) => value.type === 'NotFoundError' || value.type === 'DOMException',
-  )
-  // Message-only events without a typed exception are too ambiguous.
-  if (!namedNotFound && exceptionValues.length > 0) return false
-  if (exceptionValues.length === 0) return false
+  // Type + translator message must land on the same exception value so a
+  // chained capture cannot pair an unrelated NotFoundError with a DOM message.
+  if (!exceptionValues.some(isTranslatorTypedMessage)) return false
 
   const frames = exceptionFrames(event)
   if (frames.some((frame) => frame.in_app === true)) return false
