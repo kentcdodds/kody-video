@@ -2,8 +2,12 @@ import { describe, expect, it } from 'vitest'
 import {
   AUDIO_PEAK_RETENTION_RATIO,
   AUDIO_SILENCE_PEAK,
+  audioDecodeFailureDetail,
   blobForPlayback,
   classifyOutputAudioPeak,
+  decodeBlobAudio,
+  decodeClipAudio,
+  resetAudioDiagnostics,
 } from './shared'
 
 describe('classifyOutputAudioPeak', () => {
@@ -55,5 +59,74 @@ describe('blobForPlayback', () => {
     const mistyped = new Blob(['clip'], { type: 'video/webm' })
     const fixed = blobForPlayback(mistyped, 'video/mp4')
     expect(fixed.type).toBe('video/mp4')
+  })
+})
+
+describe('audioDecodeFailureDetail', () => {
+  it('includes mime and typed error identity for triage', () => {
+    expect(audioDecodeFailureDetail(new DOMException('bad codec', 'EncodingError'), 'video/mp4')).toBe(
+      ' (video/mp4; EncodingError: bad codec)',
+    )
+  })
+
+  it('falls back when mime or message is empty', () => {
+    expect(audioDecodeFailureDetail(new Error(''), '')).toBe(' (unknown-mime; unknown)')
+    expect(audioDecodeFailureDetail('boom', 'audio/wav')).toBe(' (audio/wav; boom)')
+  })
+})
+
+/** Tiny mono 16-bit PCM WAV used to exercise the mediabunny decode path. */
+function makeWavBlob(amplitude = 0.5, durationSec = 0.25, freq = 440): Blob {
+  const rate = 8000
+  const samples = Math.round(durationSec * rate)
+  const bytes = new DataView(new ArrayBuffer(44 + samples * 2))
+  const writeAscii = (offset: number, text: string) => {
+    for (let i = 0; i < text.length; i += 1) bytes.setUint8(offset + i, text.charCodeAt(i))
+  }
+  writeAscii(0, 'RIFF')
+  bytes.setUint32(4, 36 + samples * 2, true)
+  writeAscii(8, 'WAVE')
+  writeAscii(12, 'fmt ')
+  bytes.setUint32(16, 16, true)
+  bytes.setUint16(20, 1, true)
+  bytes.setUint16(22, 1, true)
+  bytes.setUint32(24, rate, true)
+  bytes.setUint32(28, rate * 2, true)
+  bytes.setUint16(32, 2, true)
+  bytes.setUint16(34, 16, true)
+  writeAscii(36, 'data')
+  bytes.setUint32(40, samples * 2, true)
+  for (let i = 0; i < samples; i += 1) {
+    bytes.setInt16(
+      44 + i * 2,
+      Math.round(Math.sin((2 * Math.PI * freq * i) / rate) * amplitude * 32767),
+      true,
+    )
+  }
+  return new Blob([bytes.buffer], { type: 'audio/wav' })
+}
+
+describe('decodeBlobAudio', () => {
+  it('decodes WAV and disposes the Input without leaking the track', async () => {
+    const decoded = await decodeBlobAudio(makeWavBlob(), 48000)
+    expect(decoded).not.toBeNull()
+    expect(decoded!.sampleRate).toBe(48000)
+    expect(decoded!.duration).toBeGreaterThan(0.2)
+    // A second decode of the same bytes must still work after dispose().
+    const again = await decodeBlobAudio(makeWavBlob(), 48000)
+    expect(again).not.toBeNull()
+  })
+
+  it('returns null for blobs with no decodable audio track', async () => {
+    expect(await decodeBlobAudio(new Blob(['not media'], { type: 'video/webm' }), 48000)).toBeNull()
+  })
+})
+
+describe('decodeClipAudio', () => {
+  it('records a decoded observation for audible clips', async () => {
+    resetAudioDiagnostics()
+    const decoded = await decodeClipAudio(makeWavBlob(), 48000)
+    expect(decoded).not.toBeNull()
+    expect(decoded!.getChannelData(0).some((s) => Math.abs(s) > 0.1)).toBe(true)
   })
 })

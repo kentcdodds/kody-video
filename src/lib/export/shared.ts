@@ -248,6 +248,7 @@ let audioObservations: ClipAudioObservation[] = []
 
 export function resetAudioDiagnostics(): void {
   audioObservations = []
+  audioDecodeFailureReported = false
 }
 
 /** Near-silence floor shared by the input and output audio diagnostics. */
@@ -382,61 +383,105 @@ function audioBufferPeak(buffer: AudioBuffer): number {
 }
 
 /**
+ * Short, non-PII detail for remote triage when clip audio decode throws.
+ * The catch used to swallow the underlying error entirely (KODY-VIDEO-P),
+ * which left Seer guessing at a retired media-element path.
+ */
+export function audioDecodeFailureDetail(error: unknown, mimeType: string): string {
+  const mime = mimeType.trim() || 'unknown-mime'
+  if (error instanceof Error) {
+    const name = error.name && error.name !== 'Error' ? error.name : ''
+    const message = error.message.trim().slice(0, 120)
+    const cause = name && message ? `${name}: ${message}` : name || message || 'unknown'
+    return ` (${mime}; ${cause})`
+  }
+  const text = String(error).trim().slice(0, 120)
+  return text ? ` (${mime}; ${text})` : ` (${mime})`
+}
+
+/**
  * Decode a blob's audio track into one AudioBuffer at the requested sample
  * rate. Mediabunny demuxes and decodes (fragmented MP4, WebM/Opus, rotation
  * of containers — all one path); the result is resampled when the source
  * rate differs. Returns null when there is no decodable audio.
+ *
+ * Retries on throw: iOS WebKit has a small pool of hardware decoder slots
+ * (same race `loadClipVideo` already backs off for). A busy slot can make
+ * WebCodecs AudioDecoder reject a blob that decodes on the next attempt —
+ * without retries every failed decode becomes a silent export.
  */
 export async function decodeBlobAudio(blob: Blob, sampleRate: number): Promise<AudioBuffer | null> {
-  const input = new Input({ source: new BlobSource(blob), formats: ALL_FORMATS })
-  const track = await input.getPrimaryAudioTrack()
-  if (!track || !(await track.canDecode())) return null
-
-  const sink = new AudioBufferSink(track)
-  const pieces: Array<{ buffer: AudioBuffer; timestamp: number }> = []
-  let sourceRate = 0
-  let channels = 1
-  let endSec = 0
-  for await (const wrapped of sink.buffers()) {
-    pieces.push({ buffer: wrapped.buffer, timestamp: wrapped.timestamp })
-    sourceRate = wrapped.buffer.sampleRate
-    channels = Math.max(channels, wrapped.buffer.numberOfChannels)
-    endSec = Math.max(endSec, wrapped.timestamp + wrapped.duration)
-  }
-  if (pieces.length === 0 || sourceRate <= 0 || endSec <= 0) return null
-
-  const merged = new AudioBuffer({
-    length: Math.max(1, Math.ceil(endSec * sourceRate)),
-    sampleRate: sourceRate,
-    numberOfChannels: channels,
-  })
-  // Contiguous placement: rounding each piece's timestamp independently can
-  // drift ±1 sample against its neighbor, leaving one-sample overlaps/gaps
-  // (audible as faint crackle). Snap to the running end when they agree.
-  let runningOffset = 0
-  for (const piece of pieces) {
-    const computed = Math.round(piece.timestamp * sourceRate)
-    const offset = Math.abs(computed - runningOffset) <= 2 ? runningOffset : computed
-    for (let ch = 0; ch < channels; ch += 1) {
-      const sourceChannel = Math.min(ch, piece.buffer.numberOfChannels - 1)
-      const data = piece.buffer.getChannelData(sourceChannel)
-      const available = merged.length - offset
-      if (available <= 0) continue
-      merged.copyToChannel(available < data.length ? data.subarray(0, available) : data, ch, offset)
+  let lastError: unknown
+  for (let attempt = 0; attempt <= MEDIA_LOAD_RETRY_DELAYS_MS.length; attempt += 1) {
+    try {
+      return await decodeBlobAudioOnce(blob, sampleRate)
+    } catch (error) {
+      lastError = error
+      const delay = MEDIA_LOAD_RETRY_DELAYS_MS[attempt]
+      if (delay === undefined) break
+      await wait(delay)
     }
-    // Clamp to capacity: an offset past the end must not inflate the
-    // running position and pull later in-range pieces past it via the snap.
-    runningOffset = Math.min(offset + piece.buffer.length, merged.length)
   }
-  if (sourceRate === sampleRate) return merged
+  throw lastError
+}
 
-  const length = Math.max(1, Math.ceil(merged.duration * sampleRate))
-  const offline = new OfflineAudioContext(channels, length, sampleRate)
-  const source = offline.createBufferSource()
-  source.buffer = merged
-  source.connect(offline.destination)
-  source.start()
-  return offline.startRendering()
+async function decodeBlobAudioOnce(blob: Blob, sampleRate: number): Promise<AudioBuffer | null> {
+  const input = new Input({ source: new BlobSource(blob), formats: ALL_FORMATS })
+  try {
+    const track = await input.getPrimaryAudioTrack()
+    if (!track || !(await track.canDecode())) return null
+
+    const sink = new AudioBufferSink(track)
+    const pieces: Array<{ buffer: AudioBuffer; timestamp: number }> = []
+    let sourceRate = 0
+    let channels = 1
+    let endSec = 0
+    for await (const wrapped of sink.buffers()) {
+      pieces.push({ buffer: wrapped.buffer, timestamp: wrapped.timestamp })
+      sourceRate = wrapped.buffer.sampleRate
+      channels = Math.max(channels, wrapped.buffer.numberOfChannels)
+      endSec = Math.max(endSec, wrapped.timestamp + wrapped.duration)
+    }
+    if (pieces.length === 0 || sourceRate <= 0 || endSec <= 0) return null
+
+    const merged = new AudioBuffer({
+      length: Math.max(1, Math.ceil(endSec * sourceRate)),
+      sampleRate: sourceRate,
+      numberOfChannels: channels,
+    })
+    // Contiguous placement: rounding each piece's timestamp independently can
+    // drift ±1 sample against its neighbor, leaving one-sample overlaps/gaps
+    // (audible as faint crackle). Snap to the running end when they agree.
+    let runningOffset = 0
+    for (const piece of pieces) {
+      const computed = Math.round(piece.timestamp * sourceRate)
+      const offset = Math.abs(computed - runningOffset) <= 2 ? runningOffset : computed
+      for (let ch = 0; ch < channels; ch += 1) {
+        const sourceChannel = Math.min(ch, piece.buffer.numberOfChannels - 1)
+        const data = piece.buffer.getChannelData(sourceChannel)
+        const available = merged.length - offset
+        if (available <= 0) continue
+        merged.copyToChannel(available < data.length ? data.subarray(0, available) : data, ch, offset)
+      }
+      // Clamp to capacity: an offset past the end must not inflate the
+      // running position and pull later in-range pieces past it via the snap.
+      runningOffset = Math.min(offset + piece.buffer.length, merged.length)
+    }
+    if (sourceRate === sampleRate) return merged
+
+    const length = Math.max(1, Math.ceil(merged.duration * sampleRate))
+    const offline = new OfflineAudioContext(channels, length, sampleRate)
+    const source = offline.createBufferSource()
+    source.buffer = merged
+    source.connect(offline.destination)
+    source.start()
+    return offline.startRendering()
+  } finally {
+    // Free demuxer + any WebCodecs AudioDecoder the sink still holds —
+    // iOS in particular runs out of decoder slots when Inputs accumulate
+    // across clip-peak backfill, preview normalize, and export.
+    input.dispose()
+  }
 }
 
 /**
@@ -475,13 +520,21 @@ export async function decodeClipAudio(
     }
     audioObservations.push({ path: 'none', peak: 0, mimeType: blob.type })
     return null
-  } catch {
+  } catch (error) {
     audioObservations.push({ path: 'failed', peak: 0, mimeType: blob.type })
     if (!audioDecodeFailureReported) {
       audioDecodeFailureReported = true
-      reportError(new Error('Clip audio decode failed — export audio will be silent'), 'export-audio', {
-        mimeType: blob.type,
-      })
+      reportError(
+        new Error(
+          `Clip audio decode failed — export audio will be silent${audioDecodeFailureDetail(error, blob.type)}`,
+          { cause: error },
+        ),
+        'export-audio',
+        {
+          mimeType: blob.type,
+          cause: error instanceof Error ? `${error.name}: ${error.message}`.slice(0, 200) : String(error).slice(0, 200),
+        },
+      )
     }
     return null
   }
