@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import {
+  __isAudioDecodeFailureReportArmedForTests,
   AUDIO_PEAK_RETENTION_RATIO,
   AUDIO_SILENCE_PEAK,
   audioDecodeFailureDetail,
@@ -143,5 +144,23 @@ describe('decodeClipAudio', () => {
     const decoded = await decodeClipAudio(makeWavBlob(), 48000)
     expect(decoded).not.toBeNull()
     expect(decoded!.getChannelData(0).some((s) => Math.abs(s) > 0.1)).toBe(true)
+  })
+
+  it('keeps the failure-report gate closed across a fallback-style reset', async () => {
+    resetAudioDiagnostics()
+    expect(__isAudioDecodeFailureReportArmedForTests()).toBe(true)
+    await decodeClipAudio(new Blob(['not media'], { type: 'video/webm' }), 48000)
+    expect(__isAudioDecodeFailureReportArmedForTests()).toBe(false)
+
+    // WebCodecs → realtime fallback clears observations but must not re-arm
+    // the gate (otherwise the same export double-reports to Sentry).
+    resetAudioDiagnostics({ retainFailureReport: true })
+    expect(__isAudioDecodeFailureReportArmedForTests()).toBe(false)
+    await decodeClipAudio(new Blob(['not media'], { type: 'video/webm' }), 48000)
+    expect(__isAudioDecodeFailureReportArmedForTests()).toBe(false)
+
+    // A fresh export re-arms.
+    resetAudioDiagnostics()
+    expect(__isAudioDecodeFailureReportArmedForTests()).toBe(true)
   })
 })

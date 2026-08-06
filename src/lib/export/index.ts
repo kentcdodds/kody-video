@@ -98,7 +98,9 @@ async function runExport(
       return result
     } catch (error) {
       console.warn('WebCodecs export failed; falling back to realtime stitcher', error)
-      resetAudioDiagnostics()
+      // Keep the decode-failure report gate: both engines share decodeClipAudio,
+      // and a second Sentry event for the same export is just noise (Bugbot).
+      resetAudioDiagnostics({ retainFailureReport: true })
       resetVideoDiagnostics()
     }
   }

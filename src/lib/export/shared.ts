@@ -253,9 +253,24 @@ interface ClipAudioObservation {
 
 let audioObservations: ClipAudioObservation[] = []
 
-export function resetAudioDiagnostics(): void {
+/**
+ * Clear per-export audio observations. By default also re-arms the once-per-
+ * export decode-failure Sentry gate. Pass `retainFailureReport` when the
+ * WebCodecs → realtime fallback resets mid-export so the same user action
+ * cannot emit two "Clip audio decode failed" events.
+ */
+export function resetAudioDiagnostics(
+  options: { retainFailureReport?: boolean } = {},
+): void {
   audioObservations = []
-  audioDecodeFailureReported = false
+  if (!options.retainFailureReport) {
+    audioDecodeFailureReported = false
+  }
+}
+
+/** Test-only: whether the next decode failure would call reportError. */
+export function __isAudioDecodeFailureReportArmedForTests(): boolean {
+  return !audioDecodeFailureReported
 }
 
 /** Near-silence floor shared by the input and output audio diagnostics. */
