@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest'
+import { makeTestClipBlob } from '../testing/make-test-clip'
 import {
   __isAudioDecodeFailureReportArmedForTests,
   AUDIO_PEAK_RETENTION_RATIO,
@@ -8,7 +9,10 @@ import {
   boundedAudioMimeType,
   classifyOutputAudioPeak,
   decodeBlobAudio,
+  decodeBlobAudioViaWebAudio,
   decodeClipAudio,
+  isWebKitAudioDecoderNotFoundError,
+  resampleAudioBuffer,
   resetAudioDiagnostics,
   resolveEncodeCanvas,
   waitForPreviewCanvas,
@@ -137,6 +141,61 @@ describe('decodeBlobAudio', () => {
     ).rejects.toThrow(/unsupported or unrecognizable/i)
     // Permanent format errors must not walk MEDIA_LOAD_RETRY_DELAYS_MS (~3.7s).
     expect(performance.now() - started).toBeLessThan(1000)
+  })
+})
+
+describe('isWebKitAudioDecoderNotFoundError', () => {
+  it('matches WebKit NotFoundError DOMExceptions and Error.name', () => {
+    expect(isWebKitAudioDecoderNotFoundError(new DOMException('The object can not be found here.', 'NotFoundError'))).toBe(
+      true,
+    )
+    const named = new Error('The object can not be found here.')
+    named.name = 'NotFoundError'
+    expect(isWebKitAudioDecoderNotFoundError(named)).toBe(true)
+    expect(isWebKitAudioDecoderNotFoundError(new Error('nope'))).toBe(false)
+    expect(isWebKitAudioDecoderNotFoundError(new DOMException('bad', 'EncodingError'))).toBe(false)
+  })
+})
+
+describe('resampleAudioBuffer', () => {
+  it('preserves content when the rate already matches', () => {
+    const source = new AudioBuffer({ length: 8, sampleRate: 48000, numberOfChannels: 1 })
+    source.getChannelData(0).set([0, 0.5, 1, 0.5, 0, -0.5, -1, -0.5])
+    expect(resampleAudioBuffer(source, 48000)).toBe(source)
+  })
+
+  it('resamples to the target rate without OfflineAudioContext', () => {
+    const source = new AudioBuffer({ length: 8, sampleRate: 8000, numberOfChannels: 1 })
+    source.getChannelData(0).fill(0.25)
+    const out = resampleAudioBuffer(source, 16000)
+    expect(out.sampleRate).toBe(16000)
+    expect(out.length).toBe(16)
+    expect(out.getChannelData(0)[0]).toBeCloseTo(0.25, 5)
+  })
+})
+
+describe('decodeBlobAudioViaWebAudio', () => {
+  it('decodes a WAV through remux/decodeAudioData', async () => {
+    const decoded = await decodeBlobAudioViaWebAudio(makeWavBlob(), 48000)
+    expect(decoded).not.toBeNull()
+    expect(decoded!.sampleRate).toBe(48000)
+    expect(decoded!.duration).toBeGreaterThan(0.2)
+    expect(decoded!.getChannelData(0).some((s) => Math.abs(s) > 0.1)).toBe(true)
+  })
+
+  it('decodes audio from a video container clip (KODY-VIDEO-R fallback)', async () => {
+    const clip = await makeTestClipBlob(400, 440)
+    const decoded = await decodeBlobAudioViaWebAudio(clip, 48000)
+    expect(decoded).not.toBeNull()
+    expect(decoded!.sampleRate).toBe(48000)
+    expect(decoded!.duration).toBeGreaterThan(0.2)
+    expect(decoded!.getChannelData(0).some((s) => Math.abs(s) > 0.05)).toBe(true)
+  })
+
+  it('returns null for garbage bytes', async () => {
+    await expect(
+      decodeBlobAudioViaWebAudio(new Blob(['not media'], { type: 'video/mp4' }), 48000),
+    ).resolves.toBeNull()
   })
 })
 
