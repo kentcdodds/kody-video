@@ -1,6 +1,7 @@
 import type { Handle } from 'remix/ui'
 import { on } from 'remix/ui'
 import { registerSW } from 'virtual:pwa-register'
+import { BackupDropOverlay } from './components/backup-drop-overlay'
 import { lazyPage } from './components/lazy-page'
 import { registerUpdateHandles } from './lib/app-update'
 import { Router } from './router'
@@ -53,6 +54,7 @@ export function App(handle: Handle) {
           '/terms': () => <TermsPage />,
         }}
       />
+      <BackupDropOverlay />
       {needRefresh ? (
         <div className="update-toast" role="status">
           <span>

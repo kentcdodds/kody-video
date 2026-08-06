@@ -41,9 +41,9 @@ npm test           # unit tests
   device** during record/export/save/zip
 - **Projects**: slots show poster art; rename via the options sheet; delete
   uses the styled confirm (no browser dialog) and frees stored clips; backup
-  downloads a `.kodyvideo` file and import (About → Import a backup) restores
-  it; import at the plan limit is refused with a clear message; slot order is
-  stable
+  downloads a `.kodyvideo` file and import (About → Import a backup, or drop
+  the file anywhere in the app) restores it; import at the plan limit is
+  refused with a clear message; slot order is stable
 - **Storage**: the footer storage gauge opens a "X of Y used" popover on
   tap; ≥80% shows the amber banner, ≥92%
   turns critical; the banner offers one-tap "Clear cached exports"; the boot

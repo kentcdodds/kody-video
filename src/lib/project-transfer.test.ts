@@ -1,12 +1,23 @@
 import { beforeEach, describe, expect, it } from 'vitest'
 import {
+  __resetProjectTransferForTests,
   BackupFormatError,
+  dataTransferHasFiles,
+  importKodyVideoBackupFile,
   importProjectBackup,
+  isKodyVideoBackupFile,
+  kodyVideoBackupFilesFromList,
   parseProjectBackup,
   projectBackupFilename,
   serializeProject,
 } from './project-transfer'
-import { __resetDbForTests, getClipsForProject, getProjectAudio, listProjects } from './storage'
+import {
+  __resetDbForTests,
+  getClipsForProject,
+  getProjectAudio,
+  listProjects,
+  ProjectLimitError,
+} from './storage'
 import { markWatermarkRemoved } from './entitlement'
 import type { ClipRecord, Project, ProjectAudioRecord } from './types'
 
@@ -49,6 +60,7 @@ function fakeClip(id: string, content: string, extra: Partial<ClipRecord> = {}):
 
 describe('project backup round trip', () => {
   beforeEach(async () => {
+    __resetProjectTransferForTests()
     await __resetDbForTests()
   })
 
@@ -272,5 +284,54 @@ describe('project backup round trip', () => {
   it('builds a sensible filename', () => {
     expect(projectBackupFilename('Röad Trip!!')).toBe('r-ad-trip.kodyvideo')
     expect(projectBackupFilename('   ')).toBe('project.kodyvideo')
+  })
+
+  it('recognizes dropped .kodyvideo files by extension', () => {
+    expect(isKodyVideoBackupFile({ name: 'road-trip.kodyvideo' })).toBe(true)
+    expect(isKodyVideoBackupFile({ name: 'Road-Trip.KODYVIDEO' })).toBe(true)
+    expect(isKodyVideoBackupFile({ name: 'clip.mp4' })).toBe(false)
+    expect(isKodyVideoBackupFile({ name: 'notes.kodyvideo.bak' })).toBe(false)
+    expect(
+      kodyVideoBackupFilesFromList([
+        new File(['a'], 'trip.kodyvideo'),
+        new File(['b'], 'clip.mp4', { type: 'video/mp4' }),
+        new File(['c'], 'Second.KodyVideo'),
+      ]).map((file) => file.name),
+    ).toEqual(['trip.kodyvideo', 'Second.KodyVideo'])
+    expect(kodyVideoBackupFilesFromList(null)).toEqual([])
+    expect(dataTransferHasFiles({ types: ['Files'] } as unknown as DataTransfer)).toBe(true)
+    expect(dataTransferHasFiles({ types: ['text/uri-list'] } as unknown as DataTransfer)).toBe(
+      false,
+    )
+    expect(dataTransferHasFiles(null)).toBe(false)
+  })
+
+  it('imports a backup file through the shared picker/drop helper', async () => {
+    const backup = serializeProject(fakeProject('Dropped'), [fakeClip('clip_a', 'MEDIA')])
+    const file = new File([backup], 'dropped.kodyvideo', { type: 'application/octet-stream' })
+    const project = await importKodyVideoBackupFile(file)
+    const clips = await getClipsForProject(project.id)
+    expect(project.name).toBe('Dropped')
+    expect(clips).toHaveLength(1)
+    expect(await clips[0]!.blob.text()).toBe('MEDIA')
+  })
+
+  it('serializes overlapping imports so the free-plan cap still holds', async () => {
+    const backup = serializeProject(fakeProject('One'), [fakeClip('clip_a', 'MEDIA')])
+    const fileA = new File([backup], 'one.kodyvideo', { type: 'application/octet-stream' })
+    const fileB = new File([backup], 'two.kodyvideo', { type: 'application/octet-stream' })
+    const results = await Promise.allSettled([
+      importKodyVideoBackupFile(fileA),
+      importKodyVideoBackupFile(fileB),
+    ])
+    const fulfilled = results.filter((result) => result.status === 'fulfilled')
+    const rejected = results.filter((result) => result.status === 'rejected')
+    expect(fulfilled).toHaveLength(1)
+    expect(rejected).toHaveLength(1)
+    expect(rejected[0]).toMatchObject({ status: 'rejected' })
+    if (rejected[0]?.status === 'rejected') {
+      expect(rejected[0].reason).toBeInstanceOf(ProjectLimitError)
+    }
+    expect(await listProjects()).toHaveLength(1)
   })
 })
