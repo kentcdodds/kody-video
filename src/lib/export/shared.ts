@@ -331,15 +331,19 @@ export function reportSilentExportAudio(context: Record<string, unknown>): void 
   )
 }
 
+/** How long engines poll for the export-overlay canvas before falling back. */
+export const PREVIEW_CANVAS_WAIT_MS = 1500
+
 /** The export overlay mounts just after the export starts — wait briefly.
  * Encoding into the on-DOM overlay canvas (instead of a detached one) is
  * load-bearing on Safari, which renders detached canvases as black in
  * captureStream and related paths. */
 export async function waitForPreviewCanvas(
   getPreviewCanvas: (() => HTMLCanvasElement | null) | undefined,
+  timeoutMs = PREVIEW_CANVAS_WAIT_MS,
 ): Promise<HTMLCanvasElement | null> {
   if (!getPreviewCanvas) return null
-  const deadline = performance.now() + 1500
+  const deadline = performance.now() + timeoutMs
   for (;;) {
     const canvas = getPreviewCanvas()
     if (canvas?.isConnected) return canvas
@@ -348,13 +352,93 @@ export async function waitForPreviewCanvas(
   }
 }
 
+/**
+ * Where the encode canvas came from. `detached` is fine on Chromium but
+ * black on iOS WebKit — engines must use `requireAttached` there so the
+ * fallback is an on-DOM host, never an orphan element (KODY-VIDEO-Q).
+ */
+export type EncodeCanvasKind = 'preview' | 'attached-fallback' | 'detached'
+
+export interface ResolvedEncodeCanvas {
+  canvas: HTMLCanvasElement
+  kind: EncodeCanvasKind
+  /** True when the encode canvas IS the visible preview (no blit needed). */
+  encodingIntoPreview: boolean
+  /** Remove an attached fallback host; no-op for preview/detached. */
+  release: () => void
+}
+
+/** Tiny on-DOM host: WebKit needs isConnected; keep it in the paint path
+ * (off-screen 1×1) — opacity:0 / display:none can skip captureStream frames. */
+function createAttachedEncodeCanvas(): HTMLCanvasElement {
+  const canvas = document.createElement('canvas')
+  canvas.setAttribute('aria-hidden', 'true')
+  canvas.style.cssText =
+    'position:fixed;left:-9999px;top:0;width:1px;height:1px;pointer-events:none;'
+  document.body.appendChild(canvas)
+  return canvas
+}
+
+/**
+ * Pick the canvas the encoder draws into.
+ * - `preferPreview`: wait for the export overlay (live preview + Safari-safe).
+ * - `requireAttached`: never return a detached canvas (iOS WebKit).
+ */
+export async function resolveEncodeCanvas(options: {
+  getPreviewCanvas?: () => HTMLCanvasElement | null
+  preferPreview: boolean
+  requireAttached: boolean
+  previewTimeoutMs?: number
+}): Promise<ResolvedEncodeCanvas> {
+  if (options.preferPreview) {
+    const preview = await waitForPreviewCanvas(
+      options.getPreviewCanvas,
+      options.previewTimeoutMs,
+    )
+    if (preview) {
+      return {
+        canvas: preview,
+        kind: 'preview',
+        encodingIntoPreview: true,
+        release: () => undefined,
+      }
+    }
+  }
+
+  if (options.requireAttached) {
+    const canvas = createAttachedEncodeCanvas()
+    return {
+      canvas,
+      kind: 'attached-fallback',
+      encodingIntoPreview: false,
+      release: () => {
+        canvas.remove()
+      },
+    }
+  }
+
+  return {
+    canvas: document.createElement('canvas'),
+    kind: 'detached',
+    encodingIntoPreview: false,
+    release: () => undefined,
+  }
+}
+
 /** Video-side twin of the audio diagnostics: sampled encode-canvas luma.
  * A black exported video with no error is otherwise invisible remotely. */
 let videoLumaSamples: number[] = []
 let videoSampleCanvas: HTMLCanvasElement | null = null
+let encodeCanvasKind: EncodeCanvasKind | null = null
 
 export function resetVideoDiagnostics(): void {
   videoLumaSamples = []
+  encodeCanvasKind = null
+}
+
+/** Record which canvas path this export used (for black-frame triage). */
+export function noteEncodeCanvasKind(kind: EncodeCanvasKind): void {
+  encodeCanvasKind = kind
 }
 
 /** Downsample the encode canvas to 8×8 and record the frame's mean luma. */
@@ -388,6 +472,7 @@ export function reportBlackExportVideo(context: Record<string, unknown>): void {
     ...context,
     samples: videoLumaSamples.length,
     maxLuma: Number(maxLuma.toFixed(2)),
+    encodeCanvas: encodeCanvasKind,
   })
 }
 

@@ -47,9 +47,10 @@ import {
   loadClipVideo,
   tagExportError,
   pickOutputSize,
+  noteEncodeCanvasKind,
   recordVideoLumaSample,
+  resolveEncodeCanvas,
   seekTo,
-  waitForPreviewCanvas,
   type ExportResult,
 } from './shared'
 
@@ -141,61 +142,69 @@ export async function exportWithWebCodecs(
     throw new Error('No supported export codec')
   }
 
-  // iOS ONLY: encode into the on-DOM overlay canvas — WebKit has a history
-  // of treating detached canvases as black in capture paths (see the
-  // black-export saga). Everywhere else the encode canvas stays DETACHED:
-  // drawing every frame through a visible, compositor-synchronized canvas
-  // rate-limited a 9× export to a constant ~6× on Android. The preview gets
-  // throttled downscaled blits instead — it only shows what's processing.
-  let canvas = isIosBrowser() ? await waitForPreviewCanvas(getPreviewCanvas) : null
-  const encodingIntoPreview = canvas !== null
-  if (!canvas) {
-    canvas = document.createElement('canvas')
-  }
+  // iOS ONLY: encode into an on-DOM canvas — WebKit treats detached canvases
+  // as black in capture/encode paths (black-export saga / KODY-VIDEO-Q).
+  // Prefer the overlay preview; if it isn't mounted in time, attach a tiny
+  // host rather than falling back to a detached element. Everywhere else the
+  // encode canvas stays DETACHED: drawing every frame through a visible,
+  // compositor-synchronized canvas rate-limited a 9× export to ~6× on
+  // Android. The preview gets throttled downscaled blits instead.
+  const ios = isIosBrowser()
+  const encodeCanvas = await resolveEncodeCanvas({
+    getPreviewCanvas,
+    preferPreview: ios,
+    requireAttached: ios,
+  })
+  noteEncodeCanvasKind(encodeCanvas.kind)
+  const { canvas, encodingIntoPreview } = encodeCanvas
   canvas.width = width
   canvas.height = height
   const ctx = canvas.getContext('2d', { alpha: false })
-  if (!ctx) throw new Error('Canvas not available')
-
-  // Stream the mux to disk when OPFS is available: long exports are too
-  // big for an in-memory buffer (a half-hour project is ~1GB — the
-  // BufferTarget path OOM-killed the tab right at 100%).
-  const opfs = await createOpfsExportFile(choice.container)
-  const output = new Output({
-    format:
-      choice.container === 'mp4'
-        ? // Trailing moov so chapter/geotag injection can append udta
-          // without rewriting stco/co64. Exports are saved/shared, not
-          // streamed, so faststart matters little here.
-          new Mp4OutputFormat({ fastStart: false })
-        : new WebMOutputFormat(),
-    target: opfs ? new StreamTarget(opfs.writable, { chunked: true }) : new BufferTarget(),
-  })
-  const videoSource = new CanvasSource(canvas, {
-    codec: choice.videoCodec,
-    quality: new Quality({ bitrate: videoBitrateFor(width, height) }),
-    keyFrameInterval: KEYFRAME_INTERVAL_SEC,
-  })
-  output.addVideoTrack(videoSource, { frameRate: FPS })
-  const audioSource = new AudioBufferSource({
-    codec: choice.audioCodec,
-    quality: new Quality({ bitrate: AUDIO_BITRATE }),
-  })
-  output.addAudioTrack(audioSource)
-  await output.start()
-
-  const state: PumpState = {
-    lastVideoTsSec: -1,
-    nextFrameTsSec: 0,
-    outputOffsetSec: 0,
-    doneMs: 0,
-    frameCount: 0,
-    lastPreviewAtMs: 0,
+  if (!ctx) {
+    encodeCanvas.release()
+    throw new Error('Canvas not available')
   }
 
-  const clipsInPlan = plan.segments.map((s) => s.clip)
-  const multiDay = clipsSpanMultipleDays(clipsInPlan)
-  const chapters: Mp4Chapter[] = []
+  try {
+    // Stream the mux to disk when OPFS is available: long exports are too
+    // big for an in-memory buffer (a half-hour project is ~1GB — the
+    // BufferTarget path OOM-killed the tab right at 100%).
+    const opfs = await createOpfsExportFile(choice.container)
+    const output = new Output({
+      format:
+        choice.container === 'mp4'
+          ? // Trailing moov so chapter/geotag injection can append udta
+            // without rewriting stco/co64. Exports are saved/shared, not
+            // streamed, so faststart matters little here.
+            new Mp4OutputFormat({ fastStart: false })
+          : new WebMOutputFormat(),
+      target: opfs ? new StreamTarget(opfs.writable, { chunked: true }) : new BufferTarget(),
+    })
+    const videoSource = new CanvasSource(canvas, {
+      codec: choice.videoCodec,
+      quality: new Quality({ bitrate: videoBitrateFor(width, height) }),
+      keyFrameInterval: KEYFRAME_INTERVAL_SEC,
+    })
+    output.addVideoTrack(videoSource, { frameRate: FPS })
+    const audioSource = new AudioBufferSource({
+      codec: choice.audioCodec,
+      quality: new Quality({ bitrate: AUDIO_BITRATE }),
+    })
+    output.addAudioTrack(audioSource)
+    await output.start()
+
+    const state: PumpState = {
+      lastVideoTsSec: -1,
+      nextFrameTsSec: 0,
+      outputOffsetSec: 0,
+      doneMs: 0,
+      frameCount: 0,
+      lastPreviewAtMs: 0,
+    }
+
+    const clipsInPlan = plan.segments.map((s) => s.clip)
+    const multiDay = clipsSpanMultipleDays(clipsInPlan)
+    const chapters: Mp4Chapter[] = []
 
   // Background music: playlist tracks are decoded lazily (one at a time,
   // released as the timeline passes them) and BLENDED with each segment's
@@ -501,6 +510,9 @@ export async function exportWithWebCodecs(
     // Metadata injection returns a NEW in-memory blob; when it ran, the
     // on-disk file no longer matches what the user gets.
     opfsBacked: opfs !== null && blob === diskBlob,
+  }
+  } finally {
+    encodeCanvas.release()
   }
 }
 
