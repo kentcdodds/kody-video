@@ -7,17 +7,8 @@ import { buildDateLabel, commitUrl, shortVersion } from '../lib/build-info'
 import { reportError } from '../lib/error-reporting'
 import { clearExportCache, estimateExportCacheBytes } from '../lib/export/export-cache'
 import { listRearCameras } from '../lib/media'
-import {
-  BackupFormatError,
-  importProjectBackup,
-  parseProjectBackup,
-} from '../lib/project-transfer'
-import {
-  estimateStorageSpace,
-  formatBytes,
-  requestPersistentStorage,
-  type StorageSpace,
-} from '../lib/storage-space'
+import { BackupFormatError, importKodyVideoBackupFile } from '../lib/project-transfer'
+import { estimateStorageSpace, formatBytes, type StorageSpace } from '../lib/storage-space'
 import { navigate } from '../router'
 
 /** Prefilled GitHub issue so bug reports arrive with device context attached. */
@@ -155,12 +146,10 @@ export function AboutPage(handle: Handle) {
       importProgress = 'Reading backup…'
       void handle.update()
       try {
-        const parsed = await parseProjectBackup(file)
-        const project = await importProjectBackup(parsed, (done, total) => {
+        const project = await importKodyVideoBackupFile(file, (done, total) => {
           importProgress = `Importing clip ${Math.min(done + 1, total)} of ${total}…`
           void handle.update()
         })
-        requestPersistentStorage()
         // Land directly in the imported project — unambiguous success.
         navigate(`/project/${project.id}`)
       } catch (err) {
@@ -357,7 +346,7 @@ export function AboutPage(handle: Handle) {
             <p>
               Every project can be saved as a single <code>.kodyvideo</code> file (⋯ →{' '}
               <strong>Save backup</strong> on the home screen) — a safety net, and the way to move
-              a project between devices. Restore one here:
+              a project between devices. Restore one here, or drop the file anywhere in the app:
             </p>
             <label className={`btn btn-ghost about-import${importing ? ' is-disabled' : ''}`}>
               Import a backup

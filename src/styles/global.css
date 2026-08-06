@@ -609,6 +609,71 @@ a {
   padding: 0;
 }
 
+.backup-drop-overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 18;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: calc(24px + var(--safe-top)) 24px calc(24px + var(--safe-bottom));
+  background: var(--overlay-scrim-strong);
+  color: var(--ink);
+  text-align: center;
+  pointer-events: none;
+  animation: fade-in 160ms ease both;
+}
+
+.backup-drop-overlay strong {
+  font-family: var(--font-display);
+  font-size: 1.45rem;
+  letter-spacing: -0.03em;
+}
+
+.backup-drop-overlay p {
+  margin: 0;
+  max-width: 22rem;
+  color: var(--ink-muted);
+  line-height: 1.45;
+}
+
+.backup-drop-overlay code {
+  color: var(--ink);
+}
+
+.backup-drop-overlay.is-importing {
+  pointer-events: auto;
+}
+
+.backup-drop-error {
+  position: absolute;
+  left: 12px;
+  right: 12px;
+  bottom: calc(16px + var(--safe-bottom));
+  z-index: 19;
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 14px;
+  border-radius: 14px;
+  background: color-mix(in srgb, var(--danger) 18%, var(--bg-elevated));
+  border: 1px solid color-mix(in srgb, var(--danger) 38%, transparent);
+  color: var(--danger-ink);
+  font-size: 0.92rem;
+  line-height: 1.4;
+  box-shadow: var(--shadow);
+  animation: rise-in 220ms ease both;
+}
+
+.backup-drop-error .link-button {
+  flex: 0 0 auto;
+  color: var(--danger-ink);
+  font-weight: 700;
+}
+
 .toast {
   position: absolute;
   left: 50%;

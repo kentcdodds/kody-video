@@ -1,7 +1,11 @@
 import { beforeEach, describe, expect, it } from 'vitest'
 import {
   BackupFormatError,
+  dataTransferHasFiles,
+  importKodyVideoBackupFile,
   importProjectBackup,
+  isKodyVideoBackupFile,
+  kodyVideoBackupFilesFromList,
   parseProjectBackup,
   projectBackupFilename,
   serializeProject,
@@ -272,5 +276,35 @@ describe('project backup round trip', () => {
   it('builds a sensible filename', () => {
     expect(projectBackupFilename('Röad Trip!!')).toBe('r-ad-trip.kodyvideo')
     expect(projectBackupFilename('   ')).toBe('project.kodyvideo')
+  })
+
+  it('recognizes dropped .kodyvideo files by extension', () => {
+    expect(isKodyVideoBackupFile({ name: 'road-trip.kodyvideo' })).toBe(true)
+    expect(isKodyVideoBackupFile({ name: 'Road-Trip.KODYVIDEO' })).toBe(true)
+    expect(isKodyVideoBackupFile({ name: 'clip.mp4' })).toBe(false)
+    expect(isKodyVideoBackupFile({ name: 'notes.kodyvideo.bak' })).toBe(false)
+    expect(
+      kodyVideoBackupFilesFromList([
+        new File(['a'], 'trip.kodyvideo'),
+        new File(['b'], 'clip.mp4', { type: 'video/mp4' }),
+        new File(['c'], 'Second.KodyVideo'),
+      ]).map((file) => file.name),
+    ).toEqual(['trip.kodyvideo', 'Second.KodyVideo'])
+    expect(kodyVideoBackupFilesFromList(null)).toEqual([])
+    expect(dataTransferHasFiles({ types: ['Files'] } as unknown as DataTransfer)).toBe(true)
+    expect(dataTransferHasFiles({ types: ['text/uri-list'] } as unknown as DataTransfer)).toBe(
+      false,
+    )
+    expect(dataTransferHasFiles(null)).toBe(false)
+  })
+
+  it('imports a backup file through the shared picker/drop helper', async () => {
+    const backup = serializeProject(fakeProject('Dropped'), [fakeClip('clip_a', 'MEDIA')])
+    const file = new File([backup], 'dropped.kodyvideo', { type: 'application/octet-stream' })
+    const project = await importKodyVideoBackupFile(file)
+    const clips = await getClipsForProject(project.id)
+    expect(project.name).toBe('Dropped')
+    expect(clips).toHaveLength(1)
+    expect(await clips[0]!.blob.text()).toBe('MEDIA')
   })
 })

@@ -64,7 +64,8 @@ For a phone on the same network, use your machine’s LAN URL over HTTPS, or tun
 - Project **backup/import**: one `.kodyvideo` file per project (clips, trims,
   location data, background music + volumes) — a safety net, and the way to
   move a project between devices or browser origins (storage is per-origin);
-  ⋯ → Save backup on a slot, import from the About page
+  ⋯ → Save backup on a slot, import from the About page or by dropping a
+  `.kodyvideo` file anywhere in the app
 - Installable PWA (manifest + Workbox service worker for the app shell)
 - **No accounts, no uploads, no analytics**
 

@@ -7,6 +7,7 @@ import {
   updateClipTrim,
   updateProjectAudioTrack,
 } from './storage'
+import { requestPersistentStorage } from './storage-space'
 import type { ClipRecord, Project, ProjectAudioRecord } from './types'
 
 /**
@@ -78,6 +79,8 @@ interface Manifest {
   audio?: ManifestAudio
 }
 
+export const KODY_VIDEO_BACKUP_EXTENSION = '.kodyvideo'
+
 export function projectBackupFilename(projectName: string): string {
   const slug =
     projectName
@@ -85,7 +88,25 @@ export function projectBackupFilename(projectName: string): string {
       .replace(/[^a-z0-9]+/g, '-')
       .replace(/(^-|-$)/g, '')
       .slice(0, 40) || 'project'
-  return `${slug}.kodyvideo`
+  return `${slug}${KODY_VIDEO_BACKUP_EXTENSION}`
+}
+
+/** True when the picked/dropped file uses the Kody Video backup extension. */
+export function isKodyVideoBackupFile(file: Pick<File, 'name'>): boolean {
+  return file.name.toLowerCase().endsWith(KODY_VIDEO_BACKUP_EXTENSION)
+}
+
+/** Backup files from a picker or drop, in the order they were supplied. */
+export function kodyVideoBackupFilesFromList(
+  files: Iterable<File> | ArrayLike<File> | null | undefined,
+): File[] {
+  if (!files) return []
+  return [...files].filter(isKodyVideoBackupFile)
+}
+
+/** True when a drag payload may contain OS files (names are hidden until drop). */
+export function dataTransferHasFiles(dataTransfer: DataTransfer | null | undefined): boolean {
+  return Boolean(dataTransfer?.types.includes('Files'))
 }
 
 /** Bundle a project into one shareable/downloadable backup Blob. */
@@ -285,6 +306,20 @@ function assertImportableClip(clip: ParsedBackup['clips'][number]): void {
   if (!finite || clip.durationMs <= 0 || clip.blob.size <= 0) {
     throw new BackupFormatError('This backup file is damaged')
   }
+}
+
+/**
+ * Parse a backup file and persist it as a new project. Requests persistent
+ * storage on success (same as the About picker / drop import paths).
+ */
+export async function importKodyVideoBackupFile(
+  file: File,
+  onProgress?: (doneClips: number, totalClips: number) => void,
+): Promise<Project> {
+  const parsed = await parseProjectBackup(file)
+  const project = await importProjectBackup(parsed, onProgress)
+  requestPersistentStorage()
+  return project
 }
 
 /** Create a fresh project (new ids) from a parsed backup. */

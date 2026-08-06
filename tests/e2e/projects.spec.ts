@@ -1,3 +1,4 @@
+import { readFile } from 'node:fs/promises'
 import { test, expect, type Page } from '@playwright/test'
 import { gotoHome, seedProject, unlockPlus } from './helpers'
 
@@ -70,6 +71,68 @@ test.describe('project slots', () => {
     await page.goto('/about')
     await page.locator('.about-import input[type="file"]').setInputFiles(backupPath)
     // Import navigates straight into the restored project.
+    await page.waitForURL(/\/project\//, { timeout: 30_000 })
+    const restored = await page.evaluate(async () => {
+      const storage = await import('/src/lib/storage.ts')
+      const projects = await storage.listProjects()
+      if (projects.length !== 1) return null
+      const clips = await storage.getClipMetasForProject(projects[0]!.id)
+      return { clips: clips.length }
+    })
+    expect(restored).toEqual({ clips: 1 })
+  })
+
+  test('dropping a .kodyvideo file on home restores the project', async ({ page }) => {
+    await createProjectWithClip(page)
+    await page.locator('.slot-options').click()
+    const downloadPromise = page.waitForEvent('download')
+    await page.getByRole('button', { name: 'Save backup' }).click()
+    const backupPath = await (await downloadPromise).path()
+    if (!backupPath) throw new Error('backup download path missing')
+    const backupBytes = [...(await readFile(backupPath))]
+
+    await page.locator('.slot-options').click()
+    await page.getByRole('button', { name: 'Delete' }).click()
+    await page.locator('.confirm-sheet').getByRole('button', { name: 'Delete' }).click()
+    await expect(page.locator('.project-slot.filled')).toHaveCount(0)
+
+    await page.evaluate(() => {
+      const file = new File(['nope'], 'notes.txt', { type: 'text/plain' })
+      const dt = new DataTransfer()
+      dt.items.add(file)
+      window.dispatchEvent(
+        new DragEvent('drop', { bubbles: true, cancelable: true, dataTransfer: dt }),
+      )
+    })
+    await expect(page).toHaveURL(/\/$/)
+    await expect(page.locator('.project-slot.filled')).toHaveCount(0)
+
+    await page.evaluate((bytes) => {
+      const file = new File([new Uint8Array(bytes)], 'restored.kodyvideo', {
+        type: 'application/octet-stream',
+      })
+      const dt = new DataTransfer()
+      dt.items.add(file)
+      window.dispatchEvent(
+        new DragEvent('dragenter', { bubbles: true, cancelable: true, dataTransfer: dt }),
+      )
+      window.dispatchEvent(
+        new DragEvent('dragover', { bubbles: true, cancelable: true, dataTransfer: dt }),
+      )
+    }, backupBytes)
+    await expect(page.locator('.backup-drop-overlay')).toContainText('Drop to import')
+
+    await page.evaluate((bytes) => {
+      const file = new File([new Uint8Array(bytes)], 'restored.kodyvideo', {
+        type: 'application/octet-stream',
+      })
+      const dt = new DataTransfer()
+      dt.items.add(file)
+      window.dispatchEvent(
+        new DragEvent('drop', { bubbles: true, cancelable: true, dataTransfer: dt }),
+      )
+    }, backupBytes)
+
     await page.waitForURL(/\/project\//, { timeout: 30_000 })
     const restored = await page.evaluate(async () => {
       const storage = await import('/src/lib/storage.ts')
