@@ -117,8 +117,13 @@ describe('decodeBlobAudio', () => {
     expect(again).not.toBeNull()
   })
 
-  it('returns null for blobs with no decodable audio track', async () => {
-    expect(await decodeBlobAudio(new Blob(['not media'], { type: 'video/webm' }), 48000)).toBeNull()
+  it('fails fast on unrecognizable input without burning the retry budget', async () => {
+    const started = performance.now()
+    await expect(
+      decodeBlobAudio(new Blob(['not media'], { type: 'video/webm' }), 48000),
+    ).rejects.toThrow(/unsupported or unrecognizable/i)
+    // Permanent format errors must not walk MEDIA_LOAD_RETRY_DELAYS_MS (~3.7s).
+    expect(performance.now() - started).toBeLessThan(1000)
   })
 })
 

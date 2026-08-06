@@ -1,4 +1,11 @@
-import { ALL_FORMATS, AudioBufferSink, BlobSource, Input } from 'mediabunny'
+import {
+  ALL_FORMATS,
+  AudioBufferSink,
+  BlobSource,
+  Input,
+  InputDisposedError,
+  UnsupportedInputFormatError,
+} from 'mediabunny'
 import { reportError } from '../error-reporting'
 import { isMediaElementFailure, MediaElementFailureError } from './media-error'
 
@@ -410,6 +417,11 @@ export function audioDecodeFailureDetail(error: unknown, mimeType: string): stri
  * WebCodecs AudioDecoder reject a blob that decodes on the next attempt —
  * without retries every failed decode becomes a silent export.
  */
+/** Permanent demux/lifecycle failures — retrying only burns ~3.7s per clip. */
+function isNonRetryableAudioDecodeError(error: unknown): boolean {
+  return error instanceof UnsupportedInputFormatError || error instanceof InputDisposedError
+}
+
 export async function decodeBlobAudio(blob: Blob, sampleRate: number): Promise<AudioBuffer | null> {
   let lastError: unknown
   for (let attempt = 0; attempt <= MEDIA_LOAD_RETRY_DELAYS_MS.length; attempt += 1) {
@@ -417,6 +429,7 @@ export async function decodeBlobAudio(blob: Blob, sampleRate: number): Promise<A
       return await decodeBlobAudioOnce(blob, sampleRate)
     } catch (error) {
       lastError = error
+      if (isNonRetryableAudioDecodeError(error)) break
       const delay = MEDIA_LOAD_RETRY_DELAYS_MS[attempt]
       if (delay === undefined) break
       await wait(delay)
