@@ -2,8 +2,12 @@ import {
   ALL_FORMATS,
   AudioBufferSink,
   BlobSource,
+  BufferTarget,
+  Conversion,
   Input,
   InputDisposedError,
+  Mp4OutputFormat,
+  Output,
   UnsupportedInputFormatError,
 } from 'mediabunny'
 import { reportError } from '../error-reporting'
@@ -511,28 +515,144 @@ export function audioDecodeFailureDetail(error: unknown, mimeType: string): stri
   return text ? ` (${mime}; ${text})` : ` (${mime})`
 }
 
-/** Permanent demux/lifecycle failures — retrying only burns ~3.7s per clip. */
+/**
+ * Permanent demux/lifecycle failures — retrying only burns ~3.7s per clip.
+ * WebKit's WebCodecs AudioDecoder also throws NotFoundError for AAC-in-MP4
+ * even when `canDecode()` is true (KODY-VIDEO-R); that never recovers on
+ * retry, so fail over to the Web Audio remux path immediately.
+ */
 function isNonRetryableAudioDecodeError(error: unknown): boolean {
-  return error instanceof UnsupportedInputFormatError || error instanceof InputDisposedError
+  if (error instanceof UnsupportedInputFormatError || error instanceof InputDisposedError) {
+    return true
+  }
+  return isWebKitAudioDecoderNotFoundError(error)
+}
+
+/** WebKit DOMException from a dead WebCodecs AudioDecoder configure/decode. */
+export function isWebKitAudioDecoderNotFoundError(error: unknown): boolean {
+  if (typeof DOMException !== 'undefined' && error instanceof DOMException) {
+    return error.name === 'NotFoundError'
+  }
+  return error instanceof Error && error.name === 'NotFoundError'
+}
+
+/**
+ * Linear resample for export mixing. Avoids OfflineAudioContext — on iOS
+ * WebKit that API has thrown NotFoundError for otherwise-valid buffers, and
+ * mediabunny itself documents flaky OfflineAudioContext concatenation.
+ */
+export function resampleAudioBuffer(source: AudioBuffer, sampleRate: number): AudioBuffer {
+  if (source.sampleRate === sampleRate) return source
+  const ratio = sampleRate / source.sampleRate
+  const length = Math.max(1, Math.round(source.length * ratio))
+  const out = new AudioBuffer({
+    length,
+    sampleRate,
+    numberOfChannels: source.numberOfChannels,
+  })
+  for (let ch = 0; ch < source.numberOfChannels; ch += 1) {
+    const input = source.getChannelData(ch)
+    const output = out.getChannelData(ch)
+    if (input.length === 0) continue
+    for (let i = 0; i < length; i += 1) {
+      const srcPos = i / ratio
+      const i0 = Math.min(Math.floor(srcPos), input.length - 1)
+      const i1 = Math.min(i0 + 1, input.length - 1)
+      const t = srcPos - i0
+      output[i] = input[i0]! * (1 - t) + input[i1]! * t
+    }
+  }
+  return out
+}
+
+/**
+ * Remux the blob's audio track into an audio-only MP4 (bitstream copy when
+ * the codec is already AAC; otherwise mediabunny transcodes). Safari's
+ * `decodeAudioData` often refuses video/mp4 containers but accepts audio/mp4.
+ */
+async function remuxAudioOnlyMp4(blob: Blob): Promise<ArrayBuffer | null> {
+  const input = new Input({ source: new BlobSource(blob), formats: ALL_FORMATS })
+  try {
+    if (!(await input.getPrimaryAudioTrack())) return null
+    const target = new BufferTarget()
+    const output = new Output({
+      format: new Mp4OutputFormat({ fastStart: 'in-memory' }),
+      target,
+    })
+    const conversion = await Conversion.init({
+      input,
+      output,
+      video: { discard: true },
+      showWarnings: false,
+    })
+    if (!conversion.isValid) return null
+    await conversion.execute()
+    return target.buffer ?? null
+  } finally {
+    input.dispose()
+  }
+}
+
+async function decodeAudioDataBuffer(
+  bytes: ArrayBuffer,
+  sampleRate: number,
+): Promise<AudioBuffer> {
+  // OfflineAudioContext exposes decodeAudioData without needing a running
+  // (user-gesture) AudioContext — important for peak backfill on iOS.
+  const ctx = new OfflineAudioContext(1, 1, sampleRate)
+  const decoded = await ctx.decodeAudioData(bytes.slice(0))
+  return resampleAudioBuffer(decoded, sampleRate)
+}
+
+/**
+ * Web Audio fallback when WebCodecs AudioDecoder cannot produce samples.
+ * Remuxes to audio/mp4 first (iOS refuses many video/mp4 blobs), then tries
+ * the original bytes for browsers that can decode audio-from-video directly.
+ */
+export async function decodeBlobAudioViaWebAudio(
+  blob: Blob,
+  sampleRate: number,
+): Promise<AudioBuffer | null> {
+  try {
+    const remuxed = await remuxAudioOnlyMp4(blob)
+    if (remuxed && remuxed.byteLength > 0) {
+      try {
+        return await decodeAudioDataBuffer(remuxed, sampleRate)
+      } catch {
+        // Remuxed bytes rejected — try the source container below.
+      }
+    }
+  } catch {
+    // Remux itself can fail on exotic codecs; fall through.
+  }
+
+  try {
+    return await decodeAudioDataBuffer(await blob.arrayBuffer(), sampleRate)
+  } catch {
+    return null
+  }
 }
 
 /**
  * Decode a blob's audio track into one AudioBuffer at the requested sample
- * rate. Mediabunny demuxes and decodes (fragmented MP4, WebM/Opus, rotation
- * of containers — all one path); the result is resampled when the source
- * rate differs. Returns null when there is no decodable audio.
+ * rate. Primary path: mediabunny + WebCodecs AudioDecoder (fragmented MP4,
+ * WebM/Opus, …). Fallback: remux audio-only MP4 + `decodeAudioData` for iOS
+ * WebKit, where AudioDecoder reports support then throws NotFoundError
+ * (KODY-VIDEO-R) or `canDecode()` is false on older Safari.
  *
- * Retries on throw: iOS WebKit has a small pool of hardware decoder slots
- * (same race `loadClipVideo` already backs off for). A busy slot can make
- * WebCodecs AudioDecoder reject a blob that decodes on the next attempt —
- * without retries every failed decode becomes a silent export.
+ * Retries transient WebCodecs throws (decoder-slot races) before falling
+ * back. Permanent format errors skip both retries and the fallback.
  */
 
 export async function decodeBlobAudio(blob: Blob, sampleRate: number): Promise<AudioBuffer | null> {
   let lastError: unknown
   for (let attempt = 0; attempt <= MEDIA_LOAD_RETRY_DELAYS_MS.length; attempt += 1) {
     try {
-      return await decodeBlobAudioOnce(blob, sampleRate)
+      const decoded = await decodeBlobAudioOnce(blob, sampleRate)
+      if (decoded) return decoded
+      // No track / WebCodecs canDecode=false — still try the Web Audio path
+      // (older iOS Safari) before giving up on a silent export.
+      break
     } catch (error) {
       lastError = error
       if (isNonRetryableAudioDecodeError(error)) break
@@ -541,7 +661,23 @@ export async function decodeBlobAudio(blob: Blob, sampleRate: number): Promise<A
       await wait(delay)
     }
   }
-  throw lastError
+
+  if (
+    lastError instanceof UnsupportedInputFormatError ||
+    lastError instanceof InputDisposedError
+  ) {
+    throw lastError
+  }
+
+  try {
+    const fallback = await decodeBlobAudioViaWebAudio(blob, sampleRate)
+    if (fallback) return fallback
+  } catch {
+    // Prefer the WebCodecs error for Sentry triage when both paths fail.
+  }
+
+  if (lastError !== undefined) throw lastError
+  return null
 }
 
 async function decodeBlobAudioOnce(blob: Blob, sampleRate: number): Promise<AudioBuffer | null> {
@@ -586,15 +722,7 @@ async function decodeBlobAudioOnce(blob: Blob, sampleRate: number): Promise<Audi
       // running position and pull later in-range pieces past it via the snap.
       runningOffset = Math.min(offset + piece.buffer.length, merged.length)
     }
-    if (sourceRate === sampleRate) return merged
-
-    const length = Math.max(1, Math.ceil(merged.duration * sampleRate))
-    const offline = new OfflineAudioContext(channels, length, sampleRate)
-    const source = offline.createBufferSource()
-    source.buffer = merged
-    source.connect(offline.destination)
-    source.start()
-    return offline.startRendering()
+    return resampleAudioBuffer(merged, sampleRate)
   } finally {
     // Free demuxer + any WebCodecs AudioDecoder the sink still holds —
     // iOS in particular runs out of decoder slots when Inputs accumulate
