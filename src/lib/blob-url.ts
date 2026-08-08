@@ -29,6 +29,10 @@ export function createBlobUrlBinder<E extends HTMLElement & { src: string }>(
     element = node
     sync()
     signal.addEventListener('abort', () => {
+      // A remount can attach the replacement node before the old node's
+      // teardown runs; by then the binder (and its URL) belong to the new
+      // node, and revoking here would kill the src just handed to it.
+      if (element !== node) return
       if (url) URL.revokeObjectURL(url)
       element = null
       url = null

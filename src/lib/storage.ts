@@ -102,6 +102,25 @@ export function isStaleConnectionError(error: unknown): boolean {
   return /database connection is (closing|closed)/i.test(error.message)
 }
 
+/**
+ * True when an IndexedDB failure looks environmental — the connection or the
+ * backing store gave out mid-operation (iOS Safari closing IDB under memory
+ * pressure, Chromium's "Error preparing Blob/File data to be stored") — so an
+ * idempotent write is worth one retry on a fresh connection. Caller mistakes
+ * and hard limits (QuotaExceededError, ConstraintError) are excluded: a retry
+ * would only repeat them.
+ */
+export function isRetriableIdbFailure(error: unknown): boolean {
+  if (isStaleConnectionError(error)) return true
+  if (!(error instanceof DOMException)) return false
+  return (
+    error.name === 'AbortError' ||
+    error.name === 'UnknownError' ||
+    error.name === 'InvalidStateError' ||
+    error.name === 'TransactionInactiveError'
+  )
+}
+
 function forgetCachedDb(closedDb?: IDBPDatabase<ClipsDB> | null): void {
   // Only clear when the terminating handle is still the active one (or no
   // handle was supplied). If activeDb is null, a reconnect may already be
@@ -637,7 +656,45 @@ export async function updateClipVolumes(
   clipId: ClipId,
   volumes: ClipVolumeSettings,
 ): Promise<ClipMeta> {
+  try {
+    return await writeClipVolumes(clipId, volumes)
+  } catch (error) {
+    if (!isRetriableIdbFailure(error)) throw error
+    // A volume write re-puts the whole clip record — video blob included —
+    // so it is the write most exposed to environmental IDB failures. Retry
+    // once on a fresh connection with re-copied media blobs: that covers
+    // both iOS Safari closing the connection under us and the engine
+    // refusing to re-store a Blob it itself returned. The write is
+    // idempotent, so a retry after an ambiguous failure is safe.
+    discardStaleDb(activeDb, dbPromise)
+    return await writeClipVolumes(clipId, volumes, { rematerializeBlobs: true })
+  }
+}
+
+async function writeClipVolumes(
+  clipId: ClipId,
+  volumes: ClipVolumeSettings,
+  options?: { rematerializeBlobs?: boolean },
+): Promise<ClipMeta> {
   const db = await getDb()
+
+  // Copy blob bytes into fresh Blobs before opening the transaction —
+  // awaiting arrayBuffer() inside a tx would let it auto-commit, and the
+  // whole point is to stop a possibly-poisoned stored Blob from failing
+  // the put again.
+  let freshMedia: Partial<Pick<ClipRecord, 'blob' | 'thumbs' | 'poster'>> = {}
+  if (options?.rematerializeBlobs) {
+    const current = await db.get('clips', clipId)
+    if (!current) throw new Error('Clip not found')
+    freshMedia = {
+      blob: await toStoredBlob(current.blob, current.mimeType),
+      ...(current.thumbs
+        ? { thumbs: await Promise.all(current.thumbs.map((thumb) => toStoredBlob(thumb))) }
+        : {}),
+      ...(current.poster ? { poster: await toStoredBlob(current.poster) } : {}),
+    }
+  }
+
   // Read + merge + write in one transaction so a concurrent clip mutation
   // (trim, thumbs) can never be clobbered by a stale snapshot.
   const tx = db.transaction('clips', 'readwrite')
@@ -646,18 +703,27 @@ export async function updateClipVolumes(
     await tx.done.catch(() => undefined)
     throw new Error('Clip not found')
   }
-  const updated: ClipRecord = { ...clip }
+  const updated: ClipRecord = { ...clip, ...freshMedia }
+  let changed = false
   const apply = (field: 'clipVolume' | 'musicVolume', value: number | null | undefined) => {
     if (value === undefined) return
     const clamped = value === null ? 1 : clampVolume(value)
     if (clamped >= 1) {
+      if (field in updated) changed = true
       delete updated[field]
     } else {
+      if (updated[field] !== clamped) changed = true
       updated[field] = clamped
     }
   }
   apply('clipVolume', volumes.clipVolume)
   apply('musicVolume', volumes.musicVolume)
+  // Re-committing the value already stored (a slider released twice on the
+  // same spot) must not rewrite the whole record's media blobs for nothing.
+  if (!changed && !options?.rematerializeBlobs) {
+    await tx.done
+    return toMeta(updated)
+  }
   await completeTransaction([tx.store.put(updated)], tx)
   await touchProject(clip.projectId)
   return toMeta(updated)

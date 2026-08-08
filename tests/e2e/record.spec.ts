@@ -207,6 +207,31 @@ test.describe('camera & hold-to-record', () => {
     await context.close()
   })
 
+  test('long toasts stay on screen, centered and wrapped', async ({ page }) => {
+    // No geolocation permission granted: toggling location tagging surfaces
+    // the longest toast in the app ("Location unavailable — check the site's
+    // location permission"). It used to be anchored at mid-screen and cut
+    // off by the right viewport edge (the rise-in animation's transform
+    // replaced the centering translateX).
+    await openNewProject(page)
+    await page.getByRole('button', { name: 'Toggle location tagging' }).click()
+
+    const toast = page.locator('.toast')
+    await expect(toast).toContainText('Location unavailable')
+    const box = await toast.boundingBox()
+    const viewport = page.viewportSize()
+    expect(box).not.toBeNull()
+    expect(viewport).not.toBeNull()
+    expect(box!.x).toBeGreaterThanOrEqual(0)
+    expect(box!.x + box!.width).toBeLessThanOrEqual(viewport!.width)
+    // Centered in the screen it is positioned against (the viewport can be
+    // wider by a classic scrollbar in headless runs).
+    const screen = await page.locator('.project-screen').boundingBox()
+    expect(screen).not.toBeNull()
+    const offCenter = Math.abs(box!.x + box!.width / 2 - (screen!.x + screen!.width / 2))
+    expect(offCenter).toBeLessThanOrEqual(2)
+  })
+
   test('location tagging geotags new clips while on', async ({ context, page }) => {
     await context.grantPermissions(['camera', 'microphone', 'geolocation'])
     await context.setGeolocation({ latitude: 40.2338, longitude: -111.6585, accuracy: 12 })
