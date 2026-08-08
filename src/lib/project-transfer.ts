@@ -8,7 +8,7 @@ import {
   updateProjectAudioTrack,
 } from './storage'
 import { requestPersistentStorage } from './storage-space'
-import type { ClipRecord, Project, ProjectAudioRecord } from './types'
+import type { ClipRecord, Project, ProjectAudioRecord, ProjectOrientation } from './types'
 
 /**
  * Single-file project backup, used both as a safety net and to move a
@@ -74,6 +74,9 @@ interface Manifest {
   app: 'kody-video'
   exportedAt: number
   projectName: string
+  /** The film's orientation (absent = portrait). Older app versions ignore
+   * this field and import the clips as a portrait project. */
+  orientation?: 'landscape'
   clips: ManifestClip[]
   /** Background-music playlist (absent on projects without one). */
   audio?: ManifestAudio
@@ -120,6 +123,7 @@ export function serializeProject(
     app: 'kody-video',
     exportedAt: Date.now(),
     projectName: project.name,
+    ...(project.orientation === 'landscape' ? { orientation: 'landscape' as const } : {}),
     clips: clips.map((clip) => ({
       mimeType: clip.mimeType,
       durationMs: clip.durationMs,
@@ -180,6 +184,8 @@ export interface ParsedBackupAudio {
 
 export interface ParsedBackup {
   projectName: string
+  /** The film's orientation ('portrait' when the backup carries none). */
+  orientation: ProjectOrientation
   clips: Array<Omit<ManifestClip, 'byteLength'> & { blob: Blob }>
   /** Background-music playlist, when the backup carries one. */
   audio: ParsedBackupAudio | null
@@ -294,7 +300,12 @@ export async function parseProjectBackup(file: Blob): Promise<ParsedBackup> {
     }
   }
 
-  return { projectName: String(manifest.projectName || 'Imported project'), clips, audio }
+  return {
+    projectName: String(manifest.projectName || 'Imported project'),
+    orientation: manifest.orientation === 'landscape' ? 'landscape' : 'portrait',
+    clips,
+    audio,
+  }
 }
 
 let importLock: Promise<void> = Promise.resolve()
@@ -355,7 +366,12 @@ async function persistImportedProject(
   parsed: ParsedBackup,
   onProgress?: (doneClips: number, totalClips: number) => void,
 ): Promise<Project> {
-  const project = await createProject(parsed.projectName)
+  const plus = await isWatermarkRemoved()
+  // Landscape projects are a Plus perk, like background music: restoring a
+  // Plus-made backup on a free device keeps the clips as a portrait project
+  // (the setting is skipped, never a creation failure).
+  const orientation = plus && parsed.orientation === 'landscape' ? 'landscape' : undefined
+  const project = await createProject(parsed.projectName, { orientation })
   try {
     let done = 0
     onProgress?.(0, parsed.clips.length)
@@ -398,7 +414,7 @@ async function persistImportedProject(
     // up front — never a silent partial playlist). On entitled devices any
     // track failure fails the import like a clip failure would, so the
     // rollback below never leaves half the music behind.
-    if (parsed.audio && (await isWatermarkRemoved())) {
+    if (parsed.audio && plus) {
       for (const track of parsed.audio.tracks) {
         const bytes = await track.blob.arrayBuffer()
         const record = await addProjectAudioTrack({

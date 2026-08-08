@@ -26,10 +26,20 @@ import {
 } from '../lib/media'
 import { loadProjectPage, type ProjectLoaderData } from '../lib/project-actions'
 import { projectBackupFilename, serializeProject } from '../lib/project-transfer'
-import { createProject, setKeepWatermark, setOnboardingDismissed } from '../lib/storage'
+import {
+  createProject,
+  setKeepWatermark,
+  setOnboardingDismissed,
+  setProjectOrientation,
+} from '../lib/storage'
 import { formatBytes, requestPersistentStorage } from '../lib/storage-space'
 import { navigate } from '../router'
-import { NEW_PROJECT_ID, type ProjectId } from '../lib/types'
+import {
+  NEW_PROJECT_ID,
+  projectOrientation,
+  type ProjectId,
+  type ProjectOrientation,
+} from '../lib/types'
 
 /** Android share targets get flaky well below this; bigger backups download. */
 const SHARE_BACKUP_LIMIT_BYTES = 50 * 1024 * 1024
@@ -96,6 +106,9 @@ export function ProjectPage(handle: Handle<ProjectPageProps>) {
   let exportState: ExportUiState | null = null
   let restoring = false
   let upselling = false
+  /** Orientation chosen on a "/project/new" shell before anything is
+   * persisted — applied when the first clip creates the project. */
+  let pendingOrientation: ProjectOrientation | null = null
   /** In-flight share/save COUNT (concurrent actions must not clear each
    * other's busy state) — the export sheet must not dismiss while > 0. */
   let exportActionCount = 0
@@ -168,6 +181,82 @@ export function ProjectPage(handle: Handle<ProjectPageProps>) {
     }, 2600)
   }
 
+  /** The film's orientation this page renders for: the persisted project's
+   * setting, or the pending pick on a not-yet-persisted "/project/new". */
+  const effectiveOrientation = (): ProjectOrientation => {
+    const project = data?.project
+    if (project && project.id !== NEW_PROJECT_ID) return projectOrientation(project)
+    return pendingOrientation ?? 'portrait'
+  }
+
+  /**
+   * Landscape shifts the whole shell, not just this page: the app frame is
+   * phone-shaped (480px column) by default, and the record/editor layouts
+   * re-arrange for a wide viewport. Both hang off a document-level data
+   * attribute so the CSS can reach the shell (#root) above the app tree.
+   * Installed PWAs additionally get a best-effort orientation lock — the
+   * manifest defaults the app to portrait, and an explicit lock is the only
+   * way a landscape project can rotate there. In a browser tab the lock
+   * rejects (fullscreen-only) and the user simply turns the phone.
+   */
+  let appliedShellOrientation: ProjectOrientation | null = null
+  const syncShellOrientation = (orientation: ProjectOrientation) => {
+    if (appliedShellOrientation === orientation) return
+    appliedShellOrientation = orientation
+    document.documentElement.dataset.projectOrientation = orientation
+    try {
+      const lockable = screen.orientation as ScreenOrientation & {
+        lock?: (lock: string) => Promise<void>
+      }
+      if (orientation === 'landscape') {
+        void lockable.lock?.('landscape').catch(() => undefined)
+      } else {
+        screen.orientation.unlock()
+      }
+    } catch {
+      // Orientation API missing or lock not allowed here — rotation stays manual.
+    }
+  }
+  handle.signal.addEventListener('abort', () => {
+    delete document.documentElement.dataset.projectOrientation
+    try {
+      screen.orientation.unlock()
+    } catch {
+      // Orientation API missing — nothing was locked.
+    }
+  })
+
+  const setOrientation = (next: ProjectOrientation) => {
+    if (!data) return
+    if (next === 'landscape' && !data.watermarkRemoved) {
+      upselling = true
+      void handle.update()
+      return
+    }
+    const project = data.project
+    if (!project || project.id === NEW_PROJECT_ID) {
+      pendingOrientation = next
+      void handle.update()
+      return
+    }
+    // Optimistic: the whole interface swings on this — the write's result
+    // is exactly this state, so only a failure needs a resync.
+    data = {
+      ...data,
+      project: {
+        ...project,
+        ...(next === 'landscape' ? { orientation: 'landscape' as const } : {}),
+        ...(next === 'portrait' ? { orientation: undefined } : {}),
+      },
+    }
+    void handle.update()
+    void setProjectOrientation(project.id, next).catch((err) => {
+      reportError(err, 'set-orientation')
+      showToast(err instanceof Error ? err.message : 'Could not switch orientation')
+      refresh()
+    })
+  }
+
   // Lazy creation: a "/project/new" project is persisted only when the
   // first clip finishes recording. The promise is memoized so overlapping
   // takes (or a camera take racing a screen take) create exactly one.
@@ -181,7 +270,9 @@ export function ProjectPage(handle: Handle<ProjectPageProps>) {
     if (project && project.id !== NEW_PROJECT_ID) return Promise.resolve(project.id)
     ensureProjectPromise ??= (async () => {
       try {
-        const created = await createProject()
+        const created = await createProject(undefined, {
+          orientation: pendingOrientation === 'landscape' ? 'landscape' : undefined,
+        })
         createdProjectId = created.id
         // Their recordings should survive storage pressure.
         requestPersistentStorage()
@@ -224,7 +315,12 @@ export function ProjectPage(handle: Handle<ProjectPageProps>) {
     }
 
     const watermarked = shouldWatermarkExports(data)
-    const signature = exportSignature(clips, watermarked, audio)
+    // Only an explicit landscape choice forces the output shape; portrait
+    // projects keep following their first clip (desktop and screen
+    // recordings are landscape media in "portrait" projects — cropping
+    // those would be a regression, not a feature).
+    const orientation = effectiveOrientation() === 'landscape' ? 'landscape' : undefined
+    const signature = exportSignature(clips, watermarked, audio, orientation)
     // Stop camera/mic immediately rather than waiting on record-screen
     // unmount. On iOS the combined mic+camera session can hold decoder
     // slots past the first paints, and WebKit reports that race as
@@ -304,6 +400,7 @@ export function ProjectPage(handle: Handle<ProjectPageProps>) {
         const result = await exportProject(clips, {
           audioContext,
           watermark: watermarked,
+          orientation,
           background:
             audio && audio.tracks.length > 0
               ? {
@@ -419,6 +516,8 @@ export function ProjectPage(handle: Handle<ProjectPageProps>) {
     const clips = data.clips
 
     if (!project || data.error) {
+      // Whatever project shaped the shell is gone — error UI is portrait.
+      syncShellOrientation('portrait')
       if (data.error === 'Project not found') {
         handle.queueTask(() => navigate('/', { replace: true }))
         return null
@@ -444,16 +543,26 @@ export function ProjectPage(handle: Handle<ProjectPageProps>) {
     const isLazyCreateAlias =
       project.id === NEW_PROJECT_ID &&
       (props.projectId === NEW_PROJECT_ID || props.projectId === createdProjectId)
-    if (project.id !== props.projectId && !isLazyCreateAlias) return null
+    if (project.id !== props.projectId && !isLazyCreateAlias) {
+      // In-place switch to another project: the stale project's landscape
+      // shell must not linger over the incoming one — reset to the default
+      // while the load is in flight (the new data re-syncs on render).
+      syncShellOrientation('portrait')
+      return null
+    }
 
     const exporting = exportState?.status === 'exporting'
     const overlayOpen = playing || exportState !== null || onboardingOpen
     const exportFilename = exportState?.result
       ? projectFilename(project.name, exportState.result.fileExtension)
       : null
+    const orientation = effectiveOrientation()
+    syncShellOrientation(orientation)
 
     return (
-      <div className="screen project-screen">
+      <div
+        className={`screen project-screen${orientation === 'landscape' ? ' orientation-landscape' : ''}`}
+      >
         {/* While exporting, the screens unmount entirely: the camera is
             released (no dead preview burning battery behind the overlay) and
             the full-screen progress takes over. */}
@@ -466,6 +575,9 @@ export function ProjectPage(handle: Handle<ProjectPageProps>) {
             storage={data.storage}
             locationTaggingEnabled={data.locationTaggingEnabled}
             interactionLocked={overlayOpen}
+            orientation={orientation}
+            plus={data.watermarkRemoved}
+            onSetOrientation={setOrientation}
             onOpenEditor={() => {
               mode = 'editor'
               void handle.update()

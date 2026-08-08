@@ -12,11 +12,38 @@ import {
   decodeBlobAudioViaWebAudio,
   decodeClipAudio,
   isWebKitAudioDecoderNotFoundError,
+  pickOutputSize,
   resampleAudioBuffer,
   resetAudioDiagnostics,
   resolveEncodeCanvas,
   waitForPreviewCanvas,
 } from './shared'
+
+describe('pickOutputSize', () => {
+  it('follows the source aspect, capped at 1280 on the long edge', () => {
+    expect(pickOutputSize(1080, 1920)).toEqual({ width: 720, height: 1280 })
+    expect(pickOutputSize(1920, 1080)).toEqual({ width: 1280, height: 720 })
+    // Never upscales; keeps dimensions even.
+    expect(pickOutputSize(321, 569)).toEqual({ width: 322, height: 570 })
+  })
+
+  it('forces a landscape project onto portrait sources by swapping dims', () => {
+    expect(pickOutputSize(1080, 1920, 'landscape')).toEqual({ width: 1280, height: 720 })
+    expect(pickOutputSize(320, 568, 'landscape')).toEqual({ width: 568, height: 320 })
+    // Already landscape: untouched.
+    expect(pickOutputSize(1920, 1080, 'landscape')).toEqual({ width: 1280, height: 720 })
+  })
+
+  it('forces a portrait project onto landscape sources by swapping dims', () => {
+    expect(pickOutputSize(1920, 1080, 'portrait')).toEqual({ width: 720, height: 1280 })
+    expect(pickOutputSize(1080, 1920, 'portrait')).toEqual({ width: 720, height: 1280 })
+  })
+
+  it('leaves square sources alone in both orientations', () => {
+    expect(pickOutputSize(1000, 1000, 'landscape')).toEqual({ width: 1000, height: 1000 })
+    expect(pickOutputSize(1000, 1000, 'portrait')).toEqual({ width: 1000, height: 1000 })
+  })
+})
 
 describe('classifyOutputAudioPeak', () => {
   it('returns unknown when inputs never cleared the silence floor', () => {

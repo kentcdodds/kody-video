@@ -20,9 +20,11 @@ import {
   isStaleConnectionError,
   listProjects,
   moveClip,
+  PlusRequiredError,
   removeProjectAudioTrack,
   renameProject,
   setOnboardingDismissed,
+  setProjectOrientation,
   setTourCardDismissed,
   setKeepWatermark,
   toStoredBlob,
@@ -274,6 +276,52 @@ describe('storage layer', () => {
 
   it('deleteProjectIfPristine keeps a project created with a default-shaped name', async () => {
     const project = await createProject('Project 2')
+
+    expect(await deleteProjectIfPristine(project.id)).toBe(false)
+    expect(await listProjects()).toHaveLength(1)
+  })
+
+  it('gates landscape orientation behind the Plus purchase', async () => {
+    const project = await createProject('Free plan')
+    await expect(setProjectOrientation(project.id, 'landscape')).rejects.toBeInstanceOf(
+      PlusRequiredError,
+    )
+    await expect(setProjectOrientation(project.id, 'landscape')).rejects.toThrow(/plus/i)
+    expect((await listProjects())[0]?.orientation).toBeUndefined()
+    // Portrait is the default and never gated.
+    await setProjectOrientation(project.id, 'portrait')
+    expect((await listProjects())[0]?.orientation).toBeUndefined()
+  })
+
+  it('sets and clears the project orientation for Plus users', async () => {
+    await markWatermarkRemoved('cs_test_storage')
+    const project = await createProject('Widescreen')
+    const landscape = await setProjectOrientation(project.id, 'landscape')
+    expect(landscape.orientation).toBe('landscape')
+    expect((await listProjects())[0]?.orientation).toBe('landscape')
+
+    // Back to portrait clears the stored field entirely — indistinguishable
+    // from a project made before the setting existed.
+    const portrait = await setProjectOrientation(project.id, 'portrait')
+    expect(portrait.orientation).toBeUndefined()
+    expect('orientation' in ((await listProjects())[0] ?? {})).toBe(false)
+  })
+
+  it('creates landscape projects when asked (Plus only)', async () => {
+    await expect(
+      createProject('Free landscape', { orientation: 'landscape' }),
+    ).rejects.toBeInstanceOf(PlusRequiredError)
+
+    await markWatermarkRemoved('cs_test_storage')
+    const project = await createProject('Plus landscape', { orientation: 'landscape' })
+    expect(project.orientation).toBe('landscape')
+    expect((await listProjects())[0]?.orientation).toBe('landscape')
+  })
+
+  it('deleteProjectIfPristine keeps landscape projects', async () => {
+    await markWatermarkRemoved('cs_test_storage')
+    const project = await createProject()
+    await setProjectOrientation(project.id, 'landscape')
 
     expect(await deleteProjectIfPristine(project.id)).toBe(false)
     expect(await listProjects()).toHaveLength(1)

@@ -236,6 +236,22 @@ export function IconLens(handle: Handle<IconProps>) {
   )
 }
 
+/** Project orientation: the frame the film is shaped for, portrait or
+ * landscape, with a rotate arrow suggesting the switch. */
+export function IconOrientation(handle: Handle<IconProps & { landscape?: boolean }>) {
+  return () => (
+    <svg {...baseProps(handle.props.size ?? 22)}>
+      {handle.props.landscape ? (
+        <rect x="3" y="7" width="15" height="10" rx="2" />
+      ) : (
+        <rect x="5" y="4" width="10" height="15" rx="2" />
+      )}
+      <path d="M17.5 20a3.5 3.5 0 003.5-3.5V15" />
+      <path d="M19.2 16.8L21 15l1.8 1.8" />
+    </svg>
+  )
+}
+
 export function IconLock(handle: Handle<IconProps>) {
   return () => (
     <svg {...baseProps(handle.props.size ?? 22)}>

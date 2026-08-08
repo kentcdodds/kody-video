@@ -1,6 +1,10 @@
 export type ProjectId = string
 export type ClipId = string
 
+/** The film's shape: portrait (the default, phone-style) or landscape.
+ * Landscape is a Kody Video Plus perk. */
+export type ProjectOrientation = 'portrait' | 'landscape'
+
 export interface Project {
   id: ProjectId
   name: string
@@ -11,6 +15,16 @@ export interface Project {
    * rename, and never set for caller-chosen names, so a deliberate name
    * (even one shaped like "Project 2") is never mistaken for the default. */
   nameIsDefault?: boolean
+  /** The film's orientation. Absent = portrait (every project made before
+   * this setting existed is a portrait project). */
+  orientation?: ProjectOrientation
+}
+
+/** A project's orientation, defaulting portrait for records without one. */
+export function projectOrientation(
+  project: Pick<Project, 'orientation'>,
+): ProjectOrientation {
+  return project.orientation === 'landscape' ? 'landscape' : 'portrait'
 }
 
 export interface ClipMeta {

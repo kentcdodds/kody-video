@@ -1,6 +1,11 @@
 import { pickRecorderMimeType } from '../media'
 import { isIosBrowser } from '../platform'
-import { clipMusicVolume, clipSoundVolume, resolveAudioTrackPlayback } from '../types'
+import {
+  clipMusicVolume,
+  clipSoundVolume,
+  resolveAudioTrackPlayback,
+  type ProjectOrientation,
+} from '../types'
 import {
   FADE_IN_MS,
   FADE_OUT_MS,
@@ -41,6 +46,9 @@ export interface RealtimeExportOptions {
   watermarkImage?: HTMLImageElement | null
   /** Background-music playlist mixed under the clips (per-clip volumes). */
   background?: BackgroundAudio | null
+  /** Force the output into the project's orientation (absent = follow the
+   * first clip). */
+  orientation?: ProjectOrientation
 }
 
 /**
@@ -57,13 +65,21 @@ export async function exportRealtime(
   let height: number
   try {
     const probe = await loadClipVideo(probeClip.blob, 8000, probeClip.mimeType)
-    ;({ width, height } = pickOutputSize(probe.video.videoWidth, probe.video.videoHeight))
+    ;({ width, height } = pickOutputSize(
+      probe.video.videoWidth,
+      probe.video.videoHeight,
+      options.orientation,
+    ))
     probe.release()
   } catch (error) {
     // Probing is not worth dying over: recorded clips carry their capture
     // dimensions, and pickOutputSize has sane defaults for the rest.
     if ((probeClip.width ?? 0) > 0 && (probeClip.height ?? 0) > 0) {
-      ;({ width, height } = pickOutputSize(probeClip.width!, probeClip.height!))
+      ;({ width, height } = pickOutputSize(
+        probeClip.width!,
+        probeClip.height!,
+        options.orientation,
+      ))
     } else {
       throw tagExportError(error, { engine: 'realtime', where: 'probe-size', clipIndex: 0 })
     }

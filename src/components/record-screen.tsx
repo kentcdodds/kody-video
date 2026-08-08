@@ -32,6 +32,7 @@ import {
   type ClipRecord,
   type Project,
   type ProjectId,
+  type ProjectOrientation,
 } from '../lib/types'
 import {
   IconBack,
@@ -40,7 +41,9 @@ import {
   IconFlip,
   IconLens,
   IconLocation,
+  IconLock,
   IconMic,
+  IconOrientation,
   IconPlay,
   IconScreen,
   IconTimer,
@@ -73,6 +76,12 @@ interface RecordScreenProps {
   interactionLocked: boolean
   /** Opt-in: tag new clips with device location (shell may pass persisted setting). */
   locationTaggingEnabled?: boolean
+  /** The film's orientation — landscape shifts the whole interface. */
+  orientation: ProjectOrientation
+  /** Kody Video Plus unlocked (landscape projects are a Plus perk). */
+  plus: boolean
+  /** Change the project's orientation (the page owns gating + upsell). */
+  onSetOrientation: (orientation: ProjectOrientation) => void
   onOpenEditor: () => void
   onOpenExport: () => void
   onPlay: () => void
@@ -998,6 +1007,18 @@ export function RecordScreen(handle: Handle<RecordScreenProps>) {
             </div>
           ) : null}
 
+          {/* Landscape project on a portrait viewport: what the camera
+              captures follows how the device is held, so the one thing that
+              makes the footage landscape is turning the phone. Visibility is
+              CSS-driven (portrait viewports only). */}
+          {props.orientation === 'landscape' && !recording && !screenRecording ? (
+            <div className="orientation-hint" role="status">
+              <IconOrientation size={28} landscape />
+              <strong>Turn your device sideways</strong>
+              <span>this is a landscape project</span>
+            </div>
+          ) : null}
+
           <div
             className="zoom-hud"
             aria-hidden="true"
@@ -1080,6 +1101,29 @@ export function RecordScreen(handle: Handle<RecordScreenProps>) {
             ) : null}
           </div>
           <div className="record-top-actions">
+            <button
+              type="button"
+              className={`btn-icon orientation-toggle${props.orientation === 'landscape' ? ' is-active' : ''}`}
+              aria-label={
+                props.orientation === 'landscape'
+                  ? 'Switch to a portrait project'
+                  : 'Switch to a landscape project (Kody Video Plus)'
+              }
+              aria-pressed={props.orientation === 'landscape'}
+              disabled={recording || screenRecording || countdown !== null}
+              mix={on('click', () => {
+                props.onSetOrientation(
+                  props.orientation === 'landscape' ? 'portrait' : 'landscape',
+                )
+              })}
+            >
+              <IconOrientation landscape={props.orientation === 'landscape'} />
+              {!props.plus ? (
+                <span className="orientation-plus-lock" aria-hidden="true">
+                  <IconLock size={11} />
+                </span>
+              ) : null}
+            </button>
             {screenRecordingSupported ? (
               <button
                 type="button"
