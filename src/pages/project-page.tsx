@@ -516,6 +516,8 @@ export function ProjectPage(handle: Handle<ProjectPageProps>) {
     const clips = data.clips
 
     if (!project || data.error) {
+      // Whatever project shaped the shell is gone — error UI is portrait.
+      syncShellOrientation('portrait')
       if (data.error === 'Project not found') {
         handle.queueTask(() => navigate('/', { replace: true }))
         return null
@@ -541,7 +543,13 @@ export function ProjectPage(handle: Handle<ProjectPageProps>) {
     const isLazyCreateAlias =
       project.id === NEW_PROJECT_ID &&
       (props.projectId === NEW_PROJECT_ID || props.projectId === createdProjectId)
-    if (project.id !== props.projectId && !isLazyCreateAlias) return null
+    if (project.id !== props.projectId && !isLazyCreateAlias) {
+      // In-place switch to another project: the stale project's landscape
+      // shell must not linger over the incoming one — reset to the default
+      // while the load is in flight (the new data re-syncs on render).
+      syncShellOrientation('portrait')
+      return null
+    }
 
     const exporting = exportState?.status === 'exporting'
     const overlayOpen = playing || exportState !== null || onboardingOpen
