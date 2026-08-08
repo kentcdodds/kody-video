@@ -29,10 +29,11 @@ describe('openTourFromGesture', () => {
     const video = document.createElement('video')
     dialog.append(video)
     document.body.append(dialog)
-    vi.spyOn(video, 'play').mockRejectedValue(new Error('autoplay blocked'))
+    const play = vi.spyOn(video, 'play').mockRejectedValue(new Error('autoplay blocked'))
 
     expect(() => openTourFromGesture(dialog, video)).not.toThrow()
     expect(dialog.open).toBe(true)
+    expect(play).toHaveBeenCalledTimes(1)
     // Flush the rejected play() so an unhandled rejection would fail the test.
     await Promise.resolve()
   })
