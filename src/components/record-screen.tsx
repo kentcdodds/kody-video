@@ -40,11 +40,13 @@ import {
   IconFlip,
   IconLens,
   IconLocation,
+  IconMic,
   IconPlay,
   IconScreen,
   IconTimer,
   IconTorch,
 } from './icons'
+import { MicPickerSheet } from './mic-picker-sheet'
 import { RecordTimer } from './record-timer'
 import { isInteractiveTarget } from '../lib/keyboard'
 
@@ -125,6 +127,8 @@ export function RecordScreen(handle: Handle<RecordScreenProps>) {
   let screenRecordStartedAt = 0
   /** The current/last take's mic never rose above the silence floor. */
   let micSilent = false
+  /** Bottom sheet for choosing which microphone records takes. */
+  let micPickerOpen = false
   let locationTagging = props.locationTaggingEnabled ?? false
 
   const screenRecordingSupported = isScreenRecordingSupported()
@@ -1091,6 +1095,21 @@ export function RecordScreen(handle: Handle<RecordScreenProps>) {
                 <IconScreen on={screenRecording} />
               </button>
             ) : null}
+            {camera.audioInputs.length > 1 ? (
+              <button
+                type="button"
+                className="btn-icon"
+                aria-label="Choose microphone"
+                aria-haspopup="dialog"
+                disabled={recording || screenRecording || countdown !== null}
+                mix={on('click', () => {
+                  micPickerOpen = true
+                  void handle.update()
+                })}
+              >
+                <IconMic />
+              </button>
+            ) : null}
             {camera.torchAvailable ? (
               <button
                 type="button"
@@ -1244,6 +1263,24 @@ export function RecordScreen(handle: Handle<RecordScreenProps>) {
             Go
           </button>
         </div>
+
+        {micPickerOpen ? (
+          <MicPickerSheet
+            inputs={camera.audioInputs}
+            activeId={camera.audioInputId}
+            onPick={(id) => {
+              micPickerOpen = false
+              void handle.update()
+              void camera.setAudioInput(id).catch(() => {
+                props.showToast('Could not switch the microphone')
+              })
+            }}
+            onClose={() => {
+              micPickerOpen = false
+              void handle.update()
+            }}
+          />
+        ) : null}
       </div>
     )
   }

@@ -47,13 +47,22 @@ export interface OpenCameraOptions {
   audio?: boolean
   /** Open a specific camera (rear lens switching); falls back to facing. */
   deviceId?: string
+  /** Record from a specific microphone (audio input chooser). Only applies
+   * when audio is requested; a stale id rejects the whole call, so callers
+   * retry without it (see camera.ts). */
+  audioDeviceId?: string
 }
 
 export async function openCameraStream(
   facing: FacingMode,
   options: OpenCameraOptions = {},
 ): Promise<MediaStream> {
-  const withAudio = options.audio === true
+  const audio: MediaStreamConstraints['audio'] =
+    options.audio === true
+      ? options.audioDeviceId
+        ? { deviceId: { exact: options.audioDeviceId } }
+        : true
+      : false
   const baseConstraints: MediaTrackConstraints = {
     width: { ideal: 1280 },
     height: { ideal: 720 },
@@ -65,7 +74,7 @@ export async function openCameraStream(
   if (options.deviceId) {
     try {
       return await navigator.mediaDevices.getUserMedia({
-        audio: withAudio,
+        audio,
         video: { ...baseConstraints, deviceId: { exact: options.deviceId } },
       })
     } catch {
@@ -73,7 +82,7 @@ export async function openCameraStream(
       // retry the exact device bare before giving up on it.
       try {
         return await navigator.mediaDevices.getUserMedia({
-          audio: withAudio,
+          audio,
           video: { deviceId: { exact: options.deviceId } },
         })
       } catch {
@@ -84,13 +93,13 @@ export async function openCameraStream(
 
   try {
     return await navigator.mediaDevices.getUserMedia({
-      audio: withAudio,
+      audio,
       video: { ...baseConstraints, facingMode: { ideal: facing } },
     })
   } catch (error) {
     if (isOverconstrained(error)) {
       return navigator.mediaDevices.getUserMedia({
-        audio: withAudio,
+        audio,
         video: true,
       })
     }
@@ -187,23 +196,42 @@ export async function preferredIosRearCameraId(): Promise<string | undefined> {
   return undefined
 }
 
+export interface OpenMicrophoneOptions {
+  /** Record from a specific microphone (audio input chooser); a stale or
+   * unplugged id falls back to the system default. */
+  deviceId?: string
+}
+
 /** Grab a mic track only for the duration of a recording. */
-export async function openMicrophoneTrack(): Promise<MediaStreamTrack> {
+export async function openMicrophoneTrack(
+  options: OpenMicrophoneOptions = {},
+): Promise<MediaStreamTrack> {
   // Camera-app audio, not voice-call audio: echoCancellation/noiseSuppression/
   // autoGainControl route the mic through the "communications" processing
   // path (especially on Android), which sounds muffled, pumpy, and narrow.
   // Real camera apps record the raw mic — so do we. Bare boolean constraint
   // values are treated as ideal, so unsupported devices still open the mic.
-  const mic = await navigator.mediaDevices.getUserMedia({
-    audio: {
-      echoCancellation: false,
-      noiseSuppression: false,
-      autoGainControl: false,
-      channelCount: { ideal: 2 },
-      sampleRate: { ideal: 48000 },
-    },
-    video: false,
-  })
+  const baseAudio: MediaTrackConstraints = {
+    echoCancellation: false,
+    noiseSuppression: false,
+    autoGainControl: false,
+    channelCount: { ideal: 2 },
+    sampleRate: { ideal: 48000 },
+  }
+  const open = (audio: MediaTrackConstraints) =>
+    navigator.mediaDevices.getUserMedia({ audio, video: false })
+  let mic: MediaStream
+  if (options.deviceId) {
+    try {
+      mic = await open({ ...baseAudio, deviceId: { exact: options.deviceId } })
+    } catch {
+      // Stale/unplugged chosen mic — the take records from the default mic
+      // rather than failing outright.
+      mic = await open(baseAudio)
+    }
+  } else {
+    mic = await open(baseAudio)
+  }
   const track = mic.getAudioTracks()[0]
   if (!track) {
     mic.getTracks().forEach((t) => t.stop())
