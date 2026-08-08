@@ -515,6 +515,48 @@
   }
 }
 
+/* Microphone chooser sheet (shown when the device has more than one mic). */
+.mic-options {
+  display: grid;
+  gap: 8px;
+  margin-top: 14px;
+}
+
+.mic-option-btn {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  min-height: var(--tap);
+  border-radius: 16px;
+  padding: 10px 16px;
+  text-align: left;
+  font-weight: 700;
+  font-size: 1rem;
+  background: color-mix(in srgb, var(--ink) 7%, transparent);
+  border: 1px solid var(--line);
+  transition: transform 160ms ease, background 160ms ease;
+}
+
+.mic-option-btn:active {
+  transform: scale(0.985);
+  background: color-mix(in srgb, var(--accent) 18%, transparent);
+}
+
+.mic-option-btn.is-active {
+  border-color: color-mix(in srgb, var(--accent) 55%, transparent);
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+}
+
+.mic-option-label {
+  overflow-wrap: anywhere;
+}
+
+.mic-option-check {
+  flex-shrink: 0;
+  color: var(--accent);
+}
+
 /* Narrow phones: keep tools + Go on one row without overflow. */
 @media (max-width: 360px) {
   .record-tools {

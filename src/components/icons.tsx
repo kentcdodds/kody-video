@@ -283,6 +283,17 @@ export function IconInfo(handle: Handle<IconProps>) {
   )
 }
 
+/** Microphone capsule with stand: audio input chooser. */
+export function IconMic(handle: Handle<IconProps>) {
+  return () => (
+    <svg {...baseProps(handle.props.size ?? 22)}>
+      <rect x="9" y="3" width="6" height="10.5" rx="3" />
+      <path d="M5.5 11.5a6.5 6.5 0 0013 0" />
+      <path d="M12 18v3" />
+    </svg>
+  )
+}
+
 /** Monitor with a record dot: screen recording. */
 export function IconScreen(handle: Handle<IconProps & { on?: boolean }>) {
   return () => (
