@@ -8,6 +8,7 @@
  * exact same recorder + clip pipeline as camera takes.
  */
 
+import { resolvePreferredAudioInputId } from './audio-input'
 import { openMicrophoneTrack } from './media'
 import { HoldRecorder, type RecordingResult } from './recorder'
 
@@ -46,9 +47,12 @@ export async function startScreenRecording(): Promise<ScreenRecordingSession> {
     throw new Error('No screen video available')
   }
 
-  // Narration mic — best effort. A denied mic must not kill the capture;
-  // the take just records without narration (or with shared audio only).
-  const micTrack = await openMicrophoneTrack().catch(() => null)
+  // Narration mic — best effort, honoring the audio input chooser. A denied
+  // mic must not kill the capture; the take just records without narration
+  // (or with shared audio only).
+  const micTrack = await resolvePreferredAudioInputId()
+    .then((deviceId) => openMicrophoneTrack({ deviceId }))
+    .catch(() => null)
 
   const audioSources = [...display.getAudioTracks(), ...(micTrack ? [micTrack] : [])]
   let audioContext: AudioContext | null = null

@@ -1,3 +1,10 @@
+import {
+  listAudioInputs,
+  rememberAudioInput,
+  resolveAudioInput,
+  resolvePreferredAudioInputId,
+  type AudioInputOption,
+} from './audio-input'
 import { engageRecordAudioSession, releaseRecordAudioSession } from './audio-session'
 import {
   canFlipCamera,
@@ -43,6 +50,17 @@ async function openCombinedOrVideoStream(
   deviceId: string | undefined,
 ): Promise<MediaStream> {
   if (HOLD_MIC_WITH_CAMERA) {
+    // The chosen mic (audio input chooser) rides along in the combined
+    // request; a stale/unplugged id rejects the whole call, so retry with
+    // the default mic before giving up on audio entirely.
+    const audioDeviceId = await resolvePreferredAudioInputId()
+    if (audioDeviceId) {
+      try {
+        return await openCameraStream(facing, { audio: true, deviceId, audioDeviceId })
+      } catch {
+        // Fall through to the default-mic request below.
+      }
+    }
     try {
       return await openCameraStream(facing, { audio: true, deviceId })
     } catch {
@@ -136,10 +154,17 @@ export interface Camera {
   rearLensCount: number
   /** Index of the active rear lens, when facing the environment. */
   rearLensIndex: number
+  /** Microphones the user can choose from (chooser shows when >1). */
+  audioInputs: AudioInputOption[]
+  /** Mic the next take records from (null = system default). */
+  audioInputId: string | null
   /** Attach the preview element (from a `ref()` mixin); starts the camera. */
   attachVideo: (element: HTMLVideoElement, signal: AbortSignal) => void
   /** Cycle to the next rear lens (no-op while facing the user). */
   switchRearLens: () => Promise<void>
+  /** Record upcoming takes from a specific mic; persists across sessions.
+   * Never call mid-take — the chooser UI is disabled while recording. */
+  setAudioInput: (id: string) => Promise<void>
   start: () => Promise<void>
   flip: () => Promise<void>
   stop: () => void
@@ -200,8 +225,11 @@ export function createCamera(notify: () => void): Camera {
     micPermission: 'unknown',
     rearLensCount: 0,
     rearLensIndex: 0,
+    audioInputs: [],
+    audioInputId: null,
     attachVideo,
     switchRearLens,
+    setAudioInput,
     start,
     flip,
     stop,
@@ -331,6 +359,84 @@ export function createCamera(notify: () => void): Camera {
     }
   }
 
+  /** Discover microphones for the input chooser. Labels (and on some
+   * browsers the entries themselves) only populate once mic permission is
+   * granted, so this re-runs after the priming prompt resolves and on
+   * devicechange (headsets plugging in / Bluetooth mics connecting). */
+  async function syncAudioInputs(): Promise<void> {
+    const inputs = await listAudioInputs()
+    camera.audioInputs = inputs
+    // Highlight the explicit preference when one resolves; otherwise the
+    // mic that is actually live (iOS combined stream, warm per-take mic).
+    camera.audioInputId =
+      resolveAudioInput(inputs) ??
+      camera.stream
+        ?.getAudioTracks()
+        .find((track) => track.readyState === 'live')
+        ?.getSettings().deviceId ??
+      null
+    notify()
+  }
+
+  /**
+   * Record upcoming takes from a specific mic. Non-iOS, the mic is opened
+   * per take, so remembering the choice is almost the whole job — except a
+   * still-warm mic from the previous take, which must be swapped now or the
+   * next take would silently reuse the old device.
+   */
+  async function setAudioInput(id: string): Promise<void> {
+    const option = camera.audioInputs.find((input) => input.id === id)
+    if (!option) return
+    rememberAudioInput(option)
+    camera.audioInputId = id
+    notify()
+
+    if (HOLD_MIC_WITH_CAMERA) {
+      // iOS: the mic lives inside the combined camera stream — switching
+      // means reopening camera + mic as one request (a separately-acquired
+      // audio track is the muted-track pattern this module avoids).
+      const current = camera.stream
+      if (!current || current.getAudioTracks().length === 0) return
+      const epoch = cameraEpoch
+      const deviceId = current.getVideoTracks()[0]?.getSettings().deviceId
+      const next = await openCameraStream(facingIntent, {
+        audio: true,
+        deviceId,
+        audioDeviceId: id,
+      })
+      if (cameraEpoch !== epoch || camera.stream !== current) {
+        stopStream(next)
+        return
+      }
+      replaceStream(next)
+      return
+    }
+
+    const hadLiveMic =
+      camera.stream?.getAudioTracks().some((track) => track.readyState === 'live') ?? false
+    window.clearTimeout(micReleaseTimer)
+    micReleaseTimer = 0
+    stopAudioTracks(camera.stream)
+    if (!hadLiveMic) return
+    // Keep the swap warm: the old mic was held between takes so the next
+    // take wouldn't pay a fresh acquisition's silent ramp-up — the newly
+    // chosen mic should get the same head start (and surface open failures
+    // now rather than mid-hold).
+    try {
+      const track = await openMicrophoneTrack({ deviceId: id })
+      const latest = camera.stream
+      if (!latest) {
+        track.stop()
+        return
+      }
+      latest.addTrack(track)
+      releaseMic({ keepWarm: true })
+    } catch {
+      // No mic opened at all (openMicrophoneTrack already falls back to the
+      // default device) — the next take's enableMic reports the error.
+    }
+  }
+
   async function start(): Promise<void> {
     if (startInFlight) {
       await startInFlight
@@ -385,6 +491,7 @@ export function createCamera(notify: () => void): Camera {
         camera.canFlip = await canFlipCamera()
         notify()
         void syncRearLenses(next)
+        void syncAudioInputs()
         // Mic permission priming (see primeMicrophonePermission): asking
         // mid-hold is silently denied by some browsers (Brave/Android never
         // shows the prompt). Prompt now, at a normal moment. The claim is
@@ -398,6 +505,9 @@ export function createCamera(notify: () => void): Camera {
             camera.micPermission = state
             if (state === 'unknown') micPrimed = false
             notify()
+            // The grant is what populates audio device ids/labels — the
+            // enumeration from the camera open alone may miss them.
+            if (state === 'granted') void syncAudioInputs()
           })
         }
       } catch (err) {
@@ -583,7 +693,16 @@ export function createCamera(notify: () => void): Camera {
       if (!current) throw new Error('Camera not ready')
       const epoch = cameraEpoch
       const deviceId = current.getVideoTracks()[0]?.getSettings().deviceId
-      const next = await openCameraStream(facingIntent, { audio: true, deviceId })
+      const audioDeviceId = resolveAudioInput(camera.audioInputs)
+      let next: MediaStream
+      try {
+        next = await openCameraStream(facingIntent, { audio: true, deviceId, audioDeviceId })
+      } catch (err) {
+        // A stale chosen-mic id rejects the whole combined call — the take
+        // must still get audio from the default mic.
+        if (!audioDeviceId) throw err
+        next = await openCameraStream(facingIntent, { audio: true, deviceId })
+      }
       // The camera may have been stopped or swapped while the permission
       // prompt was open — never adopt into that lifecycle's back.
       if (cameraEpoch !== epoch || camera.stream !== current) {
@@ -604,7 +723,11 @@ export function createCamera(notify: () => void): Camera {
         return
       }
 
-      const audioTrack = await openMicrophoneTrack()
+      // The chooser's pick (already resolved against the current
+      // enumeration) — never the display-only live-track fallback.
+      const audioTrack = await openMicrophoneTrack({
+        deviceId: resolveAudioInput(camera.audioInputs),
+      })
       const latest = camera.stream
       if (!latest) {
         audioTrack.stop()
@@ -666,7 +789,12 @@ export function createCamera(notify: () => void): Camera {
 
   function attachVideo(element: HTMLVideoElement, signal: AbortSignal): void {
     videoEl = element
+    // Mics come and go mid-session (Bluetooth connecting, headsets plugging
+    // in) — keep the chooser's list current while the preview is mounted.
+    const onDeviceChange = () => void syncAudioInputs()
+    navigator.mediaDevices?.addEventListener?.('devicechange', onDeviceChange)
     signal.addEventListener('abort', () => {
+      navigator.mediaDevices?.removeEventListener?.('devicechange', onDeviceChange)
       videoEl = null
       stop()
     })
