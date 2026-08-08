@@ -59,7 +59,8 @@ For a phone on the same network, use your machine’s LAN URL over HTTPS, or tun
   browser's volume ceiling in previews)
 - **Landscape projects** (Plus): no setting — rotate the phone. While a
   project has no clips its interface follows how the device is held, and
-  the **first take locks the orientation** for good. Landscape shifts the
+  the **first take locks the orientation** (emptying the project of clips
+  lets the next first take decide again). Landscape shifts the
   entire interface: the phone-shaped shell widens to the viewport, the
   record controls become a right-hand rail, the editor puts the player
   beside the timeline, and hints ask for a turn whenever the device

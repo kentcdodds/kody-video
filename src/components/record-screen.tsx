@@ -328,6 +328,12 @@ export function RecordScreen(handle: Handle<RecordScreenProps>) {
       ) {
         return
       }
+      // Touch-primary devices with getDisplayMedia (ChromeOS tablets): a
+      // screen take is a first clip like any other — same landscape gate.
+      if (landscapeTakeGated()) {
+        props.onUpsell()
+        return
+      }
       screenBusy = true
       try {
         const session = await startScreenRecording()

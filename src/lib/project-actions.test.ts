@@ -81,6 +81,10 @@ describe('appendRecording orientation lock', () => {
     const project = await createProject('Tall')
     const first = await record(project.id, 'wide-take')
     await deleteClip(first.id)
+    // Deleting the last clip deliberately KEEPS the stored lock: clearing it
+    // here would lose the orientation across a delete → undo cycle. An empty
+    // project is unlocked because the UI derives that from clip count, and
+    // the next first take overwrites the stale value (asserted below).
     expect((await getProject(project.id))?.orientation).toBe('landscape')
 
     // Emptied project: the next first take re-decides — now held upright.
