@@ -14,6 +14,7 @@ import {
   moveClip,
   removeProjectAudioTrack,
   setLastOpenedProjectId,
+  setProjectOrientation,
   undoDeleteLastClip,
   updateClipThumbs,
   updateClipTrim,
@@ -22,6 +23,7 @@ import {
   type ClipVolumeSettings,
   type ProjectAudioTrackSettings,
 } from './storage'
+import { isCoarsePointerDevice, viewportIsLandscape } from './platform'
 import { probeAudioFile } from './audio-import'
 import { estimateExportCacheBytes } from './export/export-cache'
 import { estimateStorageSpace, type StorageSpace } from './storage-space'
@@ -237,6 +239,14 @@ export async function appendRecording(
     capturedThumbs?: GeneratedThumbs | null
   },
 ): Promise<ClipRecord> {
+  // The FIRST recording locks the project's orientation to how the device
+  // is held — but only where holding it a way is a deliberate choice
+  // (phones/tablets). Desktop cameras and screen shares are landscape media
+  // regardless of intent, so desktop projects stay unlocked (their exports
+  // follow the clips, as always). Checked before the write so the lock
+  // below can never mistake this very clip for an existing one.
+  const project = await getProject(projectId)
+  const locksOrientation = project?.clipIds.length === 0 && isCoarsePointerDevice()
   const clip = await addClip({
     projectId,
     blob: input.blob,
@@ -249,6 +259,16 @@ export async function appendRecording(
     lng: input.lng,
     locationAccuracyM: input.locationAccuracyM,
   })
+  if (locksOrientation) {
+    // Best-effort, after the clip is safely stored: a lock failure (e.g.
+    // the landscape Plus gate racing an entitlement change — the record
+    // screen blocks free landscape takes before they start) must never
+    // lose a recorded take. An unlocked project just stays portrait.
+    await setProjectOrientation(
+      projectId,
+      viewportIsLandscape() ? 'landscape' : 'portrait',
+    ).catch(() => undefined)
+  }
   if (options?.capturedThumbs) {
     // Best-effort: on a (rare) persistence failure the loader backfill
     // still generates thumbs — one black flash beats missing artwork. The

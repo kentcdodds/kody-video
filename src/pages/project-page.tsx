@@ -24,14 +24,10 @@ import {
   shareFile,
   shareOrDownload,
 } from '../lib/media'
+import { isCoarsePointerDevice, viewportIsLandscape } from '../lib/platform'
 import { loadProjectPage, type ProjectLoaderData } from '../lib/project-actions'
 import { projectBackupFilename, serializeProject } from '../lib/project-transfer'
-import {
-  createProject,
-  setKeepWatermark,
-  setOnboardingDismissed,
-  setProjectOrientation,
-} from '../lib/storage'
+import { createProject, setKeepWatermark, setOnboardingDismissed } from '../lib/storage'
 import { formatBytes, requestPersistentStorage } from '../lib/storage-space'
 import { navigate } from '../router'
 import {
@@ -106,9 +102,6 @@ export function ProjectPage(handle: Handle<ProjectPageProps>) {
   let exportState: ExportUiState | null = null
   let restoring = false
   let upselling = false
-  /** Orientation chosen on a "/project/new" shell before anything is
-   * persisted — applied when the first clip creates the project. */
-  let pendingOrientation: ProjectOrientation | null = null
   /** In-flight share/save COUNT (concurrent actions must not clear each
    * other's busy state) — the export sheet must not dismiss while > 0. */
   let exportActionCount = 0
@@ -181,12 +174,25 @@ export function ProjectPage(handle: Handle<ProjectPageProps>) {
     }, 2600)
   }
 
-  /** The film's orientation this page renders for: the persisted project's
-   * setting, or the pending pick on a not-yet-persisted "/project/new". */
+  /** No clips yet = the orientation is still the device's to choose: the
+   * first recorded take locks it (touch devices only — see appendRecording). */
+  const orientationUnlocked = (): boolean => (data?.clips.length ?? 0) === 0
+
+  /**
+   * The film's orientation this page renders for. Locked projects (any with
+   * clips) are stuck with what their first take chose, wherever they open.
+   * Unlocked projects on phones/tablets follow how the device is held right
+   * now — rotating IS the orientation picker. Desktop keeps the classic
+   * column for unlocked projects (its cameras are landscape media without
+   * that being a choice).
+   */
   const effectiveOrientation = (): ProjectOrientation => {
     const project = data?.project
-    if (project && project.id !== NEW_PROJECT_ID) return projectOrientation(project)
-    return pendingOrientation ?? 'portrait'
+    if (!project) return 'portrait'
+    if (orientationUnlocked() && isCoarsePointerDevice()) {
+      return viewportIsLandscape() ? 'landscape' : 'portrait'
+    }
+    return projectOrientation(project)
   }
 
   /**
@@ -194,21 +200,26 @@ export function ProjectPage(handle: Handle<ProjectPageProps>) {
    * phone-shaped (480px column) by default, and the record/editor layouts
    * re-arrange for a wide viewport. Both hang off a document-level data
    * attribute so the CSS can reach the shell (#root) above the app tree.
-   * Installed PWAs additionally get a best-effort orientation lock — the
-   * manifest defaults the app to portrait, and an explicit lock is the only
-   * way a landscape project can rotate there. In a browser tab the lock
-   * rejects (fullscreen-only) and the user simply turns the phone.
+   * Installed PWAs additionally need explicit screen-orientation locks (the
+   * manifest pins the app portrait): a locked-landscape project locks the
+   * screen sideways, an UNLOCKED project frees rotation entirely so turning
+   * the phone can make the choice, and everything else returns to the
+   * manifest default. In a browser tab every lock call rejects silently and
+   * the OS's own auto-rotate does the job.
    */
-  let appliedShellOrientation: ProjectOrientation | null = null
-  const syncShellOrientation = (orientation: ProjectOrientation) => {
-    if (appliedShellOrientation === orientation) return
-    appliedShellOrientation = orientation
+  let appliedShellState: string | null = null
+  const syncShellOrientation = (orientation: ProjectOrientation, unlocked: boolean) => {
+    const nextState = `${orientation}:${unlocked}`
+    if (appliedShellState === nextState) return
+    appliedShellState = nextState
     document.documentElement.dataset.projectOrientation = orientation
     try {
       const lockable = screen.orientation as ScreenOrientation & {
         lock?: (lock: string) => Promise<void>
       }
-      if (orientation === 'landscape') {
+      if (unlocked && isCoarsePointerDevice()) {
+        void lockable.lock?.('any').catch(() => undefined)
+      } else if (orientation === 'landscape') {
         void lockable.lock?.('landscape').catch(() => undefined)
       } else {
         screen.orientation.unlock()
@@ -226,36 +237,27 @@ export function ProjectPage(handle: Handle<ProjectPageProps>) {
     }
   })
 
-  const setOrientation = (next: ProjectOrientation) => {
-    if (!data) return
-    if (next === 'landscape' && !data.watermarkRemoved) {
+  // Rotating the device re-renders (the unlocked layout follows it), and on
+  // the free plan, turning an unlocked project sideways is the moment to
+  // pitch Plus: the landscape interface is on screen — the gate (recording
+  // is blocked until upgrade or rotating back) needs explaining.
+  const landscapeMedia = window.matchMedia('(orientation: landscape)')
+  const onDeviceOrientationChange = () => {
+    if (
+      landscapeMedia.matches &&
+      isCoarsePointerDevice() &&
+      orientationUnlocked() &&
+      data &&
+      !data.watermarkRemoved
+    ) {
       upselling = true
-      void handle.update()
-      return
-    }
-    const project = data.project
-    if (!project || project.id === NEW_PROJECT_ID) {
-      pendingOrientation = next
-      void handle.update()
-      return
-    }
-    // Optimistic: the whole interface swings on this — the write's result
-    // is exactly this state, so only a failure needs a resync.
-    data = {
-      ...data,
-      project: {
-        ...project,
-        ...(next === 'landscape' ? { orientation: 'landscape' as const } : {}),
-        ...(next === 'portrait' ? { orientation: undefined } : {}),
-      },
     }
     void handle.update()
-    void setProjectOrientation(project.id, next).catch((err) => {
-      reportError(err, 'set-orientation')
-      showToast(err instanceof Error ? err.message : 'Could not switch orientation')
-      refresh()
-    })
   }
+  landscapeMedia.addEventListener('change', onDeviceOrientationChange)
+  handle.signal.addEventListener('abort', () => {
+    landscapeMedia.removeEventListener('change', onDeviceOrientationChange)
+  })
 
   // Lazy creation: a "/project/new" project is persisted only when the
   // first clip finishes recording. The promise is memoized so overlapping
@@ -270,9 +272,7 @@ export function ProjectPage(handle: Handle<ProjectPageProps>) {
     if (project && project.id !== NEW_PROJECT_ID) return Promise.resolve(project.id)
     ensureProjectPromise ??= (async () => {
       try {
-        const created = await createProject(undefined, {
-          orientation: pendingOrientation === 'landscape' ? 'landscape' : undefined,
-        })
+        const created = await createProject()
         createdProjectId = created.id
         // Their recordings should survive storage pressure.
         requestPersistentStorage()
@@ -517,7 +517,7 @@ export function ProjectPage(handle: Handle<ProjectPageProps>) {
 
     if (!project || data.error) {
       // Whatever project shaped the shell is gone — error UI is portrait.
-      syncShellOrientation('portrait')
+      syncShellOrientation('portrait', false)
       if (data.error === 'Project not found') {
         handle.queueTask(() => navigate('/', { replace: true }))
         return null
@@ -547,7 +547,7 @@ export function ProjectPage(handle: Handle<ProjectPageProps>) {
       // In-place switch to another project: the stale project's landscape
       // shell must not linger over the incoming one — reset to the default
       // while the load is in flight (the new data re-syncs on render).
-      syncShellOrientation('portrait')
+      syncShellOrientation('portrait', false)
       return null
     }
 
@@ -557,7 +557,8 @@ export function ProjectPage(handle: Handle<ProjectPageProps>) {
       ? projectFilename(project.name, exportState.result.fileExtension)
       : null
     const orientation = effectiveOrientation()
-    syncShellOrientation(orientation)
+    const unlocked = orientationUnlocked()
+    syncShellOrientation(orientation, unlocked)
 
     return (
       <div
@@ -576,8 +577,12 @@ export function ProjectPage(handle: Handle<ProjectPageProps>) {
             locationTaggingEnabled={data.locationTaggingEnabled}
             interactionLocked={overlayOpen}
             orientation={orientation}
+            orientationUnlocked={unlocked}
             plus={data.watermarkRemoved}
-            onSetOrientation={setOrientation}
+            onUpsell={() => {
+              upselling = true
+              void handle.update()
+            }}
             onOpenEditor={() => {
               mode = 'editor'
               void handle.update()

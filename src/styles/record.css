@@ -417,28 +417,10 @@
   pointer-events: none;
 }
 
-/* Orientation toggle: the lock badge marks it as a Plus perk on the free
-   plan (tapping opens the upsell, like the editor's locked Add music). */
-.orientation-toggle {
-  position: relative;
-}
-
-.orientation-plus-lock {
-  position: absolute;
-  top: -4px;
-  right: -4px;
-  display: grid;
-  place-items: center;
-  width: 17px;
-  height: 17px;
-  border-radius: 50%;
-  color: var(--ink-strong);
-  background: var(--accent);
-}
-
-/* Landscape project held upright: the camera captures what the device
-   orientation gives it, so turning the phone IS the landscape switch.
-   Rendered only on landscape projects; shown only on portrait viewports. */
+/* Locked-project mismatch hints: a landscape project held upright (shown on
+   portrait viewports), and a portrait project held sideways (shown on
+   landscape viewports, coarse pointers only — desktop windows aren't
+   "held"). Each is rendered only on its project kind. */
 .orientation-hint {
   position: absolute;
   left: 50%;
@@ -476,6 +458,39 @@
   .orientation-hint {
     display: flex;
   }
+
+  .orientation-hint-portrait {
+    display: none;
+  }
+}
+
+@media (orientation: landscape) and (pointer: coarse) {
+  .orientation-hint-portrait {
+    display: flex;
+  }
+}
+
+/* Rotate-to-choose upsell (free plan, empty project, device sideways): the
+   landscape interface is visible as a preview; this explains why recording
+   waits. Sits where the hold-hint would be. */
+.orientation-gate-pill {
+  position: absolute;
+  left: 50%;
+  bottom: 22%;
+  transform: translateX(-50%);
+  z-index: 2;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 16px;
+  border-radius: 999px;
+  color: #10171a;
+  background: var(--accent);
+  border: 1px solid color-mix(in srgb, var(--accent) 65%, #fff);
+  font-weight: 700;
+  font-size: 0.85rem;
+  box-shadow: 0 8px 28px rgba(0, 0, 0, 0.35);
+  max-width: min(420px, 88vw);
 }
 
 /* The landscape interface: with the project (and viewport) sideways, the

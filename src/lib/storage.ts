@@ -341,11 +341,11 @@ function assertLandscapeAllowed(settings: Pick<AppMeta, 'watermarkRemoved'>): vo
 }
 
 /**
- * Set the project's orientation. Landscape requires the Plus entitlement
- * (enforced here so every path — toggle, import — hits the same gate);
- * switching back to portrait is always allowed and clears the stored field,
- * so a portrait project is indistinguishable from one made before the
- * setting existed.
+ * Set the project's orientation — the lock primitive behind the first-take
+ * rule (appendRecording) and backup restore. Landscape requires the Plus
+ * entitlement (enforced here so every path hits the same gate); portrait is
+ * always allowed and clears the stored field, so a portrait project is
+ * indistinguishable from one made before orientation existed.
  */
 export async function setProjectOrientation(
   id: ProjectId,
@@ -378,8 +378,7 @@ export async function deleteProject(id: ProjectId): Promise<void> {
 
 /**
  * Delete the project only when it is still indistinguishable from a freshly
- * created one: no clips, never renamed, default (portrait) orientation, no
- * background music. Exiting such a
+ * created one: no clips, never renamed, no background music. Exiting such a
  * project should leave nothing behind — deleting it changes nothing the user
  * can see, so it happens silently. Any leftover undo snapshot (last clip
  * deleted, never restored) goes with it. Returns true when it was deleted.
@@ -404,10 +403,12 @@ async function deleteProjectRecords(
     // delete (exiting right as a take persists) serializes against it, so a
     // fresh clip can never survive into a half-deleted project.
     const audio = await tx.objectStore('audio').get(id)
+    // Orientation deliberately does NOT block this: it is derived from the
+    // first take (not a standalone choice), so a project emptied of clips
+    // is back to its default state even when a lock was once recorded.
     const pristine =
       project.clipIds.length === 0 &&
       project.nameIsDefault === true &&
-      project.orientation === undefined &&
       (!audio || audio.tracks.length === 0)
     if (!pristine) {
       await tx.done
