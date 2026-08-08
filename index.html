@@ -178,12 +178,14 @@
          is set by the pre-paint script below, so the frame never jumps when
          the full stylesheet arrives). 'adaptive' (home/static pages) widens
          on landscape viewports; 'wide' (landscape projects) always. */
-      html[data-shell='wide'] #root {
+      html[data-shell='wide'] #root,
+      html[data-shell='wide'] .app-shell {
         width: 100%;
         max-width: none;
       }
       @media (orientation: landscape) {
-        html[data-shell='adaptive'] #root {
+        html[data-shell='adaptive'] #root,
+        html[data-shell='adaptive'] .app-shell {
           width: 100%;
           max-width: none;
         }

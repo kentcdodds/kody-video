@@ -111,15 +111,23 @@ export function HomePage(handle: Handle) {
   const unsubscribeInstall = subscribeInstallPrompt(() => void handle.update())
   handle.signal.addEventListener('abort', unsubscribeInstall)
 
-  // Rotating swaps who paints the hero: portrait mobile shows the static
-  // #boot-hero over a same-size spacer (LCP), landscape/desktop render the
-  // real in-app hero inside the two-pane layout. The swap is a render-time
-  // decision, so a rotation must re-render.
-  const landscapeMedia = window.matchMedia('(orientation: landscape)')
-  const onOrientationChange = () => void handle.update()
-  landscapeMedia.addEventListener('change', onOrientationChange)
+  // Rotating (or resizing across the phone-width breakpoint) swaps who
+  // paints the hero: portrait mobile shows the static #boot-hero over a
+  // same-size spacer (LCP), landscape/desktop render the real in-app hero
+  // inside the two-pane layout. The swap is a render-time decision, so both
+  // media flips must re-render.
+  const heroMediaQueries = [
+    window.matchMedia('(orientation: landscape)'),
+    window.matchMedia('(max-width: 719px)'),
+  ]
+  const onHeroMediaChange = () => void handle.update()
+  for (const media of heroMediaQueries) {
+    media.addEventListener('change', onHeroMediaChange)
+  }
   handle.signal.addEventListener('abort', () => {
-    landscapeMedia.removeEventListener('change', onOrientationChange)
+    for (const media of heroMediaQueries) {
+      media.removeEventListener('change', onHeroMediaChange)
+    }
   })
 
   // Nothing is persisted until the first clip is recorded — backing out of

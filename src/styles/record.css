@@ -547,10 +547,10 @@
     margin-bottom: auto;
   }
 
-  /* Keep the title/meta clear of the rail; pad the back button away from
-     the notch side. */
+  /* Keep the title/meta clear of the rail (which grows with the right
+     inset); pad the back button away from the notch side. */
   .orientation-landscape .record-top {
-    right: 108px;
+    right: calc(108px + env(safe-area-inset-right, 0px));
     padding-left: calc(12px + env(safe-area-inset-left, 0px));
   }
 
