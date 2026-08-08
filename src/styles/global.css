@@ -676,26 +676,35 @@ a {
 
 .toast {
   position: absolute;
-  left: 50%;
   bottom: calc(128px + var(--safe-bottom));
-  transform: translateX(-50%);
+  /* Center with left/right + max-content — not translateX(-50%) — so the
+     rise-in animation's transform cannot un-center the pill (it fills with
+     translateY(0), which replaced the centering translateX and left the
+     pill anchored at mid-screen, cut off by the right edge). Same fix as
+     .update-toast. */
+  left: 0;
+  right: 0;
+  width: max-content;
+  max-width: calc(100% - 24px);
+  margin-inline: auto;
   z-index: 7;
   display: flex;
   align-items: center;
   gap: 10px;
-  max-width: calc(100% - 24px);
   background: var(--toast-bg);
   border: 1px solid var(--line);
   color: var(--ink);
   padding: 10px 14px;
   border-radius: 999px;
   font-size: 0.9rem;
-  white-space: nowrap;
+  /* Messages longer than the viewport wrap instead of spilling past the pill. */
+  line-height: 1.35;
   animation: rise-in 220ms ease both;
   box-shadow: var(--shadow);
 }
 
 .toast button {
+  flex: 0 0 auto;
   color: var(--accent);
   font-weight: 700;
 }

@@ -17,6 +17,7 @@ import {
   getProjectAudio,
   getSettings,
   getUndoSnapshot,
+  isRetriableIdbFailure,
   isStaleConnectionError,
   listProjects,
   moveClip,
@@ -30,6 +31,7 @@ import {
   toStoredBlob,
   undoDeleteLastClip,
   updateClipAudioPeak,
+  updateClipThumbs,
   updateClipVolumes,
   updateProjectAudioTrack,
   updateClipTrim,
@@ -621,6 +623,124 @@ describe('storage layer', () => {
     expect(cleared?.clipVolume).toBeUndefined()
     expect(cleared && 'clipVolume' in cleared).toBe(false)
     expect(cleared && 'musicVolume' in cleared).toBe(false)
+  })
+
+  it('retries a volume write on a fresh connection when IDB dies mid-write', async () => {
+    const project = await createProject('Volume retry')
+    const clip = await addClip({
+      projectId: project.id,
+      blob: fakeBlob('volume-retry-bytes'),
+      mimeType: 'video/webm',
+      durationMs: 1000,
+    })
+    await updateClipThumbs(clip.id, {
+      thumbs: [fakeBlob('thumb-one'), fakeBlob('thumb-two')],
+      poster: fakeBlob('poster'),
+      thumbWidth: 90,
+      thumbHeight: 160,
+    })
+
+    // Kill the connection at the exact moment of the clips write — after
+    // getDb()'s meta liveness probe passed — the way iOS Safari drops IDB
+    // under a slider commit.
+    const db = await getDb()
+    const originalTransaction = db.transaction.bind(db)
+    db.transaction = ((...args: Parameters<typeof db.transaction>) => {
+      const names = Array.isArray(args[0]) ? args[0] : [args[0]]
+      if (names.includes('clips') && args[1] === 'readwrite') {
+        db.close()
+      }
+      return originalTransaction(...args)
+    }) as typeof db.transaction
+
+    const meta = await updateClipVolumes(clip.id, { clipVolume: 0.4 })
+    expect(meta.clipVolume).toBe(0.4)
+
+    const stored = await getClip(clip.id)
+    expect(stored?.clipVolume).toBe(0.4)
+    // The retry re-materializes media blobs — the bytes must survive intact.
+    expect(await stored?.blob.text()).toBe('volume-retry-bytes')
+    expect(await Promise.all((stored?.thumbs ?? []).map((thumb) => thumb.text()))).toEqual([
+      'thumb-one',
+      'thumb-two',
+    ])
+    expect(await stored?.poster?.text()).toBe('poster')
+    expect(await getDb()).not.toBe(db)
+  })
+
+  it('a stale retry never lands after a newer volume commit for the same clip', async () => {
+    const project = await createProject('Volume ordering')
+    const clip = await addClip({
+      projectId: project.id,
+      blob: fakeBlob('v'),
+      mimeType: 'video/webm',
+      durationMs: 1000,
+    })
+
+    // First commit hits a dead connection and takes the slow retry path
+    // (reopen + blob re-copy); the second commit follows right behind, the
+    // way a slider fires. The later value must win.
+    const db = await getDb()
+    const originalTransaction = db.transaction.bind(db)
+    db.transaction = ((...args: Parameters<typeof db.transaction>) => {
+      const names = Array.isArray(args[0]) ? args[0] : [args[0]]
+      if (names.includes('clips') && args[1] === 'readwrite') {
+        db.close()
+      }
+      return originalTransaction(...args)
+    }) as typeof db.transaction
+
+    const first = updateClipVolumes(clip.id, { clipVolume: 0.45 })
+    const second = updateClipVolumes(clip.id, { clipVolume: 0.3 })
+    await Promise.all([first, second])
+
+    expect((await getClip(clip.id))?.clipVolume).toBe(0.3)
+  })
+
+  it('skips the record rewrite when the committed volume is unchanged', async () => {
+    const project = await createProject('Volume no-op')
+    const clip = await addClip({
+      projectId: project.id,
+      blob: fakeBlob('v'),
+      mimeType: 'video/webm',
+      durationMs: 1000,
+    })
+
+    await updateClipVolumes(clip.id, { clipVolume: 0.4 })
+    const updatedAt = (await listProjects()).find((p) => p.id === project.id)!.updatedAt
+
+    // Releasing the slider on the value already stored (or clearing an
+    // override that never existed) must not rewrite the whole record.
+    await new Promise((resolve) => setTimeout(resolve, 5))
+    await updateClipVolumes(clip.id, { clipVolume: 0.4 })
+    await updateClipVolumes(clip.id, { musicVolume: 1 })
+    expect((await listProjects()).find((p) => p.id === project.id)!.updatedAt).toBe(updatedAt)
+
+    // A real change still lands and still bumps the project.
+    await updateClipVolumes(clip.id, { clipVolume: 0.7 })
+    expect((await getClip(clip.id))?.clipVolume).toBe(0.7)
+    expect(
+      (await listProjects()).find((p) => p.id === project.id)!.updatedAt,
+    ).toBeGreaterThan(updatedAt)
+  })
+
+  it('classifies environmental IDB failures as retriable', () => {
+    expect(
+      isRetriableIdbFailure(
+        new DOMException('The database connection is closing.', 'InvalidStateError'),
+      ),
+    ).toBe(true)
+    expect(
+      isRetriableIdbFailure(
+        new DOMException('Error preparing Blob/File data to be stored', 'UnknownError'),
+      ),
+    ).toBe(true)
+    expect(isRetriableIdbFailure(new DOMException('Transaction aborted', 'AbortError'))).toBe(true)
+    // Hard limits and caller mistakes are not retried.
+    expect(isRetriableIdbFailure(new DOMException('Quota exceeded', 'QuotaExceededError'))).toBe(
+      false,
+    )
+    expect(isRetriableIdbFailure(new Error('Clip not found'))).toBe(false)
   })
 
   it('persists the measured audio peak without touching updatedAt', async () => {

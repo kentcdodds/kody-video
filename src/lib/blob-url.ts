@@ -11,6 +11,7 @@ export function createBlobUrlBinder<E extends HTMLElement & { src: string }>(
   let element: E | null = null
   let url: string | null = null
   let boundBlob: Blob | null = null
+  let attachToken = 0
 
   function sync(): void {
     if (!element) return
@@ -27,8 +28,15 @@ export function createBlobUrlBinder<E extends HTMLElement & { src: string }>(
 
   function attach(node: E, signal: AbortSignal): void {
     element = node
+    const token = ++attachToken
     sync()
     signal.addEventListener('abort', () => {
+      // A remount can attach the replacement — possibly the SAME node with a
+      // new signal — before the old attachment's teardown runs; by then the
+      // binder (and its URL) belong to the newer attachment, and revoking
+      // here would kill the src just handed to it. The token, not node
+      // identity, decides ownership.
+      if (token !== attachToken) return
       if (url) URL.revokeObjectURL(url)
       element = null
       url = null

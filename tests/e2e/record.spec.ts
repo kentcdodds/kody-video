@@ -207,6 +207,44 @@ test.describe('camera & hold-to-record', () => {
     await context.close()
   })
 
+  test('long toasts stay on screen, centered and wrapped', async ({ page }) => {
+    // No geolocation permission granted: toggling location tagging surfaces
+    // the longest toast in the app ("Location unavailable — check the site's
+    // location permission"). It used to be anchored at mid-screen and cut
+    // off by the right viewport edge (the rise-in animation's transform
+    // replaced the centering translateX).
+    await openNewProject(page)
+    await page.getByRole('button', { name: 'Toggle location tagging' }).click()
+
+    const toast = page.locator('.toast')
+    await expect(toast).toContainText(
+      "Location unavailable — check the site's location permission",
+    )
+    // The long message really wraps inside the pill instead of overflowing
+    // it on a single line: the message box is at least two line-heights tall.
+    // (getClientRects can't count line boxes here — a flex-item span is
+    // blockified and reports a single rect.)
+    const lines = await toast.locator('span').evaluate((el) => {
+      const lineHeight = Number.parseFloat(getComputedStyle(el).lineHeight)
+      return el.getBoundingClientRect().height / lineHeight
+    })
+    // ≥ 1.5 line-heights = wrapped (sub-pixel rounding keeps an exact two
+    //-line box a hair under 2.0).
+    expect(lines).toBeGreaterThan(1.5)
+    const box = await toast.boundingBox()
+    const viewport = page.viewportSize()
+    expect(box).not.toBeNull()
+    expect(viewport).not.toBeNull()
+    expect(box!.x).toBeGreaterThanOrEqual(0)
+    expect(box!.x + box!.width).toBeLessThanOrEqual(viewport!.width)
+    // Centered in the screen it is positioned against (the viewport can be
+    // wider by a classic scrollbar in headless runs).
+    const screen = await page.locator('.project-screen').boundingBox()
+    expect(screen).not.toBeNull()
+    const offCenter = Math.abs(box!.x + box!.width / 2 - (screen!.x + screen!.width / 2))
+    expect(offCenter).toBeLessThanOrEqual(2)
+  })
+
   test('location tagging geotags new clips while on', async ({ context, page }) => {
     await context.grantPermissions(['camera', 'microphone', 'geolocation'])
     await context.setGeolocation({ latitude: 40.2338, longitude: -111.6585, accuracy: 12 })
