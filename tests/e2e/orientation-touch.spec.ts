@@ -43,6 +43,31 @@ test.describe('rotate-to-choose orientation (touch)', () => {
     await expect(page.locator('.project-screen.orientation-landscape')).toBeVisible()
     await expect(page.locator('.sheet[aria-label="Kody Video Plus"]')).toBeHidden()
 
+    // On a held device the app is FULL-BLEED — no desktop frame margins
+    // shrinking the camera, even though a sideways phone is ≥720px wide.
+    const viewport = page.viewportSize()!
+    const root = await page.locator('#root').boundingBox()
+    expect(root!.x).toBe(0)
+    expect(root!.width).toBe(viewport.width)
+
+    // Every rail control is reachable: within the viewport on a normal
+    // landscape phone height…
+    for (const control of await page.locator('.record-dock button').all()) {
+      const box = await control.boundingBox()
+      expect(box).not.toBeNull()
+      expect(box!.y).toBeGreaterThanOrEqual(0)
+      expect(box!.y + box!.height).toBeLessThanOrEqual(viewport.height + 1)
+    }
+    // …and via rail scrolling on a very short one (a centered column would
+    // clip both ends unreachably).
+    await page.setViewportSize({ width: viewport.width, height: 300 })
+    const dock = page.locator('.record-dock')
+    expect(await dock.evaluate((el) => el.scrollHeight > el.clientHeight)).toBe(true)
+    await dock.evaluate((el) => el.scrollTo(0, el.scrollHeight))
+    const go = await page.locator('.record-dock .go-button').boundingBox()
+    expect(go!.y + go!.height).toBeLessThanOrEqual(301)
+    await page.setViewportSize({ width: viewport.width, height: viewport.height })
+
     // The first take decides: recording sideways locks the project landscape.
     await recordClip(page)
     await expect.poll(() => storedOrientation(page)).toBe('landscape')

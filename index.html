@@ -188,15 +188,17 @@
           max-width: none;
         }
       }
-      @media (min-width: 720px) and (orientation: landscape) {
+      @media (min-width: 720px) and (orientation: landscape) and (pointer: fine) {
         html[data-shell='adaptive'] #root,
         html[data-shell='wide'] #root {
           width: min(1200px, calc(100% - 48px));
         }
       }
       /* Desktop: SPA paints the hero. Reserve the phone-chrome frame here so
-         applying the full stylesheet does not shift the whole page (CLS). */
-      @media (min-width: 720px) {
+         applying the full stylesheet does not shift the whole page (CLS).
+         Fine pointers only — a phone turned sideways is also ≥720px wide,
+         and held devices must stay full-bleed (match global.css). */
+      @media (min-width: 720px) and (pointer: fine) {
         body {
           overflow: auto;
           /* Must match global.css: BFC keeps #root margins from collapsing
@@ -220,7 +222,7 @@
           overflow: hidden;
         }
       }
-      @media (min-width: 720px) and (prefers-color-scheme: light) {
+      @media (min-width: 720px) and (pointer: fine) and (prefers-color-scheme: light) {
         #root {
           border-color: rgba(26, 40, 36, 0.12);
         }

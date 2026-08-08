@@ -69,7 +69,10 @@
   visibility: hidden;
 }
 
-@media (min-width: 720px), (orientation: landscape) {
+/* Fine-pointer ≥720px (desktop) and any landscape viewport hide #boot-hero
+   and render this hero for real; portrait tablets keep the boot-hero LCP
+   path like phones do. */
+@media (min-width: 720px) and (pointer: fine), (orientation: landscape) {
   .home-hero-spacer {
     visibility: visible;
   }

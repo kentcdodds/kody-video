@@ -918,7 +918,11 @@ a {
   border: 0;
 }
 
-@media (min-width: 720px) {
+/* The framed "phone in a desktop window" chrome is for fine-pointer
+   machines only: a PHONE turned sideways is also ≥720px wide, and margins,
+   rounded corners, and a height cap there shrink the camera and push the
+   record rail off screen — held devices stay full-bleed. */
+@media (min-width: 720px) and (pointer: fine) {
   body {
     overflow: auto;
     /* BFC so #root's 24px margins can't collapse through the 100%-tall body
@@ -975,7 +979,7 @@ html[data-shell='wide'] .app-shell {
   }
 }
 
-@media (min-width: 720px) and (orientation: landscape) {
+@media (min-width: 720px) and (orientation: landscape) and (pointer: fine) {
   html[data-shell='adaptive'] #root,
   html[data-shell='wide'] #root {
     width: min(1200px, calc(100% - 48px));

@@ -504,9 +504,20 @@
     left: auto;
     right: 0;
     flex-direction: column;
-    justify-content: center;
-    gap: 16px;
-    padding: calc(16px + var(--safe-top)) calc(14px + env(safe-area-inset-right, 0px)) calc(16px + var(--safe-bottom)) 22px;
+    /* flex-start + auto margins on the ends, NOT justify-content: center —
+       a centered column that overflows a short viewport clips both of its
+       ends unreachably. Auto margins center while there is room and
+       collapse to 0 when there is not, and the rail scrolls. */
+    justify-content: flex-start;
+    overflow-y: auto;
+    scrollbar-width: none;
+    /* The rail owns its stripe (scroll needs real pointer events); the
+       stage stays fully holdable everywhere else, and active takes are
+       unaffected — the stage pointer-captures its holds. */
+    pointer-events: auto;
+    touch-action: pan-y;
+    gap: 12px;
+    padding: calc(12px + var(--safe-top)) calc(14px + env(safe-area-inset-right, 0px)) calc(12px + var(--safe-bottom)) 22px;
     background: linear-gradient(
       90deg,
       transparent 0%,
@@ -515,14 +526,32 @@
     );
   }
 
+  .orientation-landscape .record-dock::-webkit-scrollbar {
+    display: none;
+  }
+
   .orientation-landscape .record-tools {
     flex-direction: column;
     gap: 10px;
+    flex-shrink: 0;
+    margin-top: auto;
   }
 
-  /* Keep the title/meta clear of the rail. */
+  /* Compact Go so the whole rail fits common landscape phone heights. */
+  .orientation-landscape .record-dock .go-button {
+    width: 68px;
+    height: 68px;
+    min-width: 68px;
+    font-size: 1.3rem;
+    border-width: 3px;
+    margin-bottom: auto;
+  }
+
+  /* Keep the title/meta clear of the rail; pad the back button away from
+     the notch side. */
   .orientation-landscape .record-top {
     right: 108px;
+    padding-left: calc(12px + env(safe-area-inset-left, 0px));
   }
 
   .orientation-landscape .record-zoom {
