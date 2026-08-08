@@ -31,6 +31,7 @@ import {
   toStoredBlob,
   undoDeleteLastClip,
   updateClipAudioPeak,
+  updateClipThumbs,
   updateClipVolumes,
   updateProjectAudioTrack,
   updateClipTrim,
@@ -632,6 +633,12 @@ describe('storage layer', () => {
       mimeType: 'video/webm',
       durationMs: 1000,
     })
+    await updateClipThumbs(clip.id, {
+      thumbs: [fakeBlob('thumb-one'), fakeBlob('thumb-two')],
+      poster: fakeBlob('poster'),
+      thumbWidth: 90,
+      thumbHeight: 160,
+    })
 
     // Kill the connection at the exact moment of the clips write — after
     // getDb()'s meta liveness probe passed — the way iOS Safari drops IDB
@@ -653,7 +660,41 @@ describe('storage layer', () => {
     expect(stored?.clipVolume).toBe(0.4)
     // The retry re-materializes media blobs — the bytes must survive intact.
     expect(await stored?.blob.text()).toBe('volume-retry-bytes')
+    expect(await Promise.all((stored?.thumbs ?? []).map((thumb) => thumb.text()))).toEqual([
+      'thumb-one',
+      'thumb-two',
+    ])
+    expect(await stored?.poster?.text()).toBe('poster')
     expect(await getDb()).not.toBe(db)
+  })
+
+  it('a stale retry never lands after a newer volume commit for the same clip', async () => {
+    const project = await createProject('Volume ordering')
+    const clip = await addClip({
+      projectId: project.id,
+      blob: fakeBlob('v'),
+      mimeType: 'video/webm',
+      durationMs: 1000,
+    })
+
+    // First commit hits a dead connection and takes the slow retry path
+    // (reopen + blob re-copy); the second commit follows right behind, the
+    // way a slider fires. The later value must win.
+    const db = await getDb()
+    const originalTransaction = db.transaction.bind(db)
+    db.transaction = ((...args: Parameters<typeof db.transaction>) => {
+      const names = Array.isArray(args[0]) ? args[0] : [args[0]]
+      if (names.includes('clips') && args[1] === 'readwrite') {
+        db.close()
+      }
+      return originalTransaction(...args)
+    }) as typeof db.transaction
+
+    const first = updateClipVolumes(clip.id, { clipVolume: 0.45 })
+    const second = updateClipVolumes(clip.id, { clipVolume: 0.3 })
+    await Promise.all([first, second])
+
+    expect((await getClip(clip.id))?.clipVolume).toBe(0.3)
   })
 
   it('skips the record rewrite when the committed volume is unchanged', async () => {

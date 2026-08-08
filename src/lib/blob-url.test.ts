@@ -70,4 +70,27 @@ describe('createBlobUrlBinder', () => {
     newController.abort()
     expect(await canFetch(url)).toBe(false)
   })
+
+  it('keeps the URL alive when the SAME node re-attaches with a new signal', async () => {
+    // Ownership is decided by attachment order, not node identity — a
+    // reused node re-attached with a fresh signal must survive the old
+    // signal's late abort just like a replacement node does.
+    const blob = new Blob(['shared'])
+    const binder = createBlobUrlBinder(() => blob)
+    const node = document.createElement('img')
+
+    const oldController = new AbortController()
+    binder.attach(node, oldController.signal)
+
+    const newController = new AbortController()
+    binder.attach(node, newController.signal)
+    const url = node.src
+    expect(await canFetch(url)).toBe(true)
+
+    oldController.abort()
+    expect(await canFetch(url)).toBe(true)
+
+    newController.abort()
+    expect(await canFetch(url)).toBe(false)
+  })
 })

@@ -217,7 +217,20 @@ test.describe('camera & hold-to-record', () => {
     await page.getByRole('button', { name: 'Toggle location tagging' }).click()
 
     const toast = page.locator('.toast')
-    await expect(toast).toContainText('Location unavailable')
+    await expect(toast).toContainText(
+      "Location unavailable — check the site's location permission",
+    )
+    // The long message really wraps inside the pill instead of overflowing
+    // it on a single line: the message box is at least two line-heights tall.
+    // (getClientRects can't count line boxes here — a flex-item span is
+    // blockified and reports a single rect.)
+    const lines = await toast.locator('span').evaluate((el) => {
+      const lineHeight = Number.parseFloat(getComputedStyle(el).lineHeight)
+      return el.getBoundingClientRect().height / lineHeight
+    })
+    // ≥ 1.5 line-heights = wrapped (sub-pixel rounding keeps an exact two
+    //-line box a hair under 2.0).
+    expect(lines).toBeGreaterThan(1.5)
     const box = await toast.boundingBox()
     const viewport = page.viewportSize()
     expect(box).not.toBeNull()
