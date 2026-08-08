@@ -111,6 +111,25 @@ export function HomePage(handle: Handle) {
   const unsubscribeInstall = subscribeInstallPrompt(() => void handle.update())
   handle.signal.addEventListener('abort', unsubscribeInstall)
 
+  // Rotating (or resizing across the phone-width breakpoint) swaps who
+  // paints the hero: portrait mobile shows the static #boot-hero over a
+  // same-size spacer (LCP), landscape/desktop render the real in-app hero
+  // inside the two-pane layout. The swap is a render-time decision, so both
+  // media flips must re-render.
+  const heroMediaQueries = [
+    window.matchMedia('(orientation: landscape)'),
+    window.matchMedia('(max-width: 719px)'),
+  ]
+  const onHeroMediaChange = () => void handle.update()
+  for (const media of heroMediaQueries) {
+    media.addEventListener('change', onHeroMediaChange)
+  }
+  handle.signal.addEventListener('abort', () => {
+    for (const media of heroMediaQueries) {
+      media.removeEventListener('change', onHeroMediaChange)
+    }
+  })
+
   // Nothing is persisted until the first clip is recorded — backing out of
   // an untouched new project leaves no empty project behind.
   const openNewProject = () => {
@@ -275,19 +294,27 @@ export function HomePage(handle: Handle) {
           <IconInfo />
         </a>
 
-        {/* On mobile, the visible brand/LCP hero lives in index.html
-            (#boot-hero) so first paint is not gated on JS — this block is a
-            layout spacer there. Desktop hides #boot-hero and shows this. */}
+        {/* On portrait mobile, the visible brand/LCP hero lives in
+            index.html (#boot-hero) so first paint is not gated on JS — this
+            block is a layout spacer there. Desktop and landscape viewports
+            hide #boot-hero and show this (it moves into the two-pane
+            layout's left column). */}
         <div
           className="home-hero home-hero-spacer"
-          aria-hidden={typeof window !== 'undefined' && window.matchMedia('(max-width: 719px)').matches}
+          aria-hidden={
+            typeof window !== 'undefined' &&
+            window.matchMedia('(max-width: 719px) and (orientation: portrait)').matches
+          }
         >
           <div className="home-hero-art">
             <BrandMark
               size={96}
               className="brand-hero-art"
               variant="camera"
-              priority={typeof window !== 'undefined' && window.matchMedia('(max-width: 719px)').matches}
+              priority={
+                typeof window !== 'undefined' &&
+                window.matchMedia('(max-width: 719px) and (orientation: portrait)').matches
+              }
             />
           </div>
           <h1 className="brand">
@@ -296,195 +323,197 @@ export function HomePage(handle: Handle) {
           <p className="lede">Hold to record. Tap Go to share.</p>
         </div>
 
-        {isLegacyOrigin() ? (
-          <div className="home-migrate">
-            <strong>Kody Video has moved to <a href="https://kody.video">kody.video</a>.</strong>{' '}
-            Projects live in this browser per-site, so use ⋯ → Save backup here, then import them
-            over there (About → Import a backup). This address keeps working but won&rsquo;t get
-            updates.
-          </div>
-        ) : null}
+        <div className="home-main">
+          {isLegacyOrigin() ? (
+            <div className="home-migrate">
+              <strong>Kody Video has moved to <a href="https://kody.video">kody.video</a>.</strong>{' '}
+              Projects live in this browser per-site, so use ⋯ → Save backup here, then import them
+              over there (About → Import a backup). This address keeps working but won&rsquo;t get
+              updates.
+            </div>
+          ) : null}
 
-        {showcase && showShowcaseBanner ? (
-          <div className="home-migrate home-showcase" role="note">
-            <span>
-              <strong>
-                This is the {showcase.edition} showcase — the real app lives at{' '}
-                <a href="https://kody.video">kody.video</a>.
-              </strong>{' '}
-              Projects stay in this browser per-site, so record over there. Curious how this
-              edition came to be? Read the agent&rsquo;s analysis in{' '}
-              <a href={showcase.prUrl} target="_blank" rel="noreferrer noopener">
-                PR #{showcase.prNumber}
-              </a>
-              .
-            </span>
-            <button
-              type="button"
-              className="install-hint-dismiss"
-              aria-label="Dismiss showcase note"
-              mix={on('click', () => {
-                dismissShowcaseBanner()
-                showShowcaseBanner = false
-                void handle.update()
-              })}
-            >
-              <IconClose size={16} />
-            </button>
-          </div>
-        ) : null}
-
-        {error ? <div className="error-banner">{error}</div> : null}
-        {notice ? <p className="home-notice">{notice}</p> : null}
-
-        {storage && severity !== 'ok' ? (
-          <div
-            className={`storage-banner${severity === 'critical' ? ' is-critical' : ''}`}
-            role="alert"
-          >
-            <strong>
-              Device storage {formatStoragePercent(storage.ratio)} full
-              {severity === 'critical' ? ' — recordings may start failing' : ''}
-            </strong>
-            <span>
-              {formatBytes(storage.usedBytes)} of {formatBytes(storage.quotaBytes)} used.
-              {oldestProject
-                ? ` Free space fast: delete an old project (⋯ on “${oldestProject.name}”, then Delete).`
-                : ' Free space by clearing other site data or files on this device.'}
-            </span>
-            {exportCacheBytes > 0 ? (
-              <button
-                type="button"
-                className="btn btn-secondary storage-banner-action"
-                disabled={busy}
-                mix={on('click', onClearExportCache)}
-              >
-                Clear cached exports ({formatBytes(exportCacheBytes)})
-              </button>
-            ) : null}
-          </div>
-        ) : null}
-
-        {showInstallHint ? (
-          <div className="home-install-hint">
-            <span className="install-hint-icon" aria-hidden="true">
-              <IconShareIos size={18} />
-            </span>
-            <span>
-              Install Kody Video: tap <strong>Share</strong>, then{' '}
-              <strong>Add to Home Screen</strong> — full screen, and your clips are safer from
-              Safari&rsquo;s storage cleanup.
-            </span>
-            <button
-              type="button"
-              className="install-hint-dismiss"
-              aria-label="Dismiss install tip"
-              mix={on('click', () => {
-                dismissIosInstallHint()
-                showInstallHint = false
-                void handle.update()
-              })}
-            >
-              <IconClose size={16} />
-            </button>
-          </div>
-        ) : null}
-
-        {projects.length === 0 && !data.tourCardDismissed ? (
-          <TourCard
-            onDismiss={() => {
-              // Mutate the loaded data (it is also the module-level
-              // lastHomeData cache) so a remount before the async persist
-              // lands doesn't resurrect the card.
-              data!.tourCardDismissed = true
-              void setTourCardDismissed(true)
-              void handle.update()
-            }}
-          />
-        ) : null}
-
-        <section className="project-slots" aria-label="Kody Video projects">
-          {slots.map((project, index) =>
-            project ? (
-              <article
-                key={project.id}
-                className={
-                  project.posterThumb ? 'project-slot filled has-poster' : 'project-slot filled'
-                }
-              >
-                {project.posterThumb ? (
-                  <BlobImage
-                    blob={project.posterThumb}
-                    className="slot-poster"
-                    alt=""
-                    aria-hidden="true"
-                    draggable={false}
-                  />
-                ) : null}
-                <div className="slot-fade" aria-hidden="true" />
-                <a className="slot-open" href={`/project/${project.id}`}>
-                  <span className="slot-number">Slot {index + 1}</span>
-                  <strong>{project.name}</strong>
-                  <small>
-                    {project.clipCount} clip{project.clipCount === 1 ? '' : 's'} ·{' '}
-                    {formatDuration(project.durationMs)}
-                  </small>
+          {showcase && showShowcaseBanner ? (
+            <div className="home-migrate home-showcase" role="note">
+              <span>
+                <strong>
+                  This is the {showcase.edition} showcase — the real app lives at{' '}
+                  <a href="https://kody.video">kody.video</a>.
+                </strong>{' '}
+                Projects stay in this browser per-site, so record over there. Curious how this
+                edition came to be? Read the agent&rsquo;s analysis in{' '}
+                <a href={showcase.prUrl} target="_blank" rel="noreferrer noopener">
+                  PR #{showcase.prNumber}
                 </a>
-                <button
-                  type="button"
-                  className="slot-options"
-                  aria-label={`Options for ${project.name}`}
-                  mix={on('click', () => {
-                    prefetchedClips = {
-                      projectId: project.id,
-                      clips: getClipsForProject(project.id),
-                      audio: getProjectAudio(project.id),
-                    }
-                    menuProject = project
-                    void handle.update()
-                  })}
-                >
-                  <IconMore />
-                </button>
-              </article>
-            ) : index < projectLimit ? (
+                .
+              </span>
               <button
-                key={`empty-${index}`}
                 type="button"
-                className="project-slot empty"
-                disabled={busy}
-                mix={on('click', openNewProject)}
-              >
-                <span className="slot-plus" aria-hidden="true">
-                  <IconPlus size={26} />
-                </span>
-                <strong>New project</strong>
-                <small>{`Slot ${index + 1}`}</small>
-              </button>
-            ) : (
-              <button
-                key={`locked-${index}`}
-                type="button"
-                className="project-slot empty locked"
+                className="install-hint-dismiss"
+                aria-label="Dismiss showcase note"
                 mix={on('click', () => {
-                  upselling = true
+                  dismissShowcaseBanner()
+                  showShowcaseBanner = false
                   void handle.update()
                 })}
               >
-                <span className="slot-plus" aria-hidden="true">
-                  <IconLock size={22} />
-                </span>
-                <strong>Plus slot</strong>
-                <small>Unlock with Kody Video Plus</small>
+                <IconClose size={16} />
               </button>
-            ),
-          )}
-        </section>
+            </div>
+          ) : null}
 
-        <p className="home-privacy">
-          <span>Clips stay on this phone until you share.</span>
-          {storage ? <StorageMeter storage={storage} /> : null}
-        </p>
+          {error ? <div className="error-banner">{error}</div> : null}
+          {notice ? <p className="home-notice">{notice}</p> : null}
+
+          {storage && severity !== 'ok' ? (
+            <div
+              className={`storage-banner${severity === 'critical' ? ' is-critical' : ''}`}
+              role="alert"
+            >
+              <strong>
+                Device storage {formatStoragePercent(storage.ratio)} full
+                {severity === 'critical' ? ' — recordings may start failing' : ''}
+              </strong>
+              <span>
+                {formatBytes(storage.usedBytes)} of {formatBytes(storage.quotaBytes)} used.
+                {oldestProject
+                  ? ` Free space fast: delete an old project (⋯ on “${oldestProject.name}”, then Delete).`
+                  : ' Free space by clearing other site data or files on this device.'}
+              </span>
+              {exportCacheBytes > 0 ? (
+                <button
+                  type="button"
+                  className="btn btn-secondary storage-banner-action"
+                  disabled={busy}
+                  mix={on('click', onClearExportCache)}
+                >
+                  Clear cached exports ({formatBytes(exportCacheBytes)})
+                </button>
+              ) : null}
+            </div>
+          ) : null}
+
+          {showInstallHint ? (
+            <div className="home-install-hint">
+              <span className="install-hint-icon" aria-hidden="true">
+                <IconShareIos size={18} />
+              </span>
+              <span>
+                Install Kody Video: tap <strong>Share</strong>, then{' '}
+                <strong>Add to Home Screen</strong> — full screen, and your clips are safer from
+                Safari&rsquo;s storage cleanup.
+              </span>
+              <button
+                type="button"
+                className="install-hint-dismiss"
+                aria-label="Dismiss install tip"
+                mix={on('click', () => {
+                  dismissIosInstallHint()
+                  showInstallHint = false
+                  void handle.update()
+                })}
+              >
+                <IconClose size={16} />
+              </button>
+            </div>
+          ) : null}
+
+          {projects.length === 0 && !data.tourCardDismissed ? (
+            <TourCard
+              onDismiss={() => {
+                // Mutate the loaded data (it is also the module-level
+                // lastHomeData cache) so a remount before the async persist
+                // lands doesn't resurrect the card.
+                data!.tourCardDismissed = true
+                void setTourCardDismissed(true)
+                void handle.update()
+              }}
+            />
+          ) : null}
+
+          <section className="project-slots" aria-label="Kody Video projects">
+            {slots.map((project, index) =>
+              project ? (
+                <article
+                  key={project.id}
+                  className={
+                    project.posterThumb ? 'project-slot filled has-poster' : 'project-slot filled'
+                  }
+                >
+                  {project.posterThumb ? (
+                    <BlobImage
+                      blob={project.posterThumb}
+                      className="slot-poster"
+                      alt=""
+                      aria-hidden="true"
+                      draggable={false}
+                    />
+                  ) : null}
+                  <div className="slot-fade" aria-hidden="true" />
+                  <a className="slot-open" href={`/project/${project.id}`}>
+                    <span className="slot-number">Slot {index + 1}</span>
+                    <strong>{project.name}</strong>
+                    <small>
+                      {project.clipCount} clip{project.clipCount === 1 ? '' : 's'} ·{' '}
+                      {formatDuration(project.durationMs)}
+                    </small>
+                  </a>
+                  <button
+                    type="button"
+                    className="slot-options"
+                    aria-label={`Options for ${project.name}`}
+                    mix={on('click', () => {
+                      prefetchedClips = {
+                        projectId: project.id,
+                        clips: getClipsForProject(project.id),
+                        audio: getProjectAudio(project.id),
+                      }
+                      menuProject = project
+                      void handle.update()
+                    })}
+                  >
+                    <IconMore />
+                  </button>
+                </article>
+              ) : index < projectLimit ? (
+                <button
+                  key={`empty-${index}`}
+                  type="button"
+                  className="project-slot empty"
+                  disabled={busy}
+                  mix={on('click', openNewProject)}
+                >
+                  <span className="slot-plus" aria-hidden="true">
+                    <IconPlus size={26} />
+                  </span>
+                  <strong>New project</strong>
+                  <small>{`Slot ${index + 1}`}</small>
+                </button>
+              ) : (
+                <button
+                  key={`locked-${index}`}
+                  type="button"
+                  className="project-slot empty locked"
+                  mix={on('click', () => {
+                    upselling = true
+                    void handle.update()
+                  })}
+                >
+                  <span className="slot-plus" aria-hidden="true">
+                    <IconLock size={22} />
+                  </span>
+                  <strong>Plus slot</strong>
+                  <small>Unlock with Kody Video Plus</small>
+                </button>
+              ),
+            )}
+          </section>
+
+          <p className="home-privacy">
+            <span>Clips stay on this phone until you share.</span>
+            {storage ? <StorageMeter storage={storage} /> : null}
+          </p>
+        </div>
 
         {menuProject ? (
           <HomeOptionsSheet

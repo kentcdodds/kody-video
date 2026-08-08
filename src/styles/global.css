@@ -918,7 +918,11 @@ a {
   border: 0;
 }
 
-@media (min-width: 720px) {
+/* The framed "phone in a desktop window" chrome is for fine-pointer
+   machines only: a PHONE turned sideways is also ≥720px wide, and margins,
+   rounded corners, and a height cap there shrink the camera and push the
+   record rail off screen — held devices stay full-bleed. */
+@media (min-width: 720px) and (pointer: fine) {
   body {
     overflow: auto;
     /* BFC so #root's 24px margins can't collapse through the 100%-tall body
@@ -950,20 +954,34 @@ a {
   }
 }
 
-/* Landscape projects shift the whole shell, not just a page: the app frame
-   is phone-shaped (480px column) by default, so while a landscape project
-   is open the project page sets data-project-orientation on <html> and the
-   frame widens to the viewport (phones turned sideways) or to a wide
-   desktop frame. Must sit after the base #root / .app-shell rules AND the
-   min-width desktop block so it wins in both. */
-html[data-project-orientation='landscape'] #root,
-html[data-project-orientation='landscape'] .app-shell {
+/* Shell width by layout mode (mirrored in index.html's critical CSS). The
+   app frame is a phone-shaped 480px column by default; <html data-shell>
+   picks the layout per page:
+   - 'adaptive' (home, about, privacy, terms, unlocked — set pre-paint in
+     index.html and on navigation in main.tsx): widens on landscape
+     viewports, which includes desktop windows by default.
+   - 'wide' (locked-landscape projects, set by the project page): always
+     widens — the layout is stuck sideways wherever it opens.
+   - 'narrow' / absent (portrait projects): the classic column.
+   Must sit after the base #root / .app-shell rules AND the min-width
+   desktop block so it wins in both. */
+html[data-shell='wide'] #root,
+html[data-shell='wide'] .app-shell {
   width: 100%;
   max-width: none;
 }
 
-@media (min-width: 720px) {
-  html[data-project-orientation='landscape'] #root {
-    width: min(1280px, calc(100% - 48px));
+@media (orientation: landscape) {
+  html[data-shell='adaptive'] #root,
+  html[data-shell='adaptive'] .app-shell {
+    width: 100%;
+    max-width: none;
+  }
+}
+
+@media (min-width: 720px) and (orientation: landscape) and (pointer: fine) {
+  html[data-shell='adaptive'] #root,
+  html[data-shell='wide'] #root {
+    width: min(1200px, calc(100% - 48px));
   }
 }

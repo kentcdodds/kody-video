@@ -166,9 +166,41 @@
       html[data-route='app'] #boot-hero {
         display: none;
       }
+      /* Landscape viewports (turned phones, desktop-ish windows): the SPA
+         paints the hero inside its two-pane home layout — the top-centered
+         boot hero would sit in the wrong place. */
+      @media (orientation: landscape) {
+        #boot-hero {
+          display: none;
+        }
+      }
+      /* Shell width by layout mode — must mirror global.css (the attribute
+         is set by the pre-paint script below, so the frame never jumps when
+         the full stylesheet arrives). 'adaptive' (home/static pages) widens
+         on landscape viewports; 'wide' (landscape projects) always. */
+      html[data-shell='wide'] #root,
+      html[data-shell='wide'] .app-shell {
+        width: 100%;
+        max-width: none;
+      }
+      @media (orientation: landscape) {
+        html[data-shell='adaptive'] #root,
+        html[data-shell='adaptive'] .app-shell {
+          width: 100%;
+          max-width: none;
+        }
+      }
+      @media (min-width: 720px) and (orientation: landscape) and (pointer: fine) {
+        html[data-shell='adaptive'] #root,
+        html[data-shell='wide'] #root {
+          width: min(1200px, calc(100% - 48px));
+        }
+      }
       /* Desktop: SPA paints the hero. Reserve the phone-chrome frame here so
-         applying the full stylesheet does not shift the whole page (CLS). */
-      @media (min-width: 720px) {
+         applying the full stylesheet does not shift the whole page (CLS).
+         Fine pointers only — a phone turned sideways is also ≥720px wide,
+         and held devices must stay full-bleed (match global.css). */
+      @media (min-width: 720px) and (pointer: fine) {
         body {
           overflow: auto;
           /* Must match global.css: BFC keeps #root margins from collapsing
@@ -192,7 +224,7 @@
           overflow: hidden;
         }
       }
-      @media (min-width: 720px) and (prefers-color-scheme: light) {
+      @media (min-width: 720px) and (pointer: fine) and (prefers-color-scheme: light) {
         #root {
           border-color: rgba(26, 40, 36, 0.12);
         }
@@ -202,6 +234,16 @@
         z-index: 1;
       }
     </style>
+    <script>
+      // Pre-paint shell layout: home and static pages adapt to landscape
+      // viewports; project pages start on the narrow phone column and widen
+      // once the app knows the project is landscape-locked. Runs before
+      // first paint so the frame never jumps; main.tsx keeps it synced on
+      // navigation (must match syncRouteChrome there).
+      document.documentElement.dataset.shell = location.pathname.startsWith('/project/')
+        ? 'narrow'
+        : 'adaptive'
+    </script>
     <script>
       // Fathom Analytics (cookieless, anonymous page-view counts). Loaded
       // only on real deployments so dev servers and test runs stay out of

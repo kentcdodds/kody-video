@@ -15,10 +15,26 @@ void sweepExportCache().catch(() => undefined)
 const appEl = document.getElementById('app')
 if (!appEl) throw new Error('#app mount point missing')
 
-/** Hide the HTML boot hero on non-home routes (never touch it on home). */
-function syncBootHeroRoute(): void {
-  const home = window.location.pathname === '/' || window.location.pathname === ''
+/**
+ * Per-route document chrome: hide the HTML boot hero on non-home routes,
+ * and keep the shell-layout attribute (see index.html's pre-paint script)
+ * in step with navigation. Home and static pages are 'adaptive' (wide on
+ * landscape viewports); project pages own the attribute themselves — the
+ * width there depends on the project's locked orientation, which only the
+ * project page knows.
+ */
+function syncRouteChrome(): void {
+  const path = window.location.pathname
+  const home = path === '/' || path === ''
   document.documentElement.dataset.route = home ? 'home' : 'app'
+  // Project routes start narrow — the phone-column default — so a wide
+  // adaptive page (landscape home) can't linger over a portrait project
+  // while its data loads. The project page upgrades to 'wide' as soon as it
+  // knows the project is landscape-locked (same brief narrow-first paint a
+  // hard reload of a landscape project has).
+  document.documentElement.dataset.shell = path.startsWith('/project/')
+    ? 'narrow'
+    : 'adaptive'
 }
 
 // Styles load before the first SPA paint so we do not flash an unstyled
@@ -33,8 +49,8 @@ root.addEventListener('error', (event) => {
 root.render(<App />)
 
 queueMicrotask(() => {
-  syncBootHeroRoute()
-  onNavigate({ signal: new AbortController().signal }, syncBootHeroRoute)
+  syncRouteChrome()
+  onNavigate({ signal: new AbortController().signal }, syncRouteChrome)
 })
 
 // Fonts after first paint so ~74KB of woff2 never contends with LCP.
