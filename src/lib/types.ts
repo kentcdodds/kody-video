@@ -229,6 +229,8 @@ export interface AppMeta {
      * that produced the file — any difference means a fresh export is needed. */
     signature: string
     watermarked: boolean
+    /** Whether the cached file actually contains clip-location metadata. */
+    locationIncluded?: boolean
   } | null
 }
 

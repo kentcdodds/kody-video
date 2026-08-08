@@ -6,6 +6,7 @@ vi.mock('./encode-realtime', () => ({
     blob: new Blob([new Uint8Array(2048)], { type: 'video/webm' }),
     mimeType: 'video/webm',
     fileExtension: 'webm' as const,
+    locationIncluded: false,
     engine: 'realtime' as const,
   })),
 }))
@@ -51,6 +52,7 @@ describe('exportProject fallback signaling', () => {
     expect(exportWithWebCodecs).not.toHaveBeenCalled()
     expect(exportRealtime).toHaveBeenCalledTimes(1)
     expect(result.engine).toBe('realtime')
+    expect(result.locationIncluded).toBe(false)
   })
 
   it('calls onFallback after WebCodecs fails', async () => {
@@ -73,6 +75,7 @@ describe('exportProject fallback signaling', () => {
       blob: new Blob([new Uint8Array(2048)], { type: 'video/mp4' }),
       mimeType: 'video/mp4',
       fileExtension: 'mp4',
+      locationIncluded: true,
       engine: 'webcodecs',
     })
     // Silence verification needs no audible input peak — leave diagnostics empty.
@@ -84,5 +87,6 @@ describe('exportProject fallback signaling', () => {
     expect(onFallback).not.toHaveBeenCalled()
     expect(exportRealtime).not.toHaveBeenCalled()
     expect(result.engine).toBe('webcodecs')
+    expect(result.locationIncluded).toBe(true)
   })
 })

@@ -974,6 +974,8 @@ export interface ExportResult {
   blob: Blob
   mimeType: string
   fileExtension: 'mp4' | 'webm'
+  /** True only when this file actually contains clip-location metadata. */
+  locationIncluded: boolean
   /** Which stitcher produced this file. Omitted on recovered cache hits. */
   engine?: ExportEngine
   /** Name of the OPFS exports-directory file this export streamed into. */

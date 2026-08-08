@@ -506,19 +506,23 @@ export async function exportWithWebCodecs(
     blob = new Blob([buffer], { type: mimeType })
   }
   const diskBlob = blob
+  let locationIncluded = false
   if (choice.container === 'mp4') {
-    blob = await injectMetadataBestEffort(
+    const metadata = await injectMetadataBestEffort(
       blob,
       mimeType,
       chapters,
       clipsInPlan,
       includeLocation,
     )
+    blob = metadata.blob
+    locationIncluded = metadata.locationIncluded
   }
   return {
     blob,
     mimeType,
     fileExtension: choice.container,
+    locationIncluded,
     engine: 'webcodecs',
     opfsName: opfs?.name,
     // Metadata injection returns a NEW in-memory blob; when it ran, the
@@ -542,16 +546,23 @@ async function injectMetadataBestEffort(
   chapters: Mp4Chapter[],
   clipsInPlan: ClipRecord[],
   includeLocation: boolean,
-): Promise<Blob> {
-  if (blob.size > METADATA_INJECT_LIMIT_BYTES) return blob
+): Promise<{ blob: Blob; locationIncluded: boolean }> {
+  if (blob.size > METADATA_INJECT_LIMIT_BYTES) {
+    return { blob, locationIncluded: false }
+  }
   try {
-    const injected = injectMp4Metadata(await blob.arrayBuffer(), {
+    const location = locationForExport(clipsInPlan, includeLocation)
+    const source = await blob.arrayBuffer()
+    const injected = injectMp4Metadata(source, {
       chapters,
-      location: locationForExport(clipsInPlan, includeLocation),
+      location,
     })
-    return new Blob([injected], { type: mimeType })
+    return {
+      blob: new Blob([injected], { type: mimeType }),
+      locationIncluded: location !== null && injected !== source,
+    }
   } catch {
-    return blob
+    return { blob, locationIncluded: false }
   }
 }
 

@@ -32,4 +32,13 @@ describe('MP4 export location metadata', () => {
       lng: clip.lng,
     })
   })
+
+  it('omits malformed non-finite coordinates from opted-in chapter titles', () => {
+    const clip = locatedClip()
+
+    expect(formatChapterTitle({ ...clip, lat: Number.NaN }, false, true)).not.toContain('NaN')
+    expect(
+      formatChapterTitle({ ...clip, lng: Number.POSITIVE_INFINITY }, false, true),
+    ).not.toContain('Infinity')
+  })
 })

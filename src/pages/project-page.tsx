@@ -347,7 +347,7 @@ export function ProjectPage(handle: Handle<ProjectPageProps>) {
       error: null,
       notice: null,
       watermarked,
-      locationIncluded: includeLocation,
+      locationIncluded: false,
       usedFallback: false,
     })
     // Long exports must survive the screen dimming: without a wake lock the
@@ -390,8 +390,7 @@ export function ProjectPage(handle: Handle<ProjectPageProps>) {
               error: null,
               notice: 'Restored your last export — nothing changed since. Retry re-renders.',
               watermarked: recovered.watermarked,
-              locationIncluded:
-                includeLocation && recovered.result.fileExtension === 'mp4',
+              locationIncluded: recovered.result.locationIncluded,
               usedFallback: false,
             })
             return
@@ -469,7 +468,7 @@ export function ProjectPage(handle: Handle<ProjectPageProps>) {
           error: null,
           notice: null,
           watermarked,
-          locationIncluded: includeLocation && result.fileExtension === 'mp4',
+          locationIncluded: result.locationIncluded,
           usedFallback: result.engine === 'realtime' || (exportState?.usedFallback ?? false),
         })
       } catch (err) {

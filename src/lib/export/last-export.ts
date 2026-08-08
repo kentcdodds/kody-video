@@ -136,6 +136,7 @@ async function persistLastExportInner(args: {
       createdAt: Date.now(),
       signature,
       watermarked,
+      locationIncluded: result.locationIncluded,
     },
   })
   if (previousName && previousName !== opfsName) {
@@ -167,6 +168,7 @@ export async function loadMatchingExport(
       blob: new Blob([file], { type: last.mimeType }),
       mimeType: last.mimeType,
       fileExtension: last.fileExtension,
+      locationIncluded: last.locationIncluded === true,
     },
     watermarked: last.watermarked,
     createdAt: last.createdAt,

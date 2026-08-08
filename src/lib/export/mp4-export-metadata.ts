@@ -33,7 +33,13 @@ export function formatChapterTitle(
     ? `${start.toLocaleDateString([], { month: 'short', day: 'numeric' })} `
     : ''
   let title = `${datePrefix}${time}`
-  if (includeLocation && typeof clip.lat === 'number' && typeof clip.lng === 'number') {
+  if (
+    includeLocation &&
+    typeof clip.lat === 'number' &&
+    Number.isFinite(clip.lat) &&
+    typeof clip.lng === 'number' &&
+    Number.isFinite(clip.lng)
+  ) {
     title += ` · ${clip.lat.toFixed(4)},${clip.lng.toFixed(4)}`
   }
   return title
