@@ -28,12 +28,14 @@ export function exportSignature(
   watermarked: boolean,
   audio?: Pick<ProjectAudioRecord, 'tracks' | 'fadeIn' | 'fadeOut'> | null,
   orientation?: ProjectOrientation,
+  includeLocation = false,
 ): string {
   return JSON.stringify({
     watermarked,
-    // Only landscape signs (JSON drops undefined): every portrait project's
-    // signature stays byte-identical to before the setting existed, so
-    // cached exports survive the app update.
+    // Sign explicitly, including false, to invalidate legacy cached exports
+    // that may contain location metadata before this privacy control existed.
+    includeLocation,
+    // Only landscape signs (JSON drops undefined).
     orientation: orientation === 'landscape' ? 'landscape' : undefined,
     clips: clips.map((clip) => [
       clip.id,

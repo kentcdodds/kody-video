@@ -259,6 +259,9 @@ export async function setTourCardDismissed(tourCardDismissed: boolean): Promise<
 export async function setLocationTaggingEnabled(locationTaggingEnabled: boolean): Promise<void> {
   const db = await getDb()
   const settings = await getSettings()
+  if (locationTaggingEnabled && settings.watermarkRemoved !== true) {
+    throw new PlusRequiredError('Location tagging is a Kody Video Plus perk.')
+  }
   await db.put('meta', { ...settings, locationTaggingEnabled })
 }
 
@@ -266,6 +269,17 @@ export async function setKeepWatermark(keepWatermark: boolean): Promise<void> {
   const db = await getDb()
   const settings = await getSettings()
   await db.put('meta', { ...settings, keepWatermark })
+}
+
+export async function setIncludeLocationInExports(
+  includeLocationInExports: boolean,
+): Promise<void> {
+  const db = await getDb()
+  const settings = await getSettings()
+  if (includeLocationInExports && settings.watermarkRemoved !== true) {
+    throw new PlusRequiredError('Location export is a Kody Video Plus perk.')
+  }
+  await db.put('meta', { ...settings, includeLocationInExports })
 }
 
 export async function listProjects(): Promise<Project[]> {

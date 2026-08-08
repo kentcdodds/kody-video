@@ -419,7 +419,7 @@ a {
   line-height: 1.5;
 }
 
-.watermark-prefs {
+.export-prefs {
   margin-top: 14px;
   display: flex;
   flex-direction: column;
@@ -427,7 +427,7 @@ a {
   gap: 8px;
 }
 
-.watermark-keep-toggle {
+.export-pref-toggle {
   display: inline-flex;
   align-items: center;
   gap: 8px;
@@ -437,16 +437,25 @@ a {
   cursor: pointer;
 }
 
-.watermark-keep-toggle input[type='checkbox'] {
+.export-pref-toggle input[type='checkbox'] {
   width: 16px;
   height: 16px;
   accent-color: var(--accent);
   margin: 0;
 }
 
-.watermark-prefs .watermark-note {
+.export-pref-note,
+.export-location-note {
   margin: 0;
   text-align: center;
+  font-size: 0.85rem;
+  line-height: 1.5;
+  color: var(--ink-muted);
+}
+
+.export-location-note {
+  max-width: 30rem;
+  font-size: 0.78rem;
 }
 
 .link-button {

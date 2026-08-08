@@ -24,6 +24,12 @@ interface ExportSheetProps {
   purchased: boolean
   /** Plus opt-in: keep stamping the mark on future exports. */
   keepWatermark: boolean
+  /** Plus opt-in: include captured coordinates in future MP4 exports. */
+  includeLocation: boolean
+  /** Whether THIS exported file contains captured coordinates. */
+  locationIncluded: boolean
+  /** Whether any clip in the current project carries captured coordinates. */
+  hasTaggedClips: boolean
   /**
    * True when this run used the realtime canvas fallback. Shows a dismissible
    * backup / try-elsewhere hint (session-only; resets on the next export).
@@ -32,6 +38,7 @@ interface ExportSheetProps {
   /** A share/save is in flight — dismissal would drop its result notice. */
   busy: boolean
   onKeepWatermarkChange: (keep: boolean) => void
+  onIncludeLocationChange: (include: boolean) => void
   onShare: () => void
   onSave: () => void
   onSaveClips: () => void
@@ -64,9 +71,13 @@ export function ExportSheet(handle: Handle<ExportSheetProps>) {
       watermarked,
       purchased,
       keepWatermark,
+      includeLocation,
+      locationIncluded,
+      hasTaggedClips,
       usedFallback,
       busy,
       onKeepWatermarkChange,
+      onIncludeLocationChange,
       onShare,
       onSave,
       onSaveClips,
@@ -185,8 +196,8 @@ export function ExportSheet(handle: Handle<ExportSheetProps>) {
                 </p>
               ) : null}
               {purchased ? (
-                <div className="watermark-prefs">
-                  <label className="watermark-keep-toggle">
+                <div className="export-prefs">
+                  <label className="export-pref-toggle">
                     <input
                       type="checkbox"
                       checked={keepWatermark}
@@ -197,17 +208,47 @@ export function ExportSheet(handle: Handle<ExportSheetProps>) {
                     />
                     Keep the Kody mark on exports
                   </label>
+                  <label className="export-pref-toggle">
+                    <input
+                      type="checkbox"
+                      checked={includeLocation}
+                      disabled={busy}
+                      mix={on('change', (event) => {
+                        onIncludeLocationChange(
+                          (event.currentTarget as HTMLInputElement).checked,
+                        )
+                      })}
+                    />
+                    Include clip locations in MP4 exports
+                  </label>
                   {watermarked && !keepWatermark ? (
-                    <p className="watermark-note">
+                    <p className="export-pref-note">
                       This video still includes the Kody mark — tap Re-export from scratch for a
                       clean export.
                     </p>
                   ) : null}
                   {!watermarked && keepWatermark ? (
-                    <p className="watermark-note">
+                    <p className="export-pref-note">
                       Tap Re-export from scratch to stamp the Kody mark on this video.
                     </p>
                   ) : null}
+                  {locationIncluded && !includeLocation ? (
+                    <p className="export-pref-note">
+                      This video still includes clip locations — tap Re-export from scratch to
+                      remove them.
+                    </p>
+                  ) : null}
+                  {!locationIncluded &&
+                  includeLocation &&
+                  hasTaggedClips &&
+                  fileExtension === 'mp4' ? (
+                    <p className="export-pref-note">
+                      Tap Re-export from scratch to include clip locations in this video.
+                    </p>
+                  ) : null}
+                  <p className="export-location-note">
+                    Location is off by default. Chapter markers stay in the video either way.
+                  </p>
                 </div>
               ) : null}
             </>

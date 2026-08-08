@@ -16,7 +16,6 @@ import {
   type AudioCodec,
   type VideoCodec,
 } from 'mediabunny'
-import { deriveProjectLocation } from '../geo'
 import { isIosBrowser } from '../platform'
 import {
   clipMusicVolume,
@@ -54,6 +53,11 @@ import {
   seekTo,
   type ExportResult,
 } from './shared'
+import {
+  clipsSpanMultipleDays,
+  formatChapterTitle,
+  locationForExport,
+} from './mp4-export-metadata'
 
 const FPS = 30
 const AUDIO_SAMPLE_RATE = 48000
@@ -133,6 +137,7 @@ export async function exportWithWebCodecs(
   watermarkImage?: HTMLImageElement | null,
   background?: BackgroundAudio | null,
   orientation?: ProjectOrientation,
+  includeLocation = false,
 ): Promise<ExportResult> {
   if (!supportsWebCodecsExport()) {
     throw new Error('WebCodecs is not available')
@@ -337,7 +342,7 @@ export async function exportWithWebCodecs(
         if (choice.container === 'mp4') {
           chapters.push({
             startMs: Math.round(state.outputOffsetSec * 1000),
-            title: formatChapterTitle(segment.clip, multiDay),
+            title: formatChapterTitle(segment.clip, multiDay, includeLocation),
           })
         }
 
@@ -502,7 +507,13 @@ export async function exportWithWebCodecs(
   }
   const diskBlob = blob
   if (choice.container === 'mp4') {
-    blob = await injectMetadataBestEffort(blob, mimeType, chapters, clipsInPlan)
+    blob = await injectMetadataBestEffort(
+      blob,
+      mimeType,
+      chapters,
+      clipsInPlan,
+      includeLocation,
+    )
   }
   return {
     blob,
@@ -530,12 +541,13 @@ async function injectMetadataBestEffort(
   mimeType: string,
   chapters: Mp4Chapter[],
   clipsInPlan: ClipRecord[],
+  includeLocation: boolean,
 ): Promise<Blob> {
   if (blob.size > METADATA_INJECT_LIMIT_BYTES) return blob
   try {
     const injected = injectMp4Metadata(await blob.arrayBuffer(), {
       chapters,
-      location: deriveProjectLocation(clipsInPlan),
+      location: locationForExport(clipsInPlan, includeLocation),
     })
     return new Blob([injected], { type: mimeType })
   } catch {
@@ -576,37 +588,6 @@ async function probeOutputSize(
   }
 }
 
-/** Recording start ≈ createdAt − durationMs (wall-clock capture window). */
-function clipRecordingStartMs(clip: Pick<ClipRecord, 'createdAt' | 'durationMs'>): number {
-  return clip.createdAt - clip.durationMs
-}
-
-function clipsSpanMultipleDays(clips: Pick<ClipRecord, 'createdAt' | 'durationMs'>[]): boolean {
-  if (clips.length <= 1) return false
-  const days = new Set<string>()
-  for (const clip of clips) {
-    const d = new Date(clipRecordingStartMs(clip))
-    days.add(`${d.getFullYear()}-${d.getMonth()}-${d.getDate()}`)
-    if (days.size > 1) return true
-  }
-  return false
-}
-
-function formatChapterTitle(
-  clip: Pick<ClipRecord, 'createdAt' | 'durationMs' | 'lat' | 'lng'>,
-  includeDate: boolean,
-): string {
-  const start = new Date(clipRecordingStartMs(clip))
-  const time = start.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })
-  const datePrefix = includeDate
-    ? `${start.toLocaleDateString([], { month: 'short', day: 'numeric' })} `
-    : ''
-  let title = `${datePrefix}${time}`
-  if (typeof clip.lat === 'number' && typeof clip.lng === 'number') {
-    title += ` · ${clip.lat.toFixed(4)},${clip.lng.toFixed(4)}`
-  }
-  return title
-}
 
 interface PumpState {
   lastVideoTsSec: number

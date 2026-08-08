@@ -62,12 +62,12 @@ export function PrivacyPage() {
         <section className="about-section">
           <h2>Optional location tagging</h2>
           <p>
-            Location tagging is off by default. You can opt in with a button, which asks the
-            browser for permission. When it&rsquo;s on, each new clip stores device coordinates
-            locally, and exported videos embed that location in their metadata and chapter titles.
-            Sharing such a video shares those coordinates. You can turn location tagging off anytime;
-            existing clips keep whatever they already captured, and deleting a clip deletes its
-            location data with it.
+            Location tagging is an optional Kody Video Plus feature and is off by default. You can
+            opt in with a button, which asks the browser for permission. When it&rsquo;s on, each
+            new clip stores device coordinates locally. Exported videos omit location by default;
+            Plus users can explicitly include it in MP4 metadata and chapter titles from the export
+            sheet. You can turn location tagging off anytime; existing clips keep whatever they
+            already captured, and deleting a clip deletes its location data with it.
           </p>
         </section>
 

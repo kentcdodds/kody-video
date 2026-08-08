@@ -58,6 +58,8 @@ export interface ProjectLoaderData {
    * Plus opt-in: keep the Kody mark on exports after purchase (default off).
    */
   keepWatermark: boolean
+  /** Plus opt-in: include captured coordinates in MP4 exports (default off). */
+  includeLocationInExports: boolean
   /** Device storage estimate (null when the API is unavailable). */
   storage: StorageSpace | null
   /** Opt-in: tag new clips with device location. */
@@ -148,8 +150,11 @@ export async function loadProjectPage(projectId: ProjectId): Promise<ProjectLoad
         onboardingDismissed: settings.onboardingDismissed,
         watermarkRemoved: settings.watermarkRemoved === true,
         keepWatermark: settings.keepWatermark === true,
+        includeLocationInExports:
+          settings.watermarkRemoved === true && settings.includeLocationInExports === true,
         storage,
-        locationTaggingEnabled: settings.locationTaggingEnabled === true,
+        locationTaggingEnabled:
+          settings.watermarkRemoved === true && settings.locationTaggingEnabled === true,
         error: null,
       }
     }
@@ -171,8 +176,11 @@ export async function loadProjectPage(projectId: ProjectId): Promise<ProjectLoad
         onboardingDismissed: settings.onboardingDismissed,
         watermarkRemoved: settings.watermarkRemoved === true,
         keepWatermark: settings.keepWatermark === true,
+        includeLocationInExports:
+          settings.watermarkRemoved === true && settings.includeLocationInExports === true,
         storage,
-        locationTaggingEnabled: settings.locationTaggingEnabled === true,
+        locationTaggingEnabled:
+          settings.watermarkRemoved === true && settings.locationTaggingEnabled === true,
         error: 'Project not found',
       }
     }
@@ -197,8 +205,11 @@ export async function loadProjectPage(projectId: ProjectId): Promise<ProjectLoad
       onboardingDismissed: settings.onboardingDismissed,
       watermarkRemoved: settings.watermarkRemoved === true,
       keepWatermark: settings.keepWatermark === true,
+      includeLocationInExports:
+        settings.watermarkRemoved === true && settings.includeLocationInExports === true,
       storage,
-      locationTaggingEnabled: settings.locationTaggingEnabled === true,
+      locationTaggingEnabled:
+        settings.watermarkRemoved === true && settings.locationTaggingEnabled === true,
       error: null,
     }
   } catch (err) {
@@ -210,6 +221,7 @@ export async function loadProjectPage(projectId: ProjectId): Promise<ProjectLoad
       onboardingDismissed: true,
       watermarkRemoved: false,
       keepWatermark: false,
+      includeLocationInExports: false,
       storage: null,
       locationTaggingEnabled: false,
       error: err instanceof Error ? err.message : 'Failed to load project',

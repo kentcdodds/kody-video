@@ -24,6 +24,8 @@ import {
   PlusRequiredError,
   removeProjectAudioTrack,
   renameProject,
+  setIncludeLocationInExports,
+  setLocationTaggingEnabled,
   setOnboardingDismissed,
   setProjectOrientation,
   setTourCardDismissed,
@@ -174,6 +176,26 @@ describe('storage layer', () => {
     expect((await getSettings()).keepWatermark).toBe(true)
     await setKeepWatermark(false)
     expect((await getSettings()).keepWatermark).toBe(false)
+  })
+
+  it('gates location capture and export preferences behind Plus', async () => {
+    await expect(setLocationTaggingEnabled(true)).rejects.toBeInstanceOf(PlusRequiredError)
+    await expect(setIncludeLocationInExports(true)).rejects.toBeInstanceOf(PlusRequiredError)
+
+    await markWatermarkRemoved('cs_test_location')
+    await setLocationTaggingEnabled(true)
+    await setIncludeLocationInExports(true)
+    expect(await getSettings()).toMatchObject({
+      locationTaggingEnabled: true,
+      includeLocationInExports: true,
+    })
+
+    await setLocationTaggingEnabled(false)
+    await setIncludeLocationInExports(false)
+    expect(await getSettings()).toMatchObject({
+      locationTaggingEnabled: false,
+      includeLocationInExports: false,
+    })
   })
 
   it('gates the second project behind the Plus purchase', async () => {
