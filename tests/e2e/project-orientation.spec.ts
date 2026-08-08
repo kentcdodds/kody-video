@@ -1,66 +1,43 @@
-import { test, expect, type Page } from '@playwright/test'
+import { test, expect } from '@playwright/test'
 import {
-  gotoHome,
+  openNewProject,
   recordClip,
   seedProject,
   unlockPlus,
   waitForCameraReady,
 } from './helpers'
 
-/** The camera view's orientation toggle (locked or not). */
-function orientationToggle(page: Page) {
-  return page.getByRole('button', { name: /(landscape|portrait) project/i })
-}
-
-async function shellOrientation(page: Page): Promise<string | undefined> {
+async function shellOrientation(page: import('@playwright/test').Page) {
   return page.evaluate(() => document.documentElement.dataset.projectOrientation)
 }
 
+// Rotate-to-choose (the touch flow: follow the device, lock on the first
+// take, free-plan gate) lives in orientation-touch.spec.ts under the touch
+// Playwright project. This file covers what locked projects do everywhere
+// and the fine-pointer (desktop-like) exemption.
 test.describe('project orientation', () => {
-  test('free plan: the toggle is locked and opens the Plus upsell', async ({ page }) => {
-    const projectId = await seedProject(page, { clips: 1 })
-    await page.goto(`/project/${projectId}`)
-    await waitForCameraReady(page)
-
-    const toggle = orientationToggle(page)
-    await expect(toggle.locator('.orientation-plus-lock')).toBeVisible()
-    await toggle.click()
-
-    const upsell = page.locator('.sheet[aria-label="Kody Video Plus"]')
-    await expect(upsell).toBeVisible()
-    await expect(upsell).toContainText(/landscape projects/i)
-
-    // Nothing changed: the shell and the stored project stay portrait.
-    expect(await shellOrientation(page)).toBe('portrait')
-    const stored = await page.evaluate(async (id) => {
-      const storage = await import('/src/lib/storage.ts')
-      return (await storage.getProject(id))?.orientation
-    }, projectId)
-    expect(stored).toBeUndefined()
-  })
-
-  test('plus: landscape shifts the shell, persists, and hints until the device turns', async ({
+  test('a locked landscape project shifts the shell, persists, and hints upright', async ({
     page,
   }) => {
     const projectId = await seedProject(page, { clips: 2 })
     await unlockPlus(page)
+    await page.evaluate(async (id) => {
+      const storage = await import('/src/lib/storage.ts')
+      await storage.setProjectOrientation(id, 'landscape')
+    }, projectId)
     await page.goto(`/project/${projectId}`)
     await waitForCameraReady(page)
 
-    await orientationToggle(page).click()
-
     // The whole interface swings: document-level data attribute (widens the
     // shell via CSS) + the page-level class.
-    await expect
-      .poll(() => shellOrientation(page))
-      .toBe('landscape')
+    await expect.poll(() => shellOrientation(page)).toBe('landscape')
     await expect(page.locator('.project-screen.orientation-landscape')).toBeVisible()
 
     // Held upright (portrait viewport), the app asks for a turn.
     await expect(page.locator('.orientation-hint')).toBeVisible()
     await expect(page.locator('.orientation-hint')).toContainText(/turn your device/i)
 
-    // Persisted on the project — a reload keeps the landscape interface.
+    // A reload keeps the landscape interface — the lock is on the project.
     await page.reload()
     await waitForCameraReady(page)
     await expect.poll(() => shellOrientation(page)).toBe('landscape')
@@ -90,53 +67,25 @@ test.describe('project orientation', () => {
         return panel.x >= stage.x + stage.width - 2
       })
       .toBe(true)
-
-    // Back on the camera, switching to portrait restores everything and
-    // clears the stored field.
-    await page.locator('[aria-label="Back to camera"]').click()
-    await waitForCameraReady(page)
-    await orientationToggle(page).click()
-    await expect.poll(() => shellOrientation(page)).toBe('portrait')
-    const stored = await page.evaluate(async (id) => {
-      const storage = await import('/src/lib/storage.ts')
-      return (await storage.getProject(id))?.orientation
-    }, projectId)
-    expect(stored).toBeUndefined()
   })
 
-  test('plus: orientation picked on a brand-new project survives the first clip', async ({
-    page,
-  }) => {
-    await gotoHome(page)
-    await unlockPlus(page)
-    await page.locator('.project-slot.empty').first().click()
-    await page.waitForURL(/\/project\//)
-    await waitForCameraReady(page)
+  test('fine-pointer (desktop-like) recording never locks an orientation', async ({ page }) => {
+    // Webcams and screen shares are landscape media without that being a
+    // choice — desktop projects stay unlocked and keep the classic column.
+    await openNewProject(page)
 
-    // Nothing is persisted yet — the pick is pending on the lazy project.
-    await orientationToggle(page).click()
-    await expect.poll(() => shellOrientation(page)).toBe('landscape')
-    expect(
-      await page.evaluate(async () => {
-        const storage = await import('/src/lib/storage.ts')
-        return (await storage.listProjects()).length
-      }),
-    ).toBe(0)
-
-    // The first clip creates the project carrying the pending orientation.
     await recordClip(page)
-    await expect
-      .poll(async () =>
-        page.evaluate(async () => {
-          const storage = await import('/src/lib/storage.ts')
-          return (await storage.listProjects())[0]?.orientation
-        }),
-      )
-      .toBe('landscape')
+
+    const orientation = await page.evaluate(async () => {
+      const storage = await import('/src/lib/storage.ts')
+      return (await storage.listProjects())[0]?.orientation
+    })
+    expect(orientation).toBeUndefined()
+    expect(await shellOrientation(page)).toBe('portrait')
   })
 
   test('landscape projects export a landscape file from portrait clips', async ({ page }) => {
-    // Through the real project boundary: a PERSISTED landscape project,
+    // Through the real project boundary: a locked landscape project,
     // exported with the Go button — portrait fixture clips (320×568) must
     // come out 568×320 (the same cover-fit center crop the preview shows).
     const projectId = await seedProject(page, { clips: 1 })

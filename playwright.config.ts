@@ -43,7 +43,15 @@ export default defineConfig({
         hasTouch: false,
         defaultBrowserType: 'chromium',
       },
-      testIgnore: /desktop-keyboard/,
+      testIgnore: [/desktop-keyboard/, /orientation-touch/],
+    },
+    {
+      // Real touch emulation (pointer: coarse): the rotate-to-choose
+      // orientation flow only exists on devices that are physically held.
+      // Input still drives through the mouse (pointer events fire the same).
+      name: 'touch',
+      use: { ...devices['Pixel 7'], defaultBrowserType: 'chromium' },
+      testMatch: /orientation-touch/,
     },
     {
       name: 'desktop',

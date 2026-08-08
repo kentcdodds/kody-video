@@ -318,13 +318,15 @@ describe('storage layer', () => {
     expect((await listProjects())[0]?.orientation).toBe('landscape')
   })
 
-  it('deleteProjectIfPristine keeps landscape projects', async () => {
+  it('deleteProjectIfPristine drops an emptied project even when a lock was recorded', async () => {
+    // Orientation is derived from the first take, not a standalone choice —
+    // a project emptied of clips is back to its default state.
     await markWatermarkRemoved('cs_test_storage')
     const project = await createProject()
     await setProjectOrientation(project.id, 'landscape')
 
-    expect(await deleteProjectIfPristine(project.id)).toBe(false)
-    expect(await listProjects()).toHaveLength(1)
+    expect(await deleteProjectIfPristine(project.id)).toBe(true)
+    expect(await listProjects()).toHaveLength(0)
   })
 
   it('deleteProjectIfPristine keeps projects with background music', async () => {
