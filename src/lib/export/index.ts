@@ -36,6 +36,12 @@ export interface ExportOptions {
   getPreviewCanvas?: () => HTMLCanvasElement | null
   /** Stamp the Kody Video mark on frames (default true; off after purchase). */
   watermark?: boolean
+  /**
+   * Include captured coordinates in MP4 metadata and chapter titles.
+   * Default false so exports do not disclose location without an explicit
+   * Plus-user opt-in.
+   */
+  includeLocation?: boolean
   /** Background-music playlist mixed under the clips at their per-clip
    * volumes; tracks play one after the other until the film ends. */
   background?: BackgroundAudio | null
@@ -93,6 +99,7 @@ async function runExport(
         watermarkImage,
         options.background,
         options.orientation,
+        options.includeLocation === true,
       )
       reportSilentExportAudio({ engine: 'webcodecs', outputMime: result.mimeType })
       reportBlackExportVideo({ engine: 'webcodecs', outputMime: result.mimeType })

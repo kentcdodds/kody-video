@@ -27,7 +27,12 @@ import {
 import { isCoarsePointerDevice, viewportIsLandscape } from '../lib/platform'
 import { loadProjectPage, type ProjectLoaderData } from '../lib/project-actions'
 import { projectBackupFilename, serializeProject } from '../lib/project-transfer'
-import { createProject, setKeepWatermark, setOnboardingDismissed } from '../lib/storage'
+import {
+  createProject,
+  setIncludeLocationInExports,
+  setKeepWatermark,
+  setOnboardingDismissed,
+} from '../lib/storage'
 import { formatBytes, requestPersistentStorage } from '../lib/storage-space'
 import { navigate } from '../router'
 import {
@@ -68,6 +73,8 @@ interface ExportUiState {
   notice: string | null
   /** Whether THIS export was stamped (entitlement can change mid-sheet). */
   watermarked: boolean
+  /** Whether THIS MP4 export contains captured clip coordinates. */
+  locationIncluded: boolean
   /** True once this run entered the realtime canvas fallback. */
   usedFallback: boolean
 }
@@ -142,6 +149,7 @@ export function ProjectPage(handle: Handle<ProjectPageProps>) {
           onboardingDismissed: true,
           watermarkRemoved: false,
           keepWatermark: false,
+          includeLocationInExports: false,
           storage: null,
           locationTaggingEnabled: false,
           error: err instanceof Error ? err.message : 'Could not load this project.',
@@ -316,12 +324,17 @@ export function ProjectPage(handle: Handle<ProjectPageProps>) {
     }
 
     const watermarked = shouldWatermarkExports(data)
+    const hasLocation = clips.some(
+      (clip) => typeof clip.lat === 'number' && typeof clip.lng === 'number',
+    )
+    const includeLocation =
+      data.watermarkRemoved && data.includeLocationInExports && hasLocation
     // Only an explicit landscape choice forces the output shape; portrait
     // projects keep following their first clip (desktop and screen
     // recordings are landscape media in "portrait" projects — cropping
     // those would be a regression, not a feature).
     const orientation = effectiveOrientation() === 'landscape' ? 'landscape' : undefined
-    const signature = exportSignature(clips, watermarked, audio, orientation)
+    const signature = exportSignature(clips, watermarked, audio, orientation, includeLocation)
     // Stop camera/mic immediately rather than waiting on record-screen
     // unmount. On iOS the combined mic+camera session can hold decoder
     // slots past the first paints, and WebKit reports that race as
@@ -334,6 +347,7 @@ export function ProjectPage(handle: Handle<ProjectPageProps>) {
       error: null,
       notice: null,
       watermarked,
+      locationIncluded: false,
       usedFallback: false,
     })
     // Long exports must survive the screen dimming: without a wake lock the
@@ -376,6 +390,7 @@ export function ProjectPage(handle: Handle<ProjectPageProps>) {
               error: null,
               notice: 'Restored your last export — nothing changed since. Retry re-renders.',
               watermarked: recovered.watermarked,
+              locationIncluded: recovered.result.locationIncluded,
               usedFallback: false,
             })
             return
@@ -401,6 +416,7 @@ export function ProjectPage(handle: Handle<ProjectPageProps>) {
         const result = await exportProject(clips, {
           audioContext,
           watermark: watermarked,
+          includeLocation,
           orientation,
           background:
             audio && audio.tracks.length > 0
@@ -452,6 +468,7 @@ export function ProjectPage(handle: Handle<ProjectPageProps>) {
           error: null,
           notice: null,
           watermarked,
+          locationIncluded: result.locationIncluded,
           usedFallback: result.engine === 'realtime' || (exportState?.usedFallback ?? false),
         })
       } catch (err) {
@@ -478,6 +495,7 @@ export function ProjectPage(handle: Handle<ProjectPageProps>) {
           error: err instanceof Error ? err.message : 'Export failed.',
           notice: null,
           watermarked,
+          locationIncluded: false,
           usedFallback: exportState?.usedFallback ?? false,
         })
       } finally {
@@ -653,12 +671,24 @@ export function ProjectPage(handle: Handle<ProjectPageProps>) {
             usedFallback={exportState.usedFallback}
             purchased={data.watermarkRemoved}
             keepWatermark={data.keepWatermark}
+            includeLocation={data.includeLocationInExports}
+            locationIncluded={exportState.locationIncluded}
+            hasTaggedClips={clips.some(
+              (clip) => typeof clip.lat === 'number' && typeof clip.lng === 'number',
+            )}
             busy={exportActionCount > 0}
             onKeepWatermarkChange={(keep) => {
               data = { ...data!, keepWatermark: keep }
               void handle.update()
               void setKeepWatermark(keep).catch((err) => {
                 reportError(err, 'keep-watermark')
+              })
+            }}
+            onIncludeLocationChange={(include) => {
+              data = { ...data!, includeLocationInExports: include }
+              void handle.update()
+              void setIncludeLocationInExports(include).catch((err) => {
+                reportError(err, 'include-location')
               })
             }}
             onRemoveWatermark={() => {

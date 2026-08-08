@@ -209,6 +209,12 @@ export interface AppMeta {
    * Default off — Plus removes the watermark unless the user chooses this.
    */
   keepWatermark?: boolean
+  /**
+   * Plus opt-in: include captured clip coordinates in MP4 metadata and
+   * chapter titles. Default off so a share cannot disclose location unless
+   * the user explicitly enables it.
+   */
+  includeLocationInExports?: boolean
   /** Opt-in: tag new clips with device location. */
   locationTaggingEnabled?: boolean
   /** The persisted last export (OPFS-backed), recoverable after the share
@@ -219,10 +225,12 @@ export interface AppMeta {
     mimeType: string
     fileExtension: 'mp4' | 'webm'
     createdAt: number
-    /** Fingerprint of the clips (ids + trims) and watermark state that
-     * produced the file — any difference means a fresh export is needed. */
+    /** Fingerprint of clips, render settings, and export metadata choices
+     * that produced the file — any difference means a fresh export is needed. */
     signature: string
     watermarked: boolean
+    /** Whether the cached file actually contains clip-location metadata. */
+    locationIncluded?: boolean
   } | null
 }
 

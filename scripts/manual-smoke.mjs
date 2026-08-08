@@ -274,11 +274,15 @@ try {
     (await page.getByRole('button', { name: /get plus — \$0\.99/i }).count()) === 0
   if (upsellGone) pass('purchase removes the watermark upsell')
   else fail('purchase removes the watermark upsell', `exported=${unlockedExport}`)
-  await page
-    .getByRole('dialog', { name: /share project/i })
-    .getByRole('button', { name: /done|close/i })
-    .first()
-    .click()
+  const unlockedDialog = page.getByRole('dialog', { name: /share project/i })
+  const locationExportToggle = unlockedDialog.getByRole('checkbox', {
+    name: /include clip locations/i,
+  })
+  const locationExportSafe =
+    (await locationExportToggle.count()) === 1 && !(await locationExportToggle.isChecked())
+  if (locationExportSafe) pass('Plus location export toggle defaults off')
+  else fail('Plus location export toggle defaults off')
+  await unlockedDialog.getByRole('button', { name: /done|close/i }).first().click()
   await page.unroute('**/api/verify-purchase*')
 
   // --- Playback preview overlay ---

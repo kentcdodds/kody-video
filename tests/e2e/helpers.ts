@@ -19,6 +19,15 @@ export async function openNewProject(page: Page): Promise<void> {
   await waitForCameraReady(page)
 }
 
+/** Home → Plus unlock → empty project camera. */
+export async function openNewPlusProject(page: Page): Promise<void> {
+  await gotoHome(page)
+  await unlockPlus(page)
+  await page.locator('.project-slot.empty').first().click()
+  await page.waitForURL(/\/project\//)
+  await waitForCameraReady(page)
+}
+
 export async function waitForCameraReady(page: Page): Promise<void> {
   const video = page.locator('.camera-video')
   await video.waitFor()
@@ -102,11 +111,16 @@ export async function recordClip(page: Page, holdMs = 1200): Promise<void> {
  */
 export async function seedProject(
   page: Page,
-  options: { clips: number; clipMs?: number; name?: string } = { clips: 1 },
+  options: {
+    clips: number
+    clipMs?: number
+    name?: string
+    location?: { lat: number; lng: number }
+  } = { clips: 1 },
 ): Promise<string> {
   await gotoHome(page)
   const projectId = await page.evaluate(
-    async ({ clips, clipMs, name }) => {
+    async ({ clips, clipMs, name, location }) => {
       const storage = await import('/src/lib/storage.ts')
       const thumbs = await import('/src/lib/thumbs.ts')
       const { makeTestClipBlob } = await import('/src/lib/testing/make-test-clip.ts')
@@ -120,13 +134,20 @@ export async function seedProject(
           durationMs: clipMs,
           width: 320,
           height: 568,
+          lat: location?.lat,
+          lng: location?.lng,
         })
         // Thumbs/posters are generated at record time in the real flow.
         await thumbs.ensureClipThumbs(clip)
       }
       return project.id
     },
-    { clips: options.clips, clipMs: options.clipMs ?? 1500, name: options.name },
+    {
+      clips: options.clips,
+      clipMs: options.clipMs ?? 1500,
+      name: options.name,
+      location: options.location,
+    },
   )
   return projectId
 }

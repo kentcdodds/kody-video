@@ -33,8 +33,9 @@ npm test           # unit tests
   (fine-pointer) recording never locks; landscape projects export landscape
   files (portrait clips center-crop; backup round-trip of the lock is
   covered by the unit suite)
-- **Location**: toggle asks permission, `aria-pressed` reflects state, new
-  clips carry exact coordinates, toasts confirm on/off
+- **Location (Plus)**: capture toggle asks permission, `aria-pressed` reflects
+  state, new clips carry exact coordinates, toasts confirm on/off; export
+  toggle is off by default and hidden on the free plan
 - **Editor**: opens at the most recent clip; tap selects; tiles show
   filmstrip thumbnails; duplicate inserts the copy right after the selection;
   delete offers Undo; trim strip opens, dragging the end handle + Done
@@ -135,9 +136,9 @@ see the README) — plain `http://<lan-ip>` fails in most browsers.
   clips with no clicks at joints, smooth frame rate
 - [ ] Watermark (before purchase): small Kody mark + domain bottom-right at
   50% opacity; gone after purchase
-- [ ] MP4 chapters at clip boundaries in VLC/mpv; with tagged clips,
-  VLC/exiftool show the ©xyz geotag; old projects without location still
-  export (chapters only)
+- [ ] MP4 chapters at clip boundaries in VLC/mpv; tagged clips export as
+  chapters only by default, while enabling export location adds coordinates
+  to chapter titles and a ©xyz geotag
 - [ ] Share opens the system share sheet (fresh tap, no silent failure)
 - [ ] Export failure path offers "Save clips instead"
 

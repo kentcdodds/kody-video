@@ -113,13 +113,14 @@ src/
 
 MP4 exports carry **chapter markers** at every clip boundary (Nero `chpl`,
 injected post-mux by `lib/export/mp4-metadata.ts`), titled with each clip's
-recording time. With the opt-in **location tagging** toggle on the record
-screen, clips store device coordinates (kept in IndexedDB alongside the clip,
-never inside the MediaRecorder blob), chapter titles include them, and the
-file gets a `©xyz` geotag — derived by averaging the majority cluster of clip
-locations (within 5 km), falling back to the first located clip. WebM exports
-skip both (the WebM subset of Matroska excludes chapters). Clips recorded
-before this feature simply lack the data and degrade gracefully.
+recording time. Kody Video Plus users can opt into **location tagging** on the
+record screen; clips then store device coordinates in IndexedDB alongside the
+clip, never inside the MediaRecorder blob. Exports omit those coordinates by
+default. A separate Plus-only export toggle adds them to chapter titles and a
+`©xyz` geotag derived by averaging the majority cluster of clip locations
+(within 5 km), falling back to the first located clip. WebM exports skip both
+(the WebM subset of Matroska excludes chapters). Clips recorded before this
+feature simply lack the data and degrade gracefully.
 
 ### Export pipeline
 

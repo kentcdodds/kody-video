@@ -141,7 +141,7 @@ export function RecordScreen(handle: Handle<RecordScreenProps>) {
   let micSilent = false
   /** Bottom sheet for choosing which microphone records takes. */
   let micPickerOpen = false
-  let locationTagging = props.locationTaggingEnabled ?? false
+  let locationTagging = props.plus && (props.locationTaggingEnabled ?? false)
 
   const screenRecordingSupported = isScreenRecordingSupported()
 
@@ -424,7 +424,7 @@ export function RecordScreen(handle: Handle<RecordScreenProps>) {
       }
       // Fire-and-forget GPS for this take — must not delay recording start.
       pendingFix = null
-      if (locationTagging) {
+      if (props.plus && locationTagging) {
         pendingFix = getLocationFix()
       }
       startThumbMirror(stream)
@@ -1308,16 +1308,18 @@ export function RecordScreen(handle: Handle<RecordScreenProps>) {
             >
               <IconTimer />
             </button>
-            <button
-              type="button"
-              className={`btn-icon${locationTagging ? ' is-active' : ''}`}
-              aria-label="Toggle location tagging"
-              aria-pressed={locationTagging}
-              disabled={recording || countdown !== null}
-              mix={on('click', toggleLocationTagging)}
-            >
-              <IconLocation />
-            </button>
+            {props.plus ? (
+              <button
+                type="button"
+                className={`btn-icon${locationTagging ? ' is-active' : ''}`}
+                aria-label="Toggle location tagging"
+                aria-pressed={locationTagging}
+                disabled={recording || countdown !== null}
+                mix={on('click', toggleLocationTagging)}
+              >
+                <IconLocation />
+              </button>
+            ) : null}
             <button
               type="button"
               className="btn-icon"

@@ -1,5 +1,11 @@
 import { test, expect, type Page } from '@playwright/test'
-import { gotoHome, openSeededProject, waitForCameraReady } from './helpers'
+import {
+  gotoHome,
+  openSeededProject,
+  seedProject,
+  unlockPlus,
+  waitForCameraReady,
+} from './helpers'
 
 async function exportReady(page: Page): Promise<void> {
   await expect(page.getByText('Done! Your video is ready')).toBeVisible({ timeout: 60_000 })
@@ -29,6 +35,9 @@ test.describe('Go / export', () => {
     await expect(sheet).toContainText(/(MP4|WebM) · .+MB/i)
     // Watermark upsell shows before purchase.
     await expect(sheet).toContainText(/Get Plus/)
+    await expect(
+      sheet.getByRole('checkbox', { name: /Include clip locations/ }),
+    ).toHaveCount(0)
 
     // Save stores the file locally.
     const downloadPromise = page.waitForEvent('download')
@@ -106,6 +115,31 @@ test.describe('Go / export', () => {
       return names
     })
     expect(cacheEntries).toHaveLength(1)
+  })
+
+  test('Plus users can opt location metadata into future MP4 exports', async ({ page }) => {
+    const projectId = await seedProject(page, {
+      clips: 1,
+      clipMs: 800,
+      location: { lat: 40.41791, lng: -111.81496 },
+    })
+    await unlockPlus(page)
+    await page.goto(`/project/${projectId}`)
+    await waitForCameraReady(page)
+
+    await page.locator('.go-button').click()
+    await exportReady(page)
+
+    const sheet = page.locator('.export-sheet')
+    const locationToggle = sheet.getByRole('checkbox', {
+      name: 'Include clip locations in MP4 exports',
+    })
+    await expect(locationToggle).toBeVisible()
+    await expect(locationToggle).not.toBeChecked()
+    await expect(sheet).toContainText('Location is off by default')
+
+    await locationToggle.check()
+    await expect(locationToggle).toBeChecked()
   })
 
   test('adjacent clips crossfade audio at the joint instead of dipping to silence', async ({

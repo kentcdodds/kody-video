@@ -10,7 +10,7 @@ interface UpsellSheetProps {
   onRestore: () => void
 }
 
-/** The one-time Kody Video Plus purchase: watermark removal + more projects. */
+/** The one-time Kody Video Plus purchase and its creation/export perks. */
 export function UpsellSheet(handle: Handle<UpsellSheetProps>) {
   return () => {
     const { onClose, onRestore } = handle.props
@@ -31,8 +31,9 @@ export function UpsellSheet(handle: Handle<UpsellSheetProps>) {
           <h3>Kody Video Plus</h3>
           <p className="sheet-copy">
             The free plan includes 1 project. Plus is a one-time $0.99 purchase that unlocks{' '}
-            {MAX_PROJECTS} project slots, background music, landscape projects, and removes the
-            watermark from exports — forever, on this device and any device you restore it on.
+            {MAX_PROJECTS} project slots, background music, landscape projects, optional location
+            tagging, and removes the watermark from exports — forever, on this device and any
+            device you restore it on.
           </p>
           <div className="sheet-actions">
             <button type="button" className="btn btn-ghost" mix={on('click', () => onClose())}>

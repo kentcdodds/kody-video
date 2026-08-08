@@ -16,11 +16,8 @@ function fakeClip(id: string): ClipRecord {
 }
 
 describe('exportSignature', () => {
-  it('signs portrait projects identically to before the orientation setting', () => {
+  it('signs absent and portrait orientations identically', () => {
     const clips = [fakeClip('clip_a')]
-    // Cached exports from app versions without the setting must survive the
-    // update: absent and explicit-portrait orientations both sign like the
-    // old three-argument call.
     expect(exportSignature(clips, true, null, 'portrait')).toBe(
       exportSignature(clips, true, null),
     )
@@ -33,6 +30,13 @@ describe('exportSignature', () => {
     const clips = [fakeClip('clip_a')]
     expect(exportSignature(clips, true, null, 'landscape')).not.toBe(
       exportSignature(clips, true, null, 'portrait'),
+    )
+  })
+
+  it('signs location inclusion differently so a cached geotag is never reused', () => {
+    const clips = [fakeClip('clip_a')]
+    expect(exportSignature(clips, false, null, 'portrait', true)).not.toBe(
+      exportSignature(clips, false, null, 'portrait', false),
     )
   })
 })
