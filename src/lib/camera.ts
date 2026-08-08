@@ -203,6 +203,8 @@ export function createCamera(notify: () => void): Camera {
   let facingIntent: FacingMode = 'environment'
   let startInFlight: Promise<void> | null = null
   let micInFlight: Promise<void> | null = null
+  /** Active setAudioInput switch — take starts must not race it. */
+  let audioSwitchInFlight: Promise<void> | null = null
   let micPrimed = false
   /** Pending deferred mic stop (releaseMic with keepWarm). */
   let micReleaseTimer = 0
@@ -383,8 +385,23 @@ export function createCamera(notify: () => void): Camera {
    * per take, so remembering the choice is almost the whole job — except a
    * still-warm mic from the previous take, which must be swapped now or the
    * next take would silently reuse the old device.
+   *
+   * Switches are serialized with each other AND with take starts: a hold
+   * that lands right after a pick must record from the picked mic, never
+   * race the swap (enableMic awaits the in-flight switch).
    */
   async function setAudioInput(id: string): Promise<void> {
+    const previous = audioSwitchInFlight ?? Promise.resolve()
+    const run = previous.catch(() => undefined).then(() => performAudioSwitch(id))
+    audioSwitchInFlight = run
+    try {
+      await run
+    } finally {
+      if (audioSwitchInFlight === run) audioSwitchInFlight = null
+    }
+  }
+
+  async function performAudioSwitch(id: string): Promise<void> {
     const option = camera.audioInputs.find((input) => input.id === id)
     if (!option) return
     rememberAudioInput(option)
@@ -399,11 +416,19 @@ export function createCamera(notify: () => void): Camera {
       if (!current || current.getAudioTracks().length === 0) return
       const epoch = cameraEpoch
       const deviceId = current.getVideoTracks()[0]?.getSettings().deviceId
-      const next = await openCameraStream(facingIntent, {
-        audio: true,
-        deviceId,
-        audioDeviceId: id,
-      })
+      let next: MediaStream
+      try {
+        next = await openCameraStream(facingIntent, {
+          audio: true,
+          deviceId,
+          audioDeviceId: id,
+        })
+      } catch {
+        // The picked mic disconnected between enumeration and open — keep
+        // the preview alive on the default mic (matching the fallback in
+        // openCombinedOrVideoStream / reopenCombinedStream).
+        next = await openCameraStream(facingIntent, { audio: true, deviceId })
+      }
       if (cameraEpoch !== epoch || camera.stream !== current) {
         stopStream(next)
         return
@@ -669,6 +694,12 @@ export function createCamera(notify: () => void): Camera {
   }
 
   async function enableMic(): Promise<void> {
+    // A pick from the mic chooser may still be swapping devices (reopening
+    // the combined stream on iOS, re-warming the mic elsewhere) — the take
+    // must record from the picked mic, so let the switch land first.
+    while (audioSwitchInFlight) {
+      await audioSwitchInFlight.catch(() => undefined)
+    }
     // A deferred take-end release must never fire mid-take: this take owns
     // the (possibly still-warm) mic now.
     window.clearTimeout(micReleaseTimer)
@@ -693,7 +724,7 @@ export function createCamera(notify: () => void): Camera {
       if (!current) throw new Error('Camera not ready')
       const epoch = cameraEpoch
       const deviceId = current.getVideoTracks()[0]?.getSettings().deviceId
-      const audioDeviceId = resolveAudioInput(camera.audioInputs)
+      const audioDeviceId = await resolvePreferredAudioInputId()
       let next: MediaStream
       try {
         next = await openCameraStream(facingIntent, { audio: true, deviceId, audioDeviceId })
@@ -723,10 +754,13 @@ export function createCamera(notify: () => void): Camera {
         return
       }
 
-      // The chooser's pick (already resolved against the current
-      // enumeration) — never the display-only live-track fallback.
+      // The chooser's pick, resolved against a fresh enumeration — never
+      // camera.audioInputs, which fills asynchronously after camera start
+      // (an early first take must still honor the persisted choice) — and
+      // never the display-only live-track fallback. Resolution
+      // short-circuits without enumerating when nothing was ever chosen.
       const audioTrack = await openMicrophoneTrack({
-        deviceId: resolveAudioInput(camera.audioInputs),
+        deviceId: await resolvePreferredAudioInputId(),
       })
       const latest = camera.stream
       if (!latest) {
