@@ -27,9 +27,14 @@ function syncRouteChrome(): void {
   const path = window.location.pathname
   const home = path === '/' || path === ''
   document.documentElement.dataset.route = home ? 'home' : 'app'
-  if (!path.startsWith('/project/')) {
-    document.documentElement.dataset.shell = 'adaptive'
-  }
+  // Project routes start narrow — the phone-column default — so a wide
+  // adaptive page (landscape home) can't linger over a portrait project
+  // while its data loads. The project page upgrades to 'wide' as soon as it
+  // knows the project is landscape-locked (same brief narrow-first paint a
+  // hard reload of a landscape project has).
+  document.documentElement.dataset.shell = path.startsWith('/project/')
+    ? 'narrow'
+    : 'adaptive'
 }
 
 // Styles load before the first SPA paint so we do not flash an unstyled

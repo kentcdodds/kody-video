@@ -234,12 +234,13 @@
     </style>
     <script>
       // Pre-paint shell layout: home and static pages adapt to landscape
-      // viewports; project pages manage their own width (set by the app once
-      // it knows the project's locked orientation). Runs before first paint
-      // so the frame never jumps; main.tsx keeps it synced on navigation.
-      if (!location.pathname.startsWith('/project/')) {
-        document.documentElement.dataset.shell = 'adaptive'
-      }
+      // viewports; project pages start on the narrow phone column and widen
+      // once the app knows the project is landscape-locked. Runs before
+      // first paint so the frame never jumps; main.tsx keeps it synced on
+      // navigation (must match syncRouteChrome there).
+      document.documentElement.dataset.shell = location.pathname.startsWith('/project/')
+        ? 'narrow'
+        : 'adaptive'
     </script>
     <script>
       // Fathom Analytics (cookieless, anonymous page-view counts). Loaded
