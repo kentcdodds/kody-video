@@ -11,6 +11,7 @@ import {
   UnsupportedInputFormatError,
 } from 'mediabunny'
 import { reportError } from '../error-reporting'
+import type { ProjectOrientation } from '../types'
 import { isMediaElementFailure, MediaElementFailureError } from './media-error'
 
 /** Helpers shared by the WebCodecs and realtime export engines. */
@@ -230,13 +231,28 @@ export function drawCoverFrom(
 /**
  * Pick output dimensions from the first clip's real pixel size: preserve its
  * aspect ratio, cap the long edge at 1280, never upscale, keep dims even.
+ *
+ * When the project carries an explicit `orientation`, the output must match
+ * it regardless of what the first clip happens to be: a mismatched source
+ * has its dimensions swapped (the same cover-fit draw that letterboxes
+ * nothing then center-crops every frame into the rotated canvas).
  */
-export function pickOutputSize(sourceWidth: number, sourceHeight: number): {
+export function pickOutputSize(
+  sourceWidth: number,
+  sourceHeight: number,
+  orientation?: ProjectOrientation,
+): {
   width: number
   height: number
 } {
-  const w = sourceWidth > 0 ? sourceWidth : 720
-  const h = sourceHeight > 0 ? sourceHeight : 1280
+  let w = sourceWidth > 0 ? sourceWidth : 720
+  let h = sourceHeight > 0 ? sourceHeight : 1280
+  if (
+    (orientation === 'landscape' && h > w) ||
+    (orientation === 'portrait' && w > h)
+  ) {
+    ;[w, h] = [h, w]
+  }
   const scale = Math.min(1, 1280 / Math.max(w, h))
   const even = (n: number) => Math.max(2, 2 * Math.round((n * scale) / 2))
   return { width: even(w), height: even(h) }

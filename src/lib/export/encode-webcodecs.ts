@@ -23,6 +23,7 @@ import {
   clipSoundVolume,
   resolveAudioTrackPlayback,
   type ClipRecord,
+  type ProjectOrientation,
 } from '../types'
 import {
   applyGainEnvelope,
@@ -131,12 +132,13 @@ export async function exportWithWebCodecs(
   getPreviewCanvas?: () => HTMLCanvasElement | null,
   watermarkImage?: HTMLImageElement | null,
   background?: BackgroundAudio | null,
+  orientation?: ProjectOrientation,
 ): Promise<ExportResult> {
   if (!supportsWebCodecsExport()) {
     throw new Error('WebCodecs is not available')
   }
 
-  const { width, height } = await probeOutputSize(plan)
+  const { width, height } = await probeOutputSize(plan, orientation)
   const choice = await pickCodecs(width, height)
   if (!choice) {
     throw new Error('No supported export codec')
@@ -541,14 +543,18 @@ async function injectMetadataBestEffort(
   }
 }
 
-/** Output dimensions from the first clip's real (rotated) display size. */
-async function probeOutputSize(plan: ExportPlan): Promise<{ width: number; height: number }> {
+/** Output dimensions from the first clip's real (rotated) display size,
+ * forced into the project's orientation when it carries one. */
+async function probeOutputSize(
+  plan: ExportPlan,
+  orientation?: ProjectOrientation,
+): Promise<{ width: number; height: number }> {
   const clip = plan.segments[0]!.clip
   try {
     const input = new Input({ source: new BlobSource(clip.blob), formats: ALL_FORMATS })
     const track = await input.getPrimaryVideoTrack()
     if (track && track.displayWidth > 0 && track.displayHeight > 0) {
-      return pickOutputSize(track.displayWidth, track.displayHeight)
+      return pickOutputSize(track.displayWidth, track.displayHeight, orientation)
     }
   } catch {
     // Fall through to the element probe.
@@ -556,7 +562,7 @@ async function probeOutputSize(plan: ExportPlan): Promise<{ width: number; heigh
   try {
     const probe = await loadClipVideo(clip.blob, 8000, clip.mimeType)
     try {
-      return pickOutputSize(probe.video.videoWidth, probe.video.videoHeight)
+      return pickOutputSize(probe.video.videoWidth, probe.video.videoHeight, orientation)
     } finally {
       probe.release()
     }
@@ -564,7 +570,7 @@ async function probeOutputSize(plan: ExportPlan): Promise<{ width: number; heigh
     // Recorded clips carry their capture dimensions — probing must never be
     // the reason an export dies (pickOutputSize also has sane defaults).
     if ((clip.width ?? 0) > 0 && (clip.height ?? 0) > 0) {
-      return pickOutputSize(clip.width!, clip.height!)
+      return pickOutputSize(clip.width!, clip.height!, orientation)
     }
     throw tagExportError(error, { engine: 'webcodecs', where: 'probe-size', clipIndex: 0 })
   }

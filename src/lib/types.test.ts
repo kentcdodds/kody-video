@@ -8,6 +8,7 @@ import {
   effectiveDurationMs,
   formatDuration,
   projectAudioTotalDurationMs,
+  projectOrientation,
   resolveAudioTrackPlayback,
 } from './types'
 
@@ -25,6 +26,18 @@ describe('duration helpers', () => {
   it('formats short and long durations', () => {
     expect(formatDuration(1500)).toBe('1.5s')
     expect(formatDuration(61500)).toBe('1:01.5')
+  })
+})
+
+describe('project orientation', () => {
+  it('defaults to portrait for projects without the field (older records)', () => {
+    expect(projectOrientation({})).toBe('portrait')
+    expect(projectOrientation({ orientation: undefined })).toBe('portrait')
+  })
+
+  it('reads an explicit orientation', () => {
+    expect(projectOrientation({ orientation: 'landscape' })).toBe('landscape')
+    expect(projectOrientation({ orientation: 'portrait' })).toBe('portrait')
   })
 })
 

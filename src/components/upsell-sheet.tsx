@@ -31,7 +31,7 @@ export function UpsellSheet(handle: Handle<UpsellSheetProps>) {
           <h3>Kody Video Plus</h3>
           <p className="sheet-copy">
             The free plan includes 1 project. Plus is a one-time $0.99 purchase that unlocks{' '}
-            {MAX_PROJECTS} project slots, background music for your films, and removes the
+            {MAX_PROJECTS} project slots, background music, landscape projects, and removes the
             watermark from exports — forever, on this device and any device you restore it on.
           </p>
           <div className="sheet-actions">

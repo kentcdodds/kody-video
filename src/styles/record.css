@@ -417,6 +417,104 @@
   pointer-events: none;
 }
 
+/* Orientation toggle: the lock badge marks it as a Plus perk on the free
+   plan (tapping opens the upsell, like the editor's locked Add music). */
+.orientation-toggle {
+  position: relative;
+}
+
+.orientation-plus-lock {
+  position: absolute;
+  top: -4px;
+  right: -4px;
+  display: grid;
+  place-items: center;
+  width: 17px;
+  height: 17px;
+  border-radius: 50%;
+  color: var(--ink-strong);
+  background: var(--accent);
+}
+
+/* Landscape project held upright: the camera captures what the device
+   orientation gives it, so turning the phone IS the landscape switch.
+   Rendered only on landscape projects; shown only on portrait viewports. */
+.orientation-hint {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  z-index: 2;
+  display: none;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  padding: 16px 22px;
+  border-radius: 18px;
+  color: #fff;
+  background: rgba(8, 12, 14, 0.66);
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  backdrop-filter: blur(10px);
+  box-shadow: 0 8px 28px rgba(0, 0, 0, 0.35);
+  text-align: center;
+  pointer-events: none;
+  max-width: min(300px, 84vw);
+}
+
+.orientation-hint strong {
+  font-family: var(--font-display);
+  font-size: 1.15rem;
+  line-height: 1.15;
+}
+
+.orientation-hint span {
+  font-size: 0.82rem;
+  opacity: 0.82;
+}
+
+@media (orientation: portrait) {
+  .orientation-hint {
+    display: flex;
+  }
+}
+
+/* The landscape interface: with the project (and viewport) sideways, the
+   dock leaves the bottom edge and becomes a right-hand rail — Go under the
+   thumb, tools stacked above it, native-camera style. The zoom cluster
+   drops to the freed bottom edge. */
+@media (orientation: landscape) {
+  .orientation-landscape .record-dock {
+    top: 0;
+    bottom: 0;
+    left: auto;
+    right: 0;
+    flex-direction: column;
+    justify-content: center;
+    gap: 16px;
+    padding: calc(16px + var(--safe-top)) calc(14px + env(safe-area-inset-right, 0px)) calc(16px + var(--safe-bottom)) 22px;
+    background: linear-gradient(
+      90deg,
+      transparent 0%,
+      rgba(0, 0, 0, 0.28) 35%,
+      rgba(0, 0, 0, 0.68) 100%
+    );
+  }
+
+  .orientation-landscape .record-tools {
+    flex-direction: column;
+    gap: 10px;
+  }
+
+  /* Keep the title/meta clear of the rail. */
+  .orientation-landscape .record-top {
+    right: 108px;
+  }
+
+  .orientation-landscape .record-zoom {
+    bottom: calc(16px + var(--safe-bottom));
+  }
+}
+
 /* Narrow phones: keep tools + Go on one row without overflow. */
 @media (max-width: 360px) {
   .record-tools {

@@ -1,5 +1,5 @@
 import { reportError } from '../error-reporting'
-import type { ClipRecord } from '../types'
+import type { ClipRecord, ProjectOrientation } from '../types'
 import type { BackgroundAudio } from './background-audio'
 import { exportRealtime } from './encode-realtime'
 import { exportWithWebCodecs, supportsWebCodecsExport } from './encode-webcodecs'
@@ -39,6 +39,9 @@ export interface ExportOptions {
   /** Background-music playlist mixed under the clips at their per-clip
    * volumes; tracks play one after the other until the film ends. */
   background?: BackgroundAudio | null
+  /** Force the output into the project's orientation. Absent = follow the
+   * first clip's aspect (how every project exported before the setting). */
+  orientation?: ProjectOrientation
   /**
    * Fired once when the export enters the realtime canvas + MediaRecorder
    * path (no WebCodecs, or WebCodecs failed). Lets the UI offer a backup /
@@ -89,6 +92,7 @@ async function runExport(
         options.getPreviewCanvas,
         watermarkImage,
         options.background,
+        options.orientation,
       )
       reportSilentExportAudio({ engine: 'webcodecs', outputMime: result.mimeType })
       reportBlackExportVideo({ engine: 'webcodecs', outputMime: result.mimeType })
@@ -118,6 +122,7 @@ async function runExport(
     getPreviewCanvas: options.getPreviewCanvas,
     watermarkImage,
     background: options.background,
+    orientation: options.orientation,
   })
   reportSilentExportAudio({ engine: 'realtime', outputMime: result.mimeType })
   reportBlackExportVideo({ engine: 'realtime', outputMime: result.mimeType })

@@ -57,6 +57,13 @@ For a phone on the same network, use your machine’s LAN URL over HTTPS, or tun
   editor's clip stage plays the music under the selected clip from its
   exact spot on the film's timeline (normalization boosts cap at the
   browser's volume ceiling in previews)
+- **Landscape projects** (Plus): a per-project orientation setting on the
+  camera view. Landscape shifts the entire interface — the phone-shaped
+  shell widens to the viewport, the record controls become a right-hand
+  rail, the editor puts the player beside the timeline, and a hint asks for
+  the device to be turned while it's still upright. Exports are forced into
+  the project's orientation (mismatched clips center-crop), and the setting
+  travels in backups. Default stays portrait; existing projects are untouched
 - Project preview playback: tap edges to skip clips, tap middle to stop
 - Up to **6** stable project slots (create / open / rename / delete, poster art from your clips)
 - Big Go CTA: on-device export to **one video file**, then Share (system sheet) or Save
@@ -204,9 +211,10 @@ API is missing.
 
 The free plan includes one project, and exports carry a small Kody Video mark
 in the corner. Kody Video Plus — a one-time $0.99 Stripe Payment Link —
-removes the watermark, unlocks six project slots, and unlocks background
-music: the export sheet (or a locked home slot, or the locked "Add music"
-button in the editor) links to checkout, Stripe redirects back to
+removes the watermark, unlocks six project slots, background music, and
+landscape projects: the export sheet (or a locked home slot, the locked "Add
+music" button in the editor, or the locked orientation toggle on the camera
+view) links to checkout, Stripe redirects back to
 `/unlocked?session_id=…`, and a single Cloudflare Pages Function
 (`functions/api/verify-purchase.ts`) verifies the session server-side before
 the entitlement is stored in IndexedDB. 100%-off promotion codes (friends /

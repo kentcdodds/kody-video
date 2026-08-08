@@ -949,3 +949,21 @@ a {
     box-shadow: none;
   }
 }
+
+/* Landscape projects shift the whole shell, not just a page: the app frame
+   is phone-shaped (480px column) by default, so while a landscape project
+   is open the project page sets data-project-orientation on <html> and the
+   frame widens to the viewport (phones turned sideways) or to a wide
+   desktop frame. Must sit after the base #root / .app-shell rules AND the
+   min-width desktop block so it wins in both. */
+html[data-project-orientation='landscape'] #root,
+html[data-project-orientation='landscape'] .app-shell {
+  width: 100%;
+  max-width: none;
+}
+
+@media (min-width: 720px) {
+  html[data-project-orientation='landscape'] #root {
+    width: min(1280px, calc(100% - 48px));
+  }
+}

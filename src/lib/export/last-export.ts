@@ -14,6 +14,7 @@ import {
   type ClipRecord,
   type ProjectAudioRecord,
   type ProjectId,
+  type ProjectOrientation,
 } from '../types'
 import { withExportCacheReserved } from './export-cache'
 import { readOpfsFile, removeExportEntry, streamToOpfsFile } from './opfs'
@@ -26,9 +27,14 @@ export function exportSignature(
   clips: ClipRecord[],
   watermarked: boolean,
   audio?: Pick<ProjectAudioRecord, 'tracks' | 'fadeIn' | 'fadeOut'> | null,
+  orientation?: ProjectOrientation,
 ): string {
   return JSON.stringify({
     watermarked,
+    // Only landscape signs (JSON drops undefined): every portrait project's
+    // signature stays byte-identical to before the setting existed, so
+    // cached exports survive the app update.
+    orientation: orientation === 'landscape' ? 'landscape' : undefined,
     clips: clips.map((clip) => [
       clip.id,
       clip.trimStartMs,

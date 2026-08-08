@@ -102,6 +102,39 @@ describe('project backup round trip', () => {
     expect(parsed.audio).toBeNull()
   })
 
+  it('round-trips the project orientation (Plus devices)', async () => {
+    await markWatermarkRemoved('cs_test_transfer')
+    const backup = serializeProject(
+      { ...fakeProject('Wide'), orientation: 'landscape' },
+      [fakeClip('clip_a', 'AAAA')],
+    )
+    const parsed = await parseProjectBackup(backup)
+    expect(parsed.orientation).toBe('landscape')
+
+    const project = await importProjectBackup(parsed)
+    expect((await listProjects()).find((p) => p.id === project.id)?.orientation).toBe(
+      'landscape',
+    )
+  })
+
+  it('parses backups without an orientation as portrait (older backups)', async () => {
+    const backup = serializeProject(fakeProject(), [fakeClip('clip_a', 'AAAA')])
+    const parsed = await parseProjectBackup(backup)
+    expect(parsed.orientation).toBe('portrait')
+  })
+
+  it('imports a landscape backup on a free device as a portrait project', async () => {
+    const backup = serializeProject(
+      { ...fakeProject('Wide'), orientation: 'landscape' },
+      [fakeClip('clip_a', 'AAAA')],
+    )
+    const parsed = await parseProjectBackup(backup)
+    const project = await importProjectBackup(parsed)
+
+    expect(await getClipsForProject(project.id)).toHaveLength(1)
+    expect((await listProjects()).find((p) => p.id === project.id)?.orientation).toBeUndefined()
+  })
+
   it('round-trips the music playlist, fades, and per-clip volumes', async () => {
     await markWatermarkRemoved('cs_test_transfer')
     const clips = [

@@ -24,6 +24,12 @@ npm test           # unit tests
   default-state project (no notification); free plan locks slots 2–6 behind
   the Plus upsell; Plus unlocks 6 and blocks the 7th; the upsell sheet copy
   and buttons
+- **Orientation (Plus)**: the camera-view toggle is locked (opens the upsell)
+  on the free plan; with Plus it flips the project to landscape — the shell
+  widens, a "turn your device" hint shows while upright, the record controls
+  become a right-hand rail sideways, and exports come out landscape (portrait
+  clips center-crop); the setting survives reload and backup/import; toggling
+  back to portrait restores everything
 - **Location**: toggle asks permission, `aria-pressed` reflects state, new
   clips carry exact coordinates, toasts confirm on/off
 - **Editor**: opens at the most recent clip; tap selects; tiles show

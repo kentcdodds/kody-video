@@ -14,6 +14,7 @@ import {
   type ProjectAudioRecord,
   type ProjectAudioTrack,
   type ProjectId,
+  type ProjectOrientation,
 } from './types'
 
 interface ClipsDB extends DBSchema {
@@ -267,7 +268,10 @@ export class ProjectLimitError extends Error {
   override readonly name = 'ProjectLimitError'
 }
 
-export async function createProject(name?: string): Promise<Project> {
+export async function createProject(
+  name?: string,
+  options?: { orientation?: ProjectOrientation },
+): Promise<Project> {
   const db = await getDb()
   const existing = await listProjects()
   const settings = await getSettings()
@@ -284,6 +288,7 @@ export async function createProject(name?: string): Promise<Project> {
       'The free plan includes 1 project — Kody Video Plus unlocks 6 (and removes the watermark).',
     )
   }
+  if (options?.orientation === 'landscape') assertLandscapeAllowed(settings)
 
   const now = Date.now()
   const chosenName = name?.trim()
@@ -297,6 +302,7 @@ export async function createProject(name?: string): Promise<Project> {
   // Marks eligibility for the default-state cleanup on exit — a
   // caller-chosen name is meaningful and must never be auto-deleted.
   if (!chosenName) project.nameIsDefault = true
+  if (options?.orientation === 'landscape') project.orientation = 'landscape'
   await db.put('projects', project)
   await setLastOpenedProjectId(project.id)
   return project
@@ -320,13 +326,50 @@ export async function renameProject(id: ProjectId, name: string): Promise<Projec
   return updated
 }
 
+/**
+ * A Kody Video Plus perk was used without the entitlement. Surfaced in-app
+ * as the upsell; expected product behavior, never a crash report.
+ */
+export class PlusRequiredError extends Error {
+  override readonly name = 'PlusRequiredError'
+}
+
+function assertLandscapeAllowed(settings: Pick<AppMeta, 'watermarkRemoved'>): void {
+  if (settings.watermarkRemoved !== true) {
+    throw new PlusRequiredError('Landscape projects are a Kody Video Plus perk.')
+  }
+}
+
+/**
+ * Set the project's orientation. Landscape requires the Plus entitlement
+ * (enforced here so every path — toggle, import — hits the same gate);
+ * switching back to portrait is always allowed and clears the stored field,
+ * so a portrait project is indistinguishable from one made before the
+ * setting existed.
+ */
+export async function setProjectOrientation(
+  id: ProjectId,
+  orientation: ProjectOrientation,
+): Promise<Project> {
+  const db = await getDb()
+  const project = await db.get('projects', id)
+  if (!project) throw new Error('Project not found')
+  if (orientation === 'landscape') assertLandscapeAllowed(await getSettings())
+  const updated: Project = { ...project, updatedAt: Date.now() }
+  if (orientation === 'landscape') updated.orientation = 'landscape'
+  else delete updated.orientation
+  await db.put('projects', updated)
+  return updated
+}
+
 export async function deleteProject(id: ProjectId): Promise<void> {
   await deleteProjectRecords(id, { onlyIfPristine: false })
 }
 
 /**
  * Delete the project only when it is still indistinguishable from a freshly
- * created one: no clips, never renamed, no background music. Exiting such a
+ * created one: no clips, never renamed, default (portrait) orientation, no
+ * background music. Exiting such a
  * project should leave nothing behind — deleting it changes nothing the user
  * can see, so it happens silently. Any leftover undo snapshot (last clip
  * deleted, never restored) goes with it. Returns true when it was deleted.
@@ -354,6 +397,7 @@ async function deleteProjectRecords(
     const pristine =
       project.clipIds.length === 0 &&
       project.nameIsDefault === true &&
+      project.orientation === undefined &&
       (!audio || audio.tracks.length === 0)
     if (!pristine) {
       await tx.done
