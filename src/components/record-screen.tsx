@@ -1018,7 +1018,13 @@ export function RecordScreen(handle: Handle<RecordScreenProps>) {
             </div>
           ) : null}
 
-          {!recording && !screenRecording && countdown === null && camera.isReady ? (
+          {/* The gate pill replaces the hold hint — "hold anywhere" would
+              contradict a blocked take. */}
+          {!recording &&
+          !screenRecording &&
+          countdown === null &&
+          camera.isReady &&
+          !landscapeTakeGated() ? (
             <div className={`hold-hint${clips.length > 0 ? ' hold-hint-subtle' : ''}`}>
               <strong>Hold anywhere</strong>
               <span>release to stop</span>
