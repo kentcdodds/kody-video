@@ -74,9 +74,12 @@ test.describe('home & app shell', () => {
     const teaser = card.getByRole('button', { name: /watch the tour/i })
     const pageErrors: string[] = []
     page.on('pageerror', (err) => pageErrors.push(err.message))
-    // Double-tap: a second showModal() while open used to throw InvalidStateError.
-    await teaser.dblclick()
+    await teaser.click()
     const dialog = page.locator('dialog.tour-dialog')
+    await expect(dialog).toBeVisible()
+    // Second activation while open: dispatch on the teaser so we don't hit
+    // the modal backdrop (a physical dblclick can after showModal() inerting).
+    await teaser.dispatchEvent('click')
     await expect(dialog).toBeVisible()
     expect(pageErrors.filter((m) => /showModal|InvalidStateError/i.test(m))).toEqual([])
     const video = dialog.locator('video.tour-dialog-video')
