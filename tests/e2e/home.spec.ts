@@ -72,9 +72,13 @@ test.describe('home & app shell', () => {
     const slotsBox = await slots.boundingBox()
     expect(slotsBox).not.toBeNull()
     const teaser = card.getByRole('button', { name: /watch the tour/i })
-    await teaser.click()
+    const pageErrors: string[] = []
+    page.on('pageerror', (err) => pageErrors.push(err.message))
+    // Double-tap: a second showModal() while open used to throw InvalidStateError.
+    await teaser.dblclick()
     const dialog = page.locator('dialog.tour-dialog')
     await expect(dialog).toBeVisible()
+    expect(pageErrors.filter((m) => /showModal|InvalidStateError/i.test(m))).toEqual([])
     const video = dialog.locator('video.tour-dialog-video')
     await expect(video).toHaveAttribute('src', /^https:\/\/media\.kody\.video\//)
     // The tap itself must start playback (in-gesture play() is what mobile

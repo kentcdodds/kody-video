@@ -15,6 +15,21 @@ interface TourCardProps {
 }
 
 /**
+ * Open the tour dialog from a user gesture and start playback.
+ * Idempotent: a second tap while already open must not call `showModal()`
+ * again — that throws `InvalidStateError` (seen on Safari/iOS double-taps).
+ */
+export function openTourFromGesture(
+  dialog: HTMLDialogElement | null,
+  video: HTMLVideoElement | null,
+): void {
+  if (dialog && !dialog.open) {
+    dialog.showModal()
+  }
+  void video?.play().catch(() => {})
+}
+
+/**
  * First-timer home card: the teaser opens the tour in a native `<dialog>`
  * (top layer — the page layout underneath never reflows) with a persistent
  * dismiss on the card itself.
@@ -33,8 +48,7 @@ export function TourCard(handle: Handle<TourCardProps>) {
           // re-render to appear, and mobile autoplay policies require the
           // unmuted play() to run inside the gesture. If play() still
           // rejects, the controls are right there.
-          dialog?.showModal()
-          void video?.play().catch(() => {})
+          openTourFromGesture(dialog, video)
         })}
       >
         <img src={TOUR_POSTER_URL} alt="" width={44} height={78} />
