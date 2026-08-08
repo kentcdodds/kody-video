@@ -111,6 +111,17 @@ export function HomePage(handle: Handle) {
   const unsubscribeInstall = subscribeInstallPrompt(() => void handle.update())
   handle.signal.addEventListener('abort', unsubscribeInstall)
 
+  // Rotating swaps who paints the hero: portrait mobile shows the static
+  // #boot-hero over a same-size spacer (LCP), landscape/desktop render the
+  // real in-app hero inside the two-pane layout. The swap is a render-time
+  // decision, so a rotation must re-render.
+  const landscapeMedia = window.matchMedia('(orientation: landscape)')
+  const onOrientationChange = () => void handle.update()
+  landscapeMedia.addEventListener('change', onOrientationChange)
+  handle.signal.addEventListener('abort', () => {
+    landscapeMedia.removeEventListener('change', onOrientationChange)
+  })
+
   // Nothing is persisted until the first clip is recorded — backing out of
   // an untouched new project leaves no empty project behind.
   const openNewProject = () => {
@@ -292,7 +303,10 @@ export function HomePage(handle: Handle) {
               size={96}
               className="brand-hero-art"
               variant="camera"
-              priority={typeof window !== 'undefined' && window.matchMedia('(max-width: 719px)').matches}
+              priority={
+                typeof window !== 'undefined' &&
+                window.matchMedia('(max-width: 719px) and (orientation: portrait)').matches
+              }
             />
           </div>
           <h1 className="brand">

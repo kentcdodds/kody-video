@@ -26,6 +26,10 @@ test.describe('home & app shell', () => {
     expect(hero).not.toBeNull()
     expect(slots).not.toBeNull()
     expect(slots!.x).toBeGreaterThan(hero!.x + hero!.width - 2)
+    // The REAL hero art must render here: portrait mobile shows a spacer
+    // (the static #boot-hero paints the LCP art), and rotating must swap in
+    // the in-app image — a stale spacer is a blank square.
+    await expect(page.locator('.home-hero img')).toBeVisible()
     expect((await page.locator('#root').boundingBox())!.width).toBeGreaterThan(600)
     const firstRow = await page.evaluate(() => {
       const tiles = [...document.querySelectorAll('.project-slot')]
