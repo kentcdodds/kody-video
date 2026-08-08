@@ -351,14 +351,24 @@ export async function setProjectOrientation(
   id: ProjectId,
   orientation: ProjectOrientation,
 ): Promise<Project> {
-  const db = await getDb()
-  const project = await db.get('projects', id)
-  if (!project) throw new Error('Project not found')
+  // Entitlement first, then a single read-modify-write transaction: rapid
+  // toggles issue overlapping calls, and IndexedDB serializes same-scope
+  // readwrite transactions in creation order — so the user's last tap is
+  // also the last commit. A read outside the transaction (or an await
+  // between paths) would let an earlier landscape write land after a later
+  // portrait one.
   if (orientation === 'landscape') assertLandscapeAllowed(await getSettings())
+  const db = await getDb()
+  const tx = db.transaction('projects', 'readwrite')
+  const project = await tx.store.get(id)
+  if (!project) {
+    await tx.done
+    throw new Error('Project not found')
+  }
   const updated: Project = { ...project, updatedAt: Date.now() }
   if (orientation === 'landscape') updated.orientation = 'landscape'
   else delete updated.orientation
-  await db.put('projects', updated)
+  await completeTransaction([tx.store.put(updated)], tx)
   return updated
 }
 

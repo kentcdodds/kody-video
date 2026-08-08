@@ -136,35 +136,43 @@ test.describe('project orientation', () => {
   })
 
   test('landscape projects export a landscape file from portrait clips', async ({ page }) => {
-    await gotoHome(page)
-    // Portrait fixture clips (320×568) forced landscape must come out
-    // 568×320 — the same cover-fit center crop the preview shows.
-    const dims = await page.evaluate(async () => {
+    // Through the real project boundary: a PERSISTED landscape project,
+    // exported with the Go button — portrait fixture clips (320×568) must
+    // come out 568×320 (the same cover-fit center crop the preview shows).
+    const projectId = await seedProject(page, { clips: 1 })
+    await unlockPlus(page)
+    await page.evaluate(async (id) => {
       const storage = await import('/src/lib/storage.ts')
-      const { exportProject } = await import('/src/lib/export/index.ts')
-      const { makeTestClipBlob } = await import('/src/lib/testing/make-test-clip.ts')
-      const project = await storage.createProject()
-      await storage.addClip({
-        projectId: project.id,
-        blob: await makeTestClipBlob(1200),
-        mimeType: 'video/webm',
-        durationMs: 1200,
-        width: 320,
-        height: 568,
-      })
-      const clips = await storage.getClipsForProject(project.id)
-      const result = await exportProject(clips, {
-        watermark: false,
-        orientation: 'landscape',
-      })
-      const video = document.createElement('video')
-      video.src = URL.createObjectURL(result.blob)
-      await new Promise((resolve, reject) => {
-        video.onloadedmetadata = () => resolve(null)
-        video.onerror = () => reject(new Error('exported file failed to load'))
-      })
-      return { width: video.videoWidth, height: video.videoHeight }
-    })
-    expect(dims).toEqual({ width: 568, height: 320 })
+      await storage.setProjectOrientation(id, 'landscape')
+    }, projectId)
+    await page.goto(`/project/${projectId}`)
+    await waitForCameraReady(page)
+
+    await page.locator('.go-button').click()
+    await expect(page.getByText('Done! Your video is ready')).toBeVisible({ timeout: 60_000 })
+
+    // The finished export persists (in the background) as the recoverable
+    // last export — measure that exact file.
+    await expect
+      .poll(
+        () =>
+          page.evaluate(async () => {
+            const storage = await import('/src/lib/storage.ts')
+            const opfs = await import('/src/lib/export/opfs.ts')
+            const last = (await storage.getSettings()).lastExport
+            if (!last) return null
+            const file = await opfs.readOpfsFile(last.opfsName)
+            if (!file || file.size === 0) return null
+            const video = document.createElement('video')
+            video.src = URL.createObjectURL(new Blob([file], { type: last.mimeType }))
+            await new Promise((resolve, reject) => {
+              video.onloadedmetadata = () => resolve(null)
+              video.onerror = () => reject(new Error('exported file failed to load'))
+            })
+            return { width: video.videoWidth, height: video.videoHeight }
+          }),
+        { timeout: 20_000 },
+      )
+      .toEqual({ width: 568, height: 320 })
   })
 })

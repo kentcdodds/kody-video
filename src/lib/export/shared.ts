@@ -235,7 +235,10 @@ export function drawCoverFrom(
  * When the project carries an explicit `orientation`, the output must match
  * it regardless of what the first clip happens to be: a mismatched source
  * has its dimensions swapped (the same cover-fit draw that letterboxes
- * nothing then center-crops every frame into the rotated canvas).
+ * nothing then center-crops every frame into the rotated canvas). A square
+ * source is deliberately left square — it already satisfies either
+ * orientation, and inventing a non-square target would crop pixels for no
+ * reason.
  */
 export function pickOutputSize(
   sourceWidth: number,

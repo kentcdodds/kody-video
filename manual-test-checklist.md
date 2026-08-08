@@ -28,8 +28,9 @@ npm test           # unit tests
   on the free plan; with Plus it flips the project to landscape — the shell
   widens, a "turn your device" hint shows while upright, the record controls
   become a right-hand rail sideways, and exports come out landscape (portrait
-  clips center-crop); the setting survives reload and backup/import; toggling
-  back to portrait restores everything
+  clips center-crop); the setting survives reload; toggling back to portrait
+  restores everything (backup/import round-trip of the setting is covered by
+  the unit suite)
 - **Location**: toggle asks permission, `aria-pressed` reflects state, new
   clips carry exact coordinates, toasts confirm on/off
 - **Editor**: opens at the most recent clip; tap selects; tiles show
