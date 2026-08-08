@@ -2,6 +2,45 @@ import { test, expect } from '@playwright/test'
 import { gotoHome, openNewProject, recordClip, unlockPlus } from './helpers'
 
 test.describe('home & app shell', () => {
+  test('landscape home is a deliberate two-pane layout; portrait keeps the column', async ({
+    page,
+  }) => {
+    await gotoHome(page)
+
+    // Portrait phone: classic column — hero above the 2-wide slot grid,
+    // phone-shaped shell.
+    const heroPortrait = await page.locator('.home-hero').boundingBox()
+    const slotsPortrait = await page.locator('.project-slots').boundingBox()
+    expect(heroPortrait).not.toBeNull()
+    expect(slotsPortrait).not.toBeNull()
+    expect(slotsPortrait!.y).toBeGreaterThan(heroPortrait!.y + heroPortrait!.height - 2)
+    expect(await page.evaluate(() => document.documentElement.dataset.shell)).toBe('adaptive')
+    expect((await page.locator('#root').boundingBox())!.width).toBeLessThanOrEqual(480)
+
+    // Turned sideways: the shell widens and the hero moves into its own
+    // left pane beside the slots (now 3 across).
+    const viewport = page.viewportSize()!
+    await page.setViewportSize({ width: viewport.height, height: viewport.width })
+    const hero = await page.locator('.home-hero').boundingBox()
+    const slots = await page.locator('.project-slots').boundingBox()
+    expect(hero).not.toBeNull()
+    expect(slots).not.toBeNull()
+    expect(slots!.x).toBeGreaterThan(hero!.x + hero!.width - 2)
+    expect((await page.locator('#root').boundingBox())!.width).toBeGreaterThan(600)
+    const firstRow = await page.evaluate(() => {
+      const tiles = [...document.querySelectorAll('.project-slot')]
+      const top = Math.min(...tiles.map((tile) => tile.getBoundingClientRect().top))
+      return tiles.filter((tile) => Math.abs(tile.getBoundingClientRect().top - top) < 2).length
+    })
+    expect(firstRow).toBe(3)
+
+    // Prose pages center a readable column inside the wide shell.
+    await page.goto('/about')
+    const about = await page.locator('.about-screen').boundingBox()
+    expect(about).not.toBeNull()
+    expect(about!.width).toBeLessThanOrEqual(760)
+  })
+
   test('onboarding shows on first camera open, dismisses for good', async ({ page }) => {
     await page.goto('/')
     await page.locator('.project-slot.empty').first().click()

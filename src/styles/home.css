@@ -62,14 +62,81 @@
   flex: 0 0 auto;
 }
 
-/* Reserves home-hero space while #boot-hero paints the real brand/LCP. */
+/* Reserves home-hero space while #boot-hero paints the real brand/LCP —
+   portrait mobile only. Desktop and landscape viewports hide #boot-hero
+   (see index.html) and render this hero for real. */
 .home-hero-spacer {
   visibility: hidden;
 }
 
-@media (min-width: 720px) {
+@media (min-width: 720px), (orientation: landscape) {
   .home-hero-spacer {
     visibility: visible;
+  }
+}
+
+/* Portrait: .home-main is invisible to layout — its children stay direct
+   flex items of the .home-screen column, exactly the classic layout. */
+.home-main {
+  display: contents;
+}
+
+/* The landscape home: a deliberate two-pane layout instead of a squeezed
+   column — brand hero in its own left pane, everything else (banners,
+   slots, footer) in a column on the right. Landscape phones and desktop
+   windows (which are landscape-shaped) both get this. */
+@media (orientation: landscape) {
+  .home-screen {
+    display: grid;
+    grid-template-columns: minmax(220px, 34%) minmax(0, 1fr);
+    grid-template-rows: minmax(0, 1fr);
+    column-gap: clamp(18px, 4vw, 48px);
+    padding-left: clamp(16px, 4vw, 48px);
+    padding-right: clamp(16px, 4vw, 48px);
+  }
+
+  .home-hero {
+    grid-column: 1;
+    grid-row: 1;
+    align-self: center;
+    justify-self: center;
+    min-width: 0;
+  }
+
+  .home-hero .brand-hero-art {
+    width: 118px;
+    height: 118px;
+  }
+
+  .home-screen .brand {
+    font-size: clamp(1.8rem, 3.2vw, 2.4rem);
+  }
+
+  .home-screen .lede {
+    font-size: 0.92rem;
+  }
+
+  .home-main {
+    display: flex;
+    flex-direction: column;
+    grid-column: 2;
+    grid-row: 1;
+    min-height: 0;
+    min-width: 0;
+  }
+
+  /* Six slots read as 3×2 in a wide pane (2×3 is the portrait shape). */
+  .home-main .project-slots {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    grid-template-rows: repeat(2, minmax(0, 1fr));
+  }
+
+  /* Top-right would sit on the first slot row's ⋯ button; the install
+     button stays top-left over the hero pane (clear of the centered art,
+     and its popover still opens downward). */
+  .home-corner-right {
+    top: auto;
+    bottom: calc(14px + var(--safe-bottom));
   }
 }
 
@@ -536,6 +603,15 @@
 }
 
 /* About page */
+
+/* Landscape / desktop: the shell widens (data-shell='adaptive'), so prose
+   pages center themselves as a readable column instead of stretching. */
+@media (orientation: landscape) {
+  .about-screen {
+    width: min(760px, 100%);
+    margin-inline: auto;
+  }
+}
 
 .about-top {
   display: flex;

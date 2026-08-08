@@ -196,40 +196,41 @@ export function ProjectPage(handle: Handle<ProjectPageProps>) {
   }
 
   /**
-   * Landscape shifts the whole shell, not just this page: the app frame is
-   * phone-shaped (480px column) by default, and the record/editor layouts
-   * re-arrange for a wide viewport. Both hang off a document-level data
-   * attribute so the CSS can reach the shell (#root) above the app tree.
-   * Installed PWAs additionally need explicit screen-orientation locks (the
-   * manifest pins the app portrait): a locked-landscape project locks the
-   * screen sideways, an UNLOCKED project frees rotation entirely so turning
-   * the phone can make the choice, and everything else returns to the
-   * manifest default. In a browser tab every lock call rejects silently and
-   * the OS's own auto-rotate does the job.
+   * A landscape project shifts the whole shell, not just this page: the app
+   * frame is phone-shaped (480px column) by default, and the record/editor
+   * layouts re-arrange for a wide viewport. Both hang off the document-level
+   * data-shell attribute so the CSS can reach the shell (#root) above the
+   * app tree ('wide' vs 'narrow' — main.tsx resets it to 'adaptive' when
+   * navigating to non-project routes).
+   * Installed PWAs additionally get best-effort screen-orientation pins
+   * (the manifest allows every orientation so rotation can happen at all):
+   * a LOCKED project pins the screen to its orientation, native-camera
+   * style; an unlocked project frees rotation so turning the phone can make
+   * the choice. In a browser tab every lock call rejects silently and the
+   * OS's own auto-rotate does the job.
    */
   let appliedShellState: string | null = null
   const syncShellOrientation = (orientation: ProjectOrientation, unlocked: boolean) => {
     const nextState = `${orientation}:${unlocked}`
     if (appliedShellState === nextState) return
     appliedShellState = nextState
-    document.documentElement.dataset.projectOrientation = orientation
+    document.documentElement.dataset.shell = orientation === 'landscape' ? 'wide' : 'narrow'
     try {
       const lockable = screen.orientation as ScreenOrientation & {
         lock?: (lock: string) => Promise<void>
       }
-      if (unlocked && isCoarsePointerDevice()) {
-        void lockable.lock?.('any').catch(() => undefined)
-      } else if (orientation === 'landscape') {
-        void lockable.lock?.('landscape').catch(() => undefined)
-      } else {
+      if (unlocked) {
         screen.orientation.unlock()
+      } else {
+        void lockable.lock?.(orientation).catch(() => undefined)
       }
     } catch {
       // Orientation API missing or lock not allowed here — rotation stays manual.
     }
   }
   handle.signal.addEventListener('abort', () => {
-    delete document.documentElement.dataset.projectOrientation
+    // main.tsx owns data-shell for the route being navigated to; this page
+    // only needs to release any screen pin it took.
     try {
       screen.orientation.unlock()
     } catch {

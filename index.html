@@ -166,6 +166,34 @@
       html[data-route='app'] #boot-hero {
         display: none;
       }
+      /* Landscape viewports (turned phones, desktop-ish windows): the SPA
+         paints the hero inside its two-pane home layout — the top-centered
+         boot hero would sit in the wrong place. */
+      @media (orientation: landscape) {
+        #boot-hero {
+          display: none;
+        }
+      }
+      /* Shell width by layout mode — must mirror global.css (the attribute
+         is set by the pre-paint script below, so the frame never jumps when
+         the full stylesheet arrives). 'adaptive' (home/static pages) widens
+         on landscape viewports; 'wide' (landscape projects) always. */
+      html[data-shell='wide'] #root {
+        width: 100%;
+        max-width: none;
+      }
+      @media (orientation: landscape) {
+        html[data-shell='adaptive'] #root {
+          width: 100%;
+          max-width: none;
+        }
+      }
+      @media (min-width: 720px) and (orientation: landscape) {
+        html[data-shell='adaptive'] #root,
+        html[data-shell='wide'] #root {
+          width: min(1200px, calc(100% - 48px));
+        }
+      }
       /* Desktop: SPA paints the hero. Reserve the phone-chrome frame here so
          applying the full stylesheet does not shift the whole page (CLS). */
       @media (min-width: 720px) {
@@ -202,6 +230,15 @@
         z-index: 1;
       }
     </style>
+    <script>
+      // Pre-paint shell layout: home and static pages adapt to landscape
+      // viewports; project pages manage their own width (set by the app once
+      // it knows the project's locked orientation). Runs before first paint
+      // so the frame never jumps; main.tsx keeps it synced on navigation.
+      if (!location.pathname.startsWith('/project/')) {
+        document.documentElement.dataset.shell = 'adaptive'
+      }
+    </script>
     <script>
       // Fathom Analytics (cookieless, anonymous page-view counts). Loaded
       // only on real deployments so dev servers and test runs stay out of

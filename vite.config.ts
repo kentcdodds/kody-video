@@ -135,7 +135,11 @@ export default defineConfig({
         theme_color: '#2F3E46',
         background_color: '#2F3E46',
         display: 'standalone',
-        orientation: 'portrait',
+        // 'any': installed apps must rotate — an empty project's interface
+        // follows the device (that's how orientation is chosen), and home /
+        // static pages have deliberate landscape layouts. Locked projects
+        // pin themselves with screen.orientation.lock() (best effort).
+        orientation: 'any',
         start_url: '/',
         icons: [
           {

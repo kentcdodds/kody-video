@@ -7,8 +7,8 @@ import {
   waitForCameraReady,
 } from './helpers'
 
-async function shellOrientation(page: import('@playwright/test').Page) {
-  return page.evaluate(() => document.documentElement.dataset.projectOrientation)
+async function shellLayout(page: import('@playwright/test').Page) {
+  return page.evaluate(() => document.documentElement.dataset.shell)
 }
 
 // Rotate-to-choose (the touch flow: follow the device, lock on the first
@@ -30,7 +30,7 @@ test.describe('project orientation', () => {
 
     // The whole interface swings: document-level data attribute (widens the
     // shell via CSS) + the page-level class.
-    await expect.poll(() => shellOrientation(page)).toBe('landscape')
+    await expect.poll(() => shellLayout(page)).toBe('wide')
     await expect(page.locator('.project-screen.orientation-landscape')).toBeVisible()
 
     // Held upright (portrait viewport), the app asks for a turn.
@@ -40,7 +40,7 @@ test.describe('project orientation', () => {
     // A reload keeps the landscape interface — the lock is on the project.
     await page.reload()
     await waitForCameraReady(page)
-    await expect.poll(() => shellOrientation(page)).toBe('landscape')
+    await expect.poll(() => shellLayout(page)).toBe('wide')
 
     // Turn the phone: the hint goes away and the dock becomes a right-hand
     // rail (taller than wide, hugging the shell's right edge — at wide
@@ -81,7 +81,7 @@ test.describe('project orientation', () => {
       return (await storage.listProjects())[0]?.orientation
     })
     expect(orientation).toBeUndefined()
-    expect(await shellOrientation(page)).toBe('portrait')
+    expect(await shellLayout(page)).toBe('narrow')
   })
 
   test('landscape projects export a landscape file from portrait clips', async ({ page }) => {

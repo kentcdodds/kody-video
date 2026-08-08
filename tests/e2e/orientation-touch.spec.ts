@@ -5,8 +5,8 @@ import { openNewProject, recordClip, totalClipCount, unlockPlus } from './helper
 // `pointer: coarse` matches): the rotate-to-choose flow only exists on
 // devices that are physically held.
 
-async function shellOrientation(page: Page) {
-  return page.evaluate(() => document.documentElement.dataset.projectOrientation)
+async function shellLayout(page: Page) {
+  return page.evaluate(() => document.documentElement.dataset.shell)
 }
 
 async function rotate(page: Page) {
@@ -35,11 +35,11 @@ test.describe('rotate-to-choose orientation (touch)', () => {
     await openNewProject(page)
 
     // Upright: portrait interface, nothing stored yet.
-    await expect.poll(() => shellOrientation(page)).toBe('portrait')
+    await expect.poll(() => shellLayout(page)).toBe('narrow')
 
     // Turn the phone: the interface follows (no upsell — Plus).
     await rotate(page)
-    await expect.poll(() => shellOrientation(page)).toBe('landscape')
+    await expect.poll(() => shellLayout(page)).toBe('wide')
     await expect(page.locator('.project-screen.orientation-landscape')).toBeVisible()
     await expect(page.locator('.sheet[aria-label="Kody Video Plus"]')).toBeHidden()
 
@@ -50,26 +50,26 @@ test.describe('rotate-to-choose orientation (touch)', () => {
     // From now on the interface is stuck landscape — turning the phone back
     // upright keeps the landscape layout and asks for a turn instead.
     await rotate(page)
-    await expect.poll(() => shellOrientation(page)).toBe('landscape')
+    await expect.poll(() => shellLayout(page)).toBe('wide')
     await expect(page.locator('.orientation-hint')).toBeVisible()
     await expect(page.locator('.orientation-hint')).toContainText(/turn your device sideways/i)
 
     // Survives a reload.
     await page.reload()
     await page.locator('.camera-video').waitFor()
-    await expect.poll(() => shellOrientation(page)).toBe('landscape')
+    await expect.poll(() => shellLayout(page)).toBe('wide')
   })
 
   test('free plan: rotating previews landscape but the take is gated behind Plus', async ({
     page,
   }) => {
     await openNewProject(page)
-    await expect.poll(() => shellOrientation(page)).toBe('portrait')
+    await expect.poll(() => shellLayout(page)).toBe('narrow')
 
     // Turn the phone: the layout shifts (the preview IS the pitch) and the
     // upsell opens to explain the gate.
     await rotate(page)
-    await expect.poll(() => shellOrientation(page)).toBe('landscape')
+    await expect.poll(() => shellLayout(page)).toBe('wide')
     const upsell = page.locator('.sheet[aria-label="Kody Video Plus"]')
     await expect(upsell).toBeVisible()
     await expect(upsell).toContainText(/landscape projects/i)
@@ -91,7 +91,7 @@ test.describe('rotate-to-choose orientation (touch)', () => {
     // Turning back upright: everything works free, and the first take locks
     // portrait (stored as nothing — the default).
     await rotate(page)
-    await expect.poll(() => shellOrientation(page)).toBe('portrait')
+    await expect.poll(() => shellLayout(page)).toBe('narrow')
     await expect(page.locator('.orientation-gate-pill')).toBeHidden()
     await recordClip(page)
     expect(await storedOrientation(page)).toBeUndefined()
