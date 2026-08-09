@@ -10,9 +10,10 @@ interface RecordTimerProps {
 
 /**
  * Self-updating elapsed readout. Writes the text node directly from a
- * coarse timer so the rest of the page never re-renders while recording —
- * re-rendering the whole screen per tick is what made the camera preview
- * and encoder drop frames.
+ * coarse timer so the ticking readout never triggers a component
+ * re-render — re-rendering the whole screen per tick is what made the
+ * camera preview and encoder drop frames. (Other state changes, like the
+ * mic-silent warning, may still re-render the screen mid-take.)
  *
  * Scheduling: the readout has 0.1s resolution, so it ticks ~10×/s from a
  * setTimeout aligned just past the next tenth boundary — NOT from
