@@ -9,11 +9,20 @@ interface RecordTimerProps {
 }
 
 /**
- * Self-updating elapsed readout. Writes the text node directly from rAF so
- * the rest of the page never re-renders while recording — re-rendering the
- * whole screen 60×/s is what made the camera preview and encoder drop frames.
+ * Self-updating elapsed readout. Writes the text node directly from a
+ * coarse timer so the rest of the page never re-renders while recording —
+ * re-rendering the whole screen per tick is what made the camera preview
+ * and encoder drop frames.
  *
- * The readout is rendered as a real (vdom-owned) text child and the rAF loop
+ * Scheduling: the readout has 0.1s resolution, so it ticks ~10×/s from a
+ * setTimeout aligned just past the next tenth boundary — NOT from
+ * requestAnimationFrame. A per-frame rAF loop (even one that skips
+ * redundant writes) forces the main thread to produce a frame 60×/s for
+ * the whole take, and every one of those frames also re-evaluates the
+ * record pill's (compositor-run) pulse animations — profiled as ~60/s
+ * style recalcs + prepaints competing with the preview and encoder.
+ *
+ * The readout is rendered as a real (vdom-owned) text child and the timer
  * mutates that same node's data. Rendering the span EMPTY and relying on
  * textContent alone looks equivalent, but the reconciler bulk-clears the
  * children of any element whose vnode has none — so every mid-take re-render
@@ -21,20 +30,18 @@ interface RecordTimerProps {
  * the pill visibly collapsed/re-expanded: the "recording counter jitter".
  */
 export function RecordTimer(handle: Handle<RecordTimerProps>) {
-  const elapsedText = () =>
-    formatDuration(Math.max(0, performance.now() - handle.props.startedAt))
+  const elapsedMs = () => Math.max(0, performance.now() - handle.props.startedAt)
 
   return () => (
     <span
       className={handle.props.className}
       mix={ref((node, signal) => {
-        let raf = 0
+        let timer = 0
         let lastText = ''
         const tick = () => {
-          const text = elapsedText()
-          // The readout has 0.1s resolution, so ~5 of 6 frames would write
-          // the same string — and every text write dirties layout.
-          // Skipping no-ops keeps recording free of per-frame layout work.
+          const text = formatDuration(elapsedMs())
+          // A tick can land twice in the same tenth under load — and every
+          // text write dirties layout, so skip no-op writes.
           if (text !== lastText) {
             lastText = text
             // Mutate the existing text node (never replace it): the vdom
@@ -44,13 +51,14 @@ export function RecordTimer(handle: Handle<RecordTimerProps>) {
             if (textNode) textNode.nodeValue = text
             else node.textContent = text
           }
-          raf = requestAnimationFrame(tick)
+          // Land ~5ms past the next 0.1s boundary so every tenth renders.
+          timer = window.setTimeout(tick, 105 - (elapsedMs() % 100))
         }
         tick()
-        signal.addEventListener('abort', () => cancelAnimationFrame(raf))
+        signal.addEventListener('abort', () => window.clearTimeout(timer))
       })}
     >
-      {elapsedText()}
+      {formatDuration(elapsedMs())}
     </span>
   )
 }

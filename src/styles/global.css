@@ -180,15 +180,32 @@ a {
   }
 }
 
+/* Recording pulse, split into two compositor-only animations: the pill
+   breathes with transform, and the expanding halo is a pseudo-element
+   (.record-pill::before) animating transform + opacity over a STATIC
+   border. The previous single animation tweened box-shadow — a paint
+   property — so the pill repainted and re-rasterized on the main thread
+   every frame for the whole take, right while it competed with the live
+   camera preview and the encoder (the record-start jank). */
 @keyframes pulse-record {
   0%,
   100% {
-    box-shadow: 0 0 0 0 rgba(240, 79, 58, 0.55);
     transform: scale(1);
   }
   50% {
-    box-shadow: 0 0 0 18px rgba(240, 79, 58, 0);
     transform: scale(1.03);
+  }
+}
+
+@keyframes pulse-record-ring {
+  0%,
+  100% {
+    opacity: 0.55;
+    transform: scale(0.98);
+  }
+  50% {
+    opacity: 0;
+    transform: scale(1.2);
   }
 }
 
