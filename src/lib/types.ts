@@ -31,9 +31,15 @@ export function projectOrientation(
   return project.orientation === 'landscape' ? 'landscape' : 'portrait'
 }
 
+/** What a timeline clip is made of. Absent = 'video' (every clip recorded
+ * or imported before photos existed stores nothing). */
+export type ClipKind = 'video' | 'image'
+
 export interface ClipMeta {
   id: ClipId
   projectId: ProjectId
+  /** 'image' for a still photo shown for `durationMs`; absent = video. */
+  kind?: ClipKind
   mimeType: string
   durationMs: number
   trimStartMs: number
@@ -242,6 +248,29 @@ export const FREE_PROJECTS = 1
 /** Route id for a project that exists only as a URL until the first clip is
  * recorded — backing out of an empty "new project" leaves nothing behind. */
 export const NEW_PROJECT_ID: ProjectId = 'new'
+
+/** True when the clip is a still photo shown for its duration. */
+export function isImageClip(clip: Pick<ClipMeta, 'kind'>): boolean {
+  return clip.kind === 'image'
+}
+
+/** How long a photo shows by default — long enough to read, short enough
+ * to keep the film moving. */
+export const DEFAULT_IMAGE_DURATION_MS = 3_000
+/** Photo on-screen time bounds. The floor keeps a photo visible (and its
+ * export segment above MIN_SEGMENT_MS); the ceiling keeps the duration
+ * strip's drag scale useful. */
+export const MIN_IMAGE_DURATION_MS = 500
+export const MAX_IMAGE_DURATION_MS = 30_000
+
+/** Clamp a requested photo duration into the supported range, snapped to
+ * whole tenths of a second (the resolution the UI shows). Non-finite
+ * requests fall back to the default. */
+export function clampImageDurationMs(durationMs: number): number {
+  if (!Number.isFinite(durationMs)) return DEFAULT_IMAGE_DURATION_MS
+  const snapped = Math.round(durationMs / 100) * 100
+  return Math.max(MIN_IMAGE_DURATION_MS, Math.min(MAX_IMAGE_DURATION_MS, snapped))
+}
 
 export function effectiveDurationMs(clip: Pick<ClipMeta, 'durationMs' | 'trimStartMs' | 'trimEndMs'>): number {
   const end = Math.min(clip.trimEndMs, clip.durationMs)

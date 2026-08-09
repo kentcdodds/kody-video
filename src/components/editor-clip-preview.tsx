@@ -15,11 +15,13 @@ import {
   trackMediaSec,
   trackMusicGain,
 } from '../lib/preview-music-bed'
+import { BlobImage } from './blob-image'
 import { BlobVideo } from './blob-video'
 import { IconPause, IconPlay } from './icons'
 import {
   clipMusicVolume,
   clipSoundVolume,
+  isImageClip,
   type ClipRecord,
   type ProjectAudioRecord,
 } from '../lib/types'
@@ -62,6 +64,34 @@ function nudgeFrame(video: HTMLVideoElement): void {
  */
 export function EditorClipPreview(handle: Handle<EditorClipPreviewProps>) {
   const { props } = handle
+
+  // Photos have nothing to play or seek in the single-clip stage — show
+  // the still and satisfy the imperative handle with no-ops. The stage is
+  // keyed by clip id, so an instance's kind never changes.
+  if (isImageClip(props.clip)) {
+    const bindImage = (_node: Element, signal: AbortSignal) => {
+      const apiRef = props.apiRef
+      if (!apiRef) return
+      const api = { seekToMs: () => undefined, pause: () => undefined }
+      apiRef.current = api
+      signal.addEventListener('abort', () => {
+        // A remount may bind the replacement before this abort runs —
+        // never null out a live binding that is not ours.
+        if (apiRef.current === api) apiRef.current = null
+      })
+    }
+    return () => (
+      <div className="editor-clip-preview-wrap">
+        <BlobImage
+          blob={props.clip.blob}
+          className="editor-clip-preview editor-clip-preview-image"
+          alt="Selected photo"
+          mix={ref(bindImage)}
+        />
+      </div>
+    )
+  }
+
   let media: HTMLVideoElement | null = null
   let playing = false
   /** An explicit seek before loadeddata must not be snapped back to the trim

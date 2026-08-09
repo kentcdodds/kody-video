@@ -41,6 +41,11 @@ npm test           # unit tests
   delete offers Undo; trim strip opens, dragging the end handle + Done
   persists `trimEndMs` and updates the tile duration; **Add** imports a
   video from the device onto the timeline
+- **Photos on the timeline**: a picked image lands as a 3s still with a
+  camera badge; the Duration strip (photo counterpart of Trim) lengthens as
+  well as shortens via drag handle, presets, and ±0.5s steppers; the project
+  preview shows the still for its wall-clock duration; a photo + video
+  project exports at the summed duration
 - **Playback**: whole cut with segmented progress; edge taps skip
   next/previous; middle tap stops; auto-closes at the end of the cut
 - **Go / export**: full export to a ready sheet with format + size; Save

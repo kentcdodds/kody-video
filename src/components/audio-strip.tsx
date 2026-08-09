@@ -13,6 +13,7 @@ import {
   clipMusicVolume,
   clipSoundVolume,
   formatDuration,
+  isImageClip,
   projectAudioTotalDurationMs,
   type ClipId,
   type ClipRecord,
@@ -190,8 +191,10 @@ export function AudioStrip(handle: Handle<AudioStripProps>) {
       : 1
 
     // The clip's own sound volume applies with or without music (and on
-    // the free plan) — it is about the clip, not the playlist.
-    const clipSoundRow = selectedClip ? (
+    // the free plan) — it is about the clip, not the playlist. Photos are
+    // silent by construction, so they get no sound dial (the music dial
+    // below still applies — ducking music under a photo is meaningful).
+    const clipSoundRow = selectedClip && !isImageClip(selectedClip) ? (
       <VolumeRow
         label={`Clip ${selectedIndex + 1} sound`}
         ariaLabel={`Clip ${selectedIndex + 1} sound volume`}

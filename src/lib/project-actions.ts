@@ -16,6 +16,7 @@ import {
   setLastOpenedProjectId,
   setProjectOrientation,
   undoDeleteLastClip,
+  updateClipDuration,
   updateClipThumbs,
   updateClipTrim,
   updateClipVolumes,
@@ -320,6 +321,11 @@ export async function trimClip(
   trimEndMs: number,
 ): Promise<void> {
   await updateClipTrim(clipId, trimStartMs, trimEndMs)
+}
+
+/** Set a photo clip's on-screen duration (can grow as well as shrink). */
+export async function setClipDuration(clipId: ClipId, durationMs: number): Promise<void> {
+  await updateClipDuration(clipId, durationMs)
 }
 
 /** Append a picked audio file to the project's background-music playlist. */

@@ -6,10 +6,12 @@ import {
   clipSoundVolume,
   effectiveDurationMs,
   formatDuration,
+  isImageClip,
   type ClipId,
   type ClipRecord,
   type ProjectId,
 } from '../lib/types'
+import { IconPhoto } from './icons'
 import { TimelineThumbImage } from './timeline-thumb-image'
 
 const PX_PER_SECOND = 26
@@ -328,16 +330,17 @@ export function Timeline(handle: Handle<TimelineProps>) {
           const thumbs = clip.thumbs?.filter(Boolean) ?? []
           const isDragging = draggingId === clip.id
           const showDropBefore = draggingId !== null && gapIndex === index
+          const isPhoto = isImageClip(clip)
 
           return (
             <div key={clip.id} className="timeline-slot">
               {showDropBefore ? <div className="timeline-drop-indicator" aria-hidden /> : null}
               <button
                 type="button"
-                className={`clip-thumb${selected ? ' selected' : ''}${isDragging ? ' lifting' : ''}`}
+                className={`clip-thumb${selected ? ' selected' : ''}${isDragging ? ' lifting' : ''}${isPhoto ? ' is-photo' : ''}`}
                 role="option"
                 aria-selected={selected}
-                aria-label={`Clip ${index + 1}, ${formatDuration(effectiveDurationMs(clip))}${
+                aria-label={`${isPhoto ? 'Photo' : 'Clip'} ${index + 1}, ${formatDuration(effectiveDurationMs(clip))}${
                   // Presence checks stay on the raw fields (override vs
                   // default); displayed values go through the clamped
                   // accessors playback uses.
@@ -387,6 +390,11 @@ export function Timeline(handle: Handle<TimelineProps>) {
                   )}
                 </div>
                 <span className="clip-dur">{formatDuration(effectiveDurationMs(clip))}</span>
+                {isPhoto ? (
+                  <span className="clip-photo-badge" aria-hidden="true">
+                    <IconPhoto size={12} />
+                  </span>
+                ) : null}
                 {props.showAudioBadges && clip.musicVolume !== undefined ? (
                   <span className="clip-audio-badge" aria-hidden="true">
                     ♪ {Math.round(clipMusicVolume(clip) * 100)}%

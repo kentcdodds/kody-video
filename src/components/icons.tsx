@@ -208,6 +208,16 @@ export function IconShareIos(handle: Handle<IconProps>) {
   )
 }
 
+export function IconPhoto(handle: Handle<IconProps>) {
+  return () => (
+    <svg {...baseProps(handle.props.size ?? 22)}>
+      <rect x="3" y="4.5" width="18" height="15" rx="2.5" />
+      <circle cx="9" cy="10" r="1.6" />
+      <path d="M21 16.5l-4.8-4.8-4.2 4.2-2.2-2.2L3 20" />
+    </svg>
+  )
+}
+
 export function IconMusic(handle: Handle<IconProps>) {
   return () => (
     <svg {...baseProps(handle.props.size ?? 22)}>

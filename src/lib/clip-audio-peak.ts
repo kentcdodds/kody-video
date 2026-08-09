@@ -1,7 +1,7 @@
 import { channelPeak } from './export/background-audio'
 import { decodeBlobAudio } from './export/shared'
 import { updateClipAudioPeak } from './storage'
-import type { ClipRecord } from './types'
+import { isImageClip, type ClipRecord } from './types'
 
 /**
  * Post-recording audio normalization measurement: every clip's whole-file
@@ -38,7 +38,9 @@ export async function measureClipAudioPeak(blob: Blob): Promise<number> {
  * next load retries the write. */
 export async function ensureClipAudioPeak(clip: ClipRecord): Promise<ClipRecord> {
   if (clip.audioPeak !== undefined) return clip
-  const audioPeak = await measureClipAudioPeak(clip.blob)
+  // Photos are silent by construction — persist the zero without wasting
+  // an audio-decode attempt on image bytes.
+  const audioPeak = isImageClip(clip) ? 0 : await measureClipAudioPeak(clip.blob)
   await updateClipAudioPeak(clip.id, audioPeak).catch(() => undefined)
   return { ...clip, audioPeak }
 }

@@ -44,6 +44,24 @@ describe('planExport', () => {
     expect(plan.totalMs).toBe(1000)
   })
 
+  it('plans photo clips as full-duration segments alongside videos', () => {
+    const plan = planExport([
+      clip({ id: 'video', durationMs: 2000, trimEndMs: 2000 }),
+      clip({
+        id: 'photo',
+        kind: 'image',
+        mimeType: 'image/png',
+        blob: new Blob(['png'], { type: 'image/png' }),
+        durationMs: 7000,
+        trimStartMs: 0,
+        trimEndMs: 7000,
+      }),
+    ])
+    expect(plan.segments).toHaveLength(2)
+    expect(plan.segments[1]).toMatchObject({ startMs: 0, endMs: 7000, offsetMs: 2000 })
+    expect(plan.totalMs).toBe(9000)
+  })
+
   it('returns an empty plan for no clips', () => {
     const plan = planExport([])
     expect(plan.segments).toHaveLength(0)

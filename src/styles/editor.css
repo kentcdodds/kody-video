@@ -105,6 +105,10 @@
   pointer-events: auto;
 }
 
+.editor-clip-preview-image {
+  object-fit: contain;
+}
+
 .editor-empty-preview {
   width: 100%;
   height: 100%;
@@ -292,6 +296,21 @@
   pointer-events: none;
 }
 
+/* Photo tiles carry a small camera badge so stills read at a glance. */
+.clip-thumb .clip-photo-badge {
+  position: absolute;
+  left: 4px;
+  bottom: 4px;
+  display: grid;
+  place-items: center;
+  width: 18px;
+  height: 18px;
+  border-radius: 6px;
+  color: #fff;
+  background: rgba(0, 0, 0, 0.55);
+  pointer-events: none;
+}
+
 /* In-timeline trim mode */
 .trim-strip {
   display: flex;
@@ -419,6 +438,62 @@
 
 .trim-handle.active {
   transform: translateX(-50%) scale(1.06);
+}
+
+/* Photo duration mode — the trim strip's still-image counterpart: one
+   handle over a 0→max scale, plus exact-value steppers and presets. */
+.image-duration-controls {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  flex-wrap: wrap;
+  min-height: 30px;
+}
+
+.image-duration-steppers {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex: 0 0 auto;
+}
+
+.image-duration-step {
+  min-height: 30px;
+  padding: 0 10px;
+  font-size: 0.78rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.image-duration-value {
+  min-width: 52px;
+  text-align: center;
+  font-size: 0.92rem;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  color: var(--ink);
+}
+
+.image-duration-presets {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  flex-wrap: wrap;
+}
+
+.image-duration-preset {
+  min-height: 26px;
+  padding: 2px 10px;
+  border-radius: 999px;
+  font-size: 0.74rem;
+  font-weight: 600;
+  color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 14%, transparent);
+}
+
+.image-duration-preset.active {
+  color: var(--ink-strong);
+  background: var(--accent);
 }
 
 .trim-strip-actions {

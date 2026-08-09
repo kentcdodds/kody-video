@@ -8,12 +8,14 @@ import {
   moveSelectedClip,
   removeClip,
   setAudioTrackSettings,
+  setClipDuration,
   trimClip,
   undoLastDelete,
 } from '../lib/project-actions'
 import {
   effectiveDurationMs,
   formatDuration,
+  isImageClip,
   type ClipId,
   type ClipRecord,
   type Project,
@@ -34,6 +36,7 @@ import {
   IconTrim,
   IconUndo,
 } from './icons'
+import { ImageDurationStrip } from './image-duration-strip'
 import { Timeline } from './timeline'
 import { TrimStrip } from './trim-strip'
 import type { ToastAction } from './record-screen'
@@ -146,8 +149,11 @@ export function EditorScreen(handle: Handle<EditorScreenProps>) {
     editingTrackId = null
     // Seek after the commit: entering trim can remount the preview (the trim
     // override changes its remount key), and the seek must land on the new
-    // element so the stage opens on the trim-start frame.
-    handle.queueTask(() => previewApi.current?.seekToMs(clip.trimStartMs))
+    // element so the stage opens on the trim-start frame. Photos open the
+    // duration strip instead — the stage already shows the whole still.
+    if (!isImageClip(clip)) {
+      handle.queueTask(() => previewApi.current?.seekToMs(clip.trimStartMs))
+    }
     void handle.update()
   }
 
@@ -265,6 +271,8 @@ export function EditorScreen(handle: Handle<EditorScreenProps>) {
       if (!ids.has(id)) refineAttempted.delete(id)
     }
     const pending = props.clips.filter((clip) => {
+      // A photo's single frame IS its finished filmstrip.
+      if (isImageClip(clip)) return false
       const count = clip.thumbs?.length ?? 0
       return count > 0 && count < THUMB_COUNT && !refineAttempted.has(clip.id)
     })
@@ -383,7 +391,18 @@ export function EditorScreen(handle: Handle<EditorScreenProps>) {
         </div>
 
         <div className="editor-panel">
-          {trimming && selected ? (
+          {trimming && selected && isImageClip(selected) ? (
+            <ImageDurationStrip
+              key={selected.id}
+              clip={selected}
+              onCancel={() => setTrimming(false)}
+              onDone={async (durationMs) => {
+                await setClipDuration(selected.id, durationMs)
+                props.refresh()
+                setTrimming(false)
+              }}
+            />
+          ) : trimming && selected ? (
             <TrimStrip
               key={selected.id}
               clip={selected}
@@ -473,7 +492,10 @@ export function EditorScreen(handle: Handle<EditorScreenProps>) {
                 icon={<IconDuplicate />}
               />
               <ActionButton
-                label="Trim"
+                label={selected && isImageClip(selected) ? 'Duration' : 'Trim'}
+                ariaLabel={
+                  selected && isImageClip(selected) ? 'Set photo duration' : 'Trim clip'
+                }
                 disabled={!selected || importing}
                 prominent
                 onClick={() => {
