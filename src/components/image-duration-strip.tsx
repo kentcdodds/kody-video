@@ -12,6 +12,10 @@ import { TimelineThumbImage } from './timeline-thumb-image'
 /** Steppers move in half-second increments — coarse enough to feel, fine
  * enough to land an exact value after a rough drag. */
 const STEP_MS = 500
+/** Arrow keys on the duration handle nudge by one tenth (the snap unit). */
+const KEY_FINE_MS = 100
+/** PageUp/PageDown jump a full second. */
+const KEY_COARSE_MS = 1000
 /** One-tap durations covering the common "how long should this show" answers. */
 const PRESETS_MS = [1000, 2000, 3000, 5000, 10_000]
 
@@ -124,9 +128,36 @@ export function ImageDurationStrip(handle: Handle<ImageDurationStripProps>) {
             type="button"
             className={`trim-handle trim-handle-right${dragging ? ' active' : ''}`}
             style={{ left: `${pct}%` }}
+            role="slider"
             aria-label="Photo duration handle"
+            aria-valuemin={MIN_IMAGE_DURATION_MS / 1000}
+            aria-valuemax={MAX_IMAGE_DURATION_MS / 1000}
+            aria-valuenow={durationMs / 1000}
             aria-valuetext={formatDuration(durationMs)}
-            mix={on('pointerdown', (event) => startHandleDrag(event))}
+            mix={[
+              on('pointerdown', (event) => startHandleDrag(event)),
+              on('keydown', (event) => {
+                if (event.key === 'ArrowLeft' || event.key === 'ArrowDown') {
+                  event.preventDefault()
+                  setDuration(durationMs - KEY_FINE_MS)
+                } else if (event.key === 'ArrowRight' || event.key === 'ArrowUp') {
+                  event.preventDefault()
+                  setDuration(durationMs + KEY_FINE_MS)
+                } else if (event.key === 'PageDown') {
+                  event.preventDefault()
+                  setDuration(durationMs - KEY_COARSE_MS)
+                } else if (event.key === 'PageUp') {
+                  event.preventDefault()
+                  setDuration(durationMs + KEY_COARSE_MS)
+                } else if (event.key === 'Home') {
+                  event.preventDefault()
+                  setDuration(MIN_IMAGE_DURATION_MS)
+                } else if (event.key === 'End') {
+                  event.preventDefault()
+                  setDuration(MAX_IMAGE_DURATION_MS)
+                }
+              }),
+            ]}
           />
         </div>
 

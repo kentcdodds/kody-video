@@ -1,5 +1,30 @@
 import { test, expect, type Page } from '@playwright/test'
-import { gotoHome, openSeededProject, waitForCameraReady } from './helpers'
+import { gotoHome, openSeededProject, unlockPlus, waitForCameraReady } from './helpers'
+
+/** Tiny mono 16-bit PCM WAV for music-bed regression coverage. */
+function makeWavFile(name: string, durationSec = 4) {
+  const rate = 8000
+  const samples = Math.round(durationSec * rate)
+  const dataSize = samples * 2
+  const buffer = Buffer.alloc(44 + dataSize)
+  buffer.write('RIFF', 0)
+  buffer.writeUInt32LE(36 + dataSize, 4)
+  buffer.write('WAVE', 8)
+  buffer.write('fmt ', 12)
+  buffer.writeUInt32LE(16, 16)
+  buffer.writeUInt16LE(1, 20)
+  buffer.writeUInt16LE(1, 22)
+  buffer.writeUInt32LE(rate, 24)
+  buffer.writeUInt32LE(rate * 2, 28)
+  buffer.writeUInt16LE(2, 32)
+  buffer.writeUInt16LE(16, 34)
+  buffer.write('data', 36)
+  buffer.writeUInt32LE(dataSize, 40)
+  for (let i = 0; i < samples; i += 1) {
+    buffer.writeInt16LE(Math.round(Math.sin((2 * Math.PI * 440 * i) / rate) * 12000), 44 + i * 2)
+  }
+  return { name, mimeType: 'audio/wav', buffer }
+}
 
 /** 1×1 red PNG — enough for the picker import path (decode + thumbs). */
 const TINY_PNG = Buffer.from(
@@ -124,7 +149,7 @@ test.describe('photo clips on the timeline', () => {
     await expect(strip).toBeVisible()
 
     // The track is a 0→30s scale; drag the handle to ~50% ≈ 15s.
-    const handle = strip.locator('.trim-handle-right')
+    const handle = strip.getByRole('slider', { name: 'Photo duration handle' })
     const handleBox = await handle.boundingBox()
     const trackBox = await strip.locator('.trim-strip-track').boundingBox()
     if (!handleBox || !trackBox) throw new Error('duration geometry unavailable')
@@ -143,6 +168,56 @@ test.describe('photo clips on the timeline', () => {
     })
     expect(durationMs).toBeGreaterThan(12_000)
     expect(durationMs).toBeLessThan(18_000)
+  })
+
+  test('the duration handle is a keyboard-controllable slider', async ({ page }) => {
+    await seedPhotoProject(page, { durationMs: 3000 })
+    await page.getByRole('button', { name: 'Open editor' }).click()
+    await page.getByRole('button', { name: 'Set photo duration' }).click()
+    const strip = page.locator('.image-duration-strip')
+    const handle = strip.getByRole('slider', { name: 'Photo duration handle' })
+    await expect(handle).toHaveAttribute('aria-valuenow', '3')
+    await handle.focus()
+    await page.keyboard.press('ArrowRight')
+    await expect(strip).toContainText('3.1s on screen')
+    await page.keyboard.press('PageUp')
+    await expect(strip).toContainText('4.1s on screen')
+    await page.keyboard.press('Home')
+    await expect(strip).toContainText('0.5s on screen')
+    await page.keyboard.press('End')
+    await expect(strip).toContainText('30.0s on screen')
+  })
+
+  test('photo-first preview starts the music bed once the audio element binds', async ({
+    page,
+  }) => {
+    // Regression: startImage() used to call playMusic() before the <audio>
+    // ref existed, so a film that opens on a photo stayed silent.
+    await seedPhotoProject(page, { durationMs: 5000 })
+    await unlockPlus(page)
+    await page.getByRole('button', { name: 'Open editor' }).click()
+    await expect(page.locator('.editor-screen')).toBeVisible()
+
+    const chooserPromise = page.waitForEvent('filechooser')
+    await page.getByRole('button', { name: 'Add background music' }).click()
+    const chooser = await chooserPromise
+    await chooser.setFiles(makeWavFile('photo-bed.wav', 8))
+    await expect(page.locator('.audio-track-name').filter({ hasText: 'photo-bed.wav' })).toBeVisible(
+      { timeout: 15_000 },
+    )
+
+    await page.getByRole('button', { name: 'Play project preview' }).click()
+    const overlay = page.locator('.playback-overlay')
+    await expect(overlay).toBeVisible()
+    await expect(page.locator('.playback-image')).toBeVisible()
+    const music = overlay.locator('audio')
+    await expect(music).toHaveCount(1)
+    await expect
+      .poll(() => music.evaluate((el) => !(el as HTMLAudioElement).paused), { timeout: 10_000 })
+      .toBe(true)
+
+    await overlay.getByRole('button', { name: 'Stop preview' }).click()
+    await expect(overlay).toBeHidden()
   })
 
   test('project preview shows the photo for its duration, then finishes', async ({ page }) => {

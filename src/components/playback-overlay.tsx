@@ -264,7 +264,12 @@ export function PlaybackOverlay(handle: Handle<PlaybackOverlayProps>) {
     musicTrackIndex = next
     audio.src = urlForTrack(next)
     audio.currentTime = trackMediaSec(props.audio!, next, 0)
-    if (videoEl && !videoEl.paused) void audio.play().catch(() => undefined)
+    // Resume when a video is playing *or* a photo clock is running —
+    // during a still the video element is paused/hidden, so gating on
+    // video alone would leave the bed silent for the rest of the photo.
+    if ((videoEl && !videoEl.paused) || imageRunStartedAt !== null) {
+      void audio.play().catch(() => undefined)
+    }
   }
 
   const playMusic = () => {
@@ -400,6 +405,11 @@ export function PlaybackOverlay(handle: Handle<PlaybackOverlayProps>) {
       trackUrls.clear()
       musicTrackIndex = -1
     })
+
+    // Photo-first films call startImage() (and playMusic()) during render,
+    // before this <audio> ref exists. Once the element binds, kick the
+    // bed if the photo clock is already running for the current segment.
+    if (imageRunStartedAt !== null && currentIsImage()) playMusic()
   }
 
   const stopImageClock = () => {

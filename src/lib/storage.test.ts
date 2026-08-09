@@ -454,6 +454,33 @@ describe('storage layer', () => {
     expect(photo.trimStartMs).toBe(0)
     expect(photo.trimEndMs).toBe(3000)
 
+    // addClip itself is the storage gate: out-of-range durations clamp and
+    // any supplied trim window is ignored in favor of 0..durationMs.
+    const clampedIn = await addClip({
+      projectId: project.id,
+      blob: new Blob(['png-bytes'], { type: 'image/png' }),
+      mimeType: 'image/png',
+      kind: 'image',
+      durationMs: 1,
+      trimEndMs: 250,
+      audioPeak: 0,
+    })
+    expect(clampedIn.durationMs).toBe(MIN_IMAGE_DURATION_MS)
+    expect(clampedIn.trimStartMs).toBe(0)
+    expect(clampedIn.trimEndMs).toBe(MIN_IMAGE_DURATION_MS)
+
+    const clampedOut = await addClip({
+      projectId: project.id,
+      blob: new Blob(['png-bytes'], { type: 'image/png' }),
+      mimeType: 'image/png',
+      kind: 'image',
+      durationMs: 10 * 60_000,
+      trimEndMs: 12_000,
+      audioPeak: 0,
+    })
+    expect(clampedOut.durationMs).toBe(MAX_IMAGE_DURATION_MS)
+    expect(clampedOut.trimEndMs).toBe(MAX_IMAGE_DURATION_MS)
+
     // Lengthen well past the original duration — a photo has no media
     // length to trim within, so the duration is a free (clamped) choice.
     const longer = await updateClipDuration(photo.id, 12_000)

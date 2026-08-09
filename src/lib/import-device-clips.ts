@@ -6,7 +6,7 @@ import { DEFAULT_IMAGE_DURATION_MS, type ClipKind, type ClipRecord, type Project
  * on-screen duration). */
 export const DEVICE_CLIP_ACCEPT =
   'video/*,video/mp4,video/webm,video/quicktime,video/x-matroska,.mp4,.m4v,.webm,.mov,.mkv,' +
-  'image/*,image/jpeg,image/png,image/webp,image/gif,image/avif,.jpg,.jpeg,.png,.webp,.gif,.avif'
+  'image/*,image/jpeg,image/png,image/webp,image/gif,image/avif,.jpg,.jpeg,.png,.webp,.gif,.avif,.bmp,.heic,.heif'
 
 export interface DeviceClipProbe {
   blob: Blob
@@ -71,7 +71,8 @@ export function mimeTypeForDeviceImage(file: Pick<File, 'name' | 'type'>): strin
   if (name.endsWith('.gif')) return 'image/gif'
   if (name.endsWith('.avif')) return 'image/avif'
   if (name.endsWith('.bmp')) return 'image/bmp'
-  if (name.endsWith('.heic') || name.endsWith('.heif')) return 'image/heic'
+  if (name.endsWith('.heic')) return 'image/heic'
+  if (name.endsWith('.heif')) return 'image/heif'
   return 'image/jpeg'
 }
 

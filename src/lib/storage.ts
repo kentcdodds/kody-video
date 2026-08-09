@@ -558,6 +558,13 @@ export async function toStoredBlob(blob: Blob, mimeType?: string): Promise<Blob>
 
 export async function addClip(input: AddClipInput): Promise<ClipRecord> {
   const db = await getDb()
+  const isImage = input.kind === 'image'
+  // Photos: clamp duration and pin the trim window at the storage gate so
+  // a direct caller cannot bypass the import/backup clamps with an
+  // out-of-range duration or a partial trim window.
+  const durationMs = isImage
+    ? clampImageDurationMs(input.durationMs)
+    : input.durationMs
   // Materialize before opening the transaction — awaiting inside a tx lets
   // IndexedDB auto-commit and abort subsequent puts. Re-read the project
   // inside the tx so overlapping saves cannot clobber fresher clipIds.
@@ -569,11 +576,13 @@ export async function addClip(input: AddClipInput): Promise<ClipRecord> {
     projectId: input.projectId,
     blob: durableBlob,
     mimeType: input.mimeType,
-    durationMs: input.durationMs,
+    durationMs,
     trimStartMs: 0,
-    trimEndMs: Math.max(0, Math.min(input.trimEndMs ?? input.durationMs, input.durationMs)),
+    trimEndMs: isImage
+      ? durationMs
+      : Math.max(0, Math.min(input.trimEndMs ?? durationMs, durationMs)),
     createdAt: input.createdAt ?? now,
-    ...(input.kind === 'image' ? { kind: 'image' as const } : {}),
+    ...(isImage ? { kind: 'image' as const } : {}),
     width: input.width,
     height: input.height,
     lat: input.lat,

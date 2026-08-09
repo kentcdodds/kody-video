@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it } from 'vitest'
 import {
+  DEVICE_CLIP_ACCEPT,
   importDeviceClips,
   isLikelyImageFile,
   isLikelyVideoFile,
@@ -83,6 +84,15 @@ describe('isLikelyImageFile / mimeTypeForDeviceImage', () => {
     expect(mimeTypeForDeviceImage({ name: 'a.webp', type: '' })).toBe('image/webp')
     expect(mimeTypeForDeviceImage({ name: 'a.jpg', type: '' })).toBe('image/jpeg')
     expect(mimeTypeForDeviceImage({ name: 'a.jpeg', type: 'image/jpeg' })).toBe('image/jpeg')
+    expect(mimeTypeForDeviceImage({ name: 'scan.bmp', type: '' })).toBe('image/bmp')
+    expect(mimeTypeForDeviceImage({ name: 'IMG_0001.HEIC', type: '' })).toBe('image/heic')
+    expect(mimeTypeForDeviceImage({ name: 'photo.heif', type: '' })).toBe('image/heif')
+  })
+
+  it('lists .bmp/.heic/.heif in the device picker accept string', () => {
+    expect(DEVICE_CLIP_ACCEPT).toContain('.bmp')
+    expect(DEVICE_CLIP_ACCEPT).toContain('.heic')
+    expect(DEVICE_CLIP_ACCEPT).toContain('.heif')
   })
 })
 
