@@ -193,8 +193,12 @@ test.describe('photo clips on the timeline', () => {
   }) => {
     // Regression: startImage() used to call playMusic() before the <audio>
     // ref existed, so a film that opens on a photo stayed silent.
-    await seedPhotoProject(page, { durationMs: 5000 })
+    const projectId = await seedPhotoProject(page, { durationMs: 5000 })
+    // Unlock before re-entering the project so the editor renders the
+    // unlocked Add music control (not the Plus upsell button).
     await unlockPlus(page)
+    await page.goto(`/project/${projectId}`)
+    await waitForCameraReady(page)
     await page.getByRole('button', { name: 'Open editor' }).click()
     await expect(page.locator('.editor-screen')).toBeVisible()
 
