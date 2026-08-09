@@ -96,6 +96,37 @@ describe('project backup round trip', () => {
     expect(await clips[0].blob.text()).toBe('MEDIA')
   })
 
+  it('round-trips photo clips with their on-screen duration', async () => {
+    const photo = fakeClip('clip_a', 'PNGBYTES', {
+      kind: 'image',
+      blob: new Blob(['PNGBYTES'], { type: 'image/png' }),
+      mimeType: 'image/png',
+      durationMs: 7000,
+      trimStartMs: 0,
+      trimEndMs: 7000,
+      lat: undefined,
+      lng: undefined,
+      locationAccuracyM: undefined,
+      audioPeak: 0,
+    })
+    const backup = serializeProject(fakeProject('With photo'), [photo])
+
+    const parsed = await parseProjectBackup(backup)
+    expect(parsed.clips[0].kind).toBe('image')
+    expect(parsed.clips[0].durationMs).toBe(7000)
+    expect(parsed.clips[0].blob.type).toBe('image/png')
+
+    const project = await importProjectBackup(parsed)
+    const clips = await getClipsForProject(project.id)
+    expect(clips).toHaveLength(1)
+    expect(clips[0].kind).toBe('image')
+    expect(clips[0].durationMs).toBe(7000)
+    expect(clips[0].trimStartMs).toBe(0)
+    expect(clips[0].trimEndMs).toBe(7000)
+    expect(clips[0].audioPeak).toBe(0)
+    expect(await clips[0].blob.text()).toBe('PNGBYTES')
+  })
+
   it('parses backups without music with audio: null (older backups)', async () => {
     const backup = serializeProject(fakeProject(), [fakeClip('clip_a', 'AAAA')])
     const parsed = await parseProjectBackup(backup)

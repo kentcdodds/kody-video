@@ -31,7 +31,16 @@ For a phone on the same network, use your machine’s LAN URL over HTTPS, or tun
 - Hold-to-record anywhere on the preview; drag up/down while holding to zoom
 - Self-timer for hands-free takes (tap to stop)
 - Recording feedback (REC pill + elapsed) with a page that does **not** re-render per frame — capture stays smooth
-- Editor: filmstrip timeline (thumbnails, width ∝ duration), drag to reorder, duplicate, delete w/ undo, **in-timeline trim with drag handles**, **add clips from your device/gallery**
+- Editor: filmstrip timeline (thumbnails, width ∝ duration), drag to reorder, duplicate, delete w/ undo, **in-timeline trim with drag handles**, **add clips and photos from your device/gallery**
+- **Photos on the timeline**: a picked image becomes a still clip (3s by
+  default) that plays in previews and exports like any other clip — silent,
+  with a small camera badge on its tile. Instead of the trim strip, photos
+  open a **Duration** strip: because a still has no media length to trim
+  within, its on-screen time is a free choice that can grow as well as
+  shrink — drag the handle across a 0–30s scale, tap a preset (1/2/3/5/10s),
+  or nudge with ±0.5s steppers to land the exact length, with the precise
+  readout always visible. Photos travel in backups and duplicate/reorder
+  like clips
 - **Per-clip audio levels**: every clip's audio is **peak-normalized** as a
   post-recording step (measured once, persisted on the clip, backfilled
   automatically when an older project loads), so takes recorded at

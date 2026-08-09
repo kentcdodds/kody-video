@@ -846,6 +846,19 @@ a {
   background: #000;
 }
 
+/* Photo segments show through their own <img>; the persistent video
+   element stays mounted (unmuted-playback allowance) but out of sight. */
+.playback-video.is-hidden {
+  display: none;
+}
+
+.playback-image {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  background: #000;
+}
+
 .playback-progress {
   position: absolute;
   top: calc(10px + var(--safe-top));

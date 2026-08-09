@@ -3,10 +3,12 @@ import { removeExportEntry } from './export/opfs'
 import {
   FREE_PROJECTS,
   MAX_PROJECTS,
+  clampImageDurationMs,
   clampVolume,
   newId,
   type AppMeta,
   type ClipId,
+  type ClipKind,
   type ClipMeta,
   type ClipRecord,
   type DeletedClipSnapshot,
@@ -518,6 +520,8 @@ export interface AddClipInput {
   projectId: ProjectId
   blob: Blob
   mimeType: string
+  /** 'image' for a still photo shown for `durationMs`; omit for video. */
+  kind?: ClipKind
   durationMs: number
   /** Default trim-out point; recordings pass the release point so the
    * stop-grace tail (real media past the finger-lift) starts trimmed off. */
@@ -554,6 +558,13 @@ export async function toStoredBlob(blob: Blob, mimeType?: string): Promise<Blob>
 
 export async function addClip(input: AddClipInput): Promise<ClipRecord> {
   const db = await getDb()
+  const isImage = input.kind === 'image'
+  // Photos: clamp duration and pin the trim window at the storage gate so
+  // a direct caller cannot bypass the import/backup clamps with an
+  // out-of-range duration or a partial trim window.
+  const durationMs = isImage
+    ? clampImageDurationMs(input.durationMs)
+    : input.durationMs
   // Materialize before opening the transaction — awaiting inside a tx lets
   // IndexedDB auto-commit and abort subsequent puts. Re-read the project
   // inside the tx so overlapping saves cannot clobber fresher clipIds.
@@ -565,10 +576,13 @@ export async function addClip(input: AddClipInput): Promise<ClipRecord> {
     projectId: input.projectId,
     blob: durableBlob,
     mimeType: input.mimeType,
-    durationMs: input.durationMs,
+    durationMs,
     trimStartMs: 0,
-    trimEndMs: Math.max(0, Math.min(input.trimEndMs ?? input.durationMs, input.durationMs)),
+    trimEndMs: isImage
+      ? durationMs
+      : Math.max(0, Math.min(input.trimEndMs ?? durationMs, durationMs)),
     createdAt: input.createdAt ?? now,
+    ...(isImage ? { kind: 'image' as const } : {}),
     width: input.width,
     height: input.height,
     lat: input.lat,
@@ -653,6 +667,39 @@ export async function updateClipTrim(
   const end = Math.max(start, Math.min(trimEndMs, clip.durationMs))
   const updated: ClipRecord = { ...clip, trimStartMs: start, trimEndMs: end }
   await db.put('clips', updated)
+  await touchProject(clip.projectId)
+  return toMeta(updated)
+}
+
+/**
+ * Set a photo clip's on-screen duration. Unlike a video trim, a photo has
+ * no media length to clamp against — the duration IS the clip's length, so
+ * it can grow as well as shrink. The trim window follows (0..duration): a
+ * photo always shows in full, and every consumer of trims keeps working.
+ */
+export async function updateClipDuration(
+  clipId: ClipId,
+  durationMs: number,
+): Promise<ClipMeta> {
+  const clamped = clampImageDurationMs(durationMs)
+  const db = await getDb()
+  const tx = db.transaction('clips', 'readwrite')
+  const clip = await tx.store.get(clipId)
+  if (!clip) {
+    await tx.done.catch(() => undefined)
+    throw new Error('Clip not found')
+  }
+  if (clip.kind !== 'image') {
+    await tx.done
+    throw new Error('Only photos can change duration — trim videos instead')
+  }
+  const updated: ClipRecord = {
+    ...clip,
+    durationMs: clamped,
+    trimStartMs: 0,
+    trimEndMs: clamped,
+  }
+  await completeTransaction([tx.store.put(updated)], tx)
   await touchProject(clip.projectId)
   return toMeta(updated)
 }

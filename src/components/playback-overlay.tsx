@@ -19,9 +19,11 @@ import {
 import {
   clipMusicVolume,
   clipSoundVolume,
+  isImageClip,
   type ClipRecord,
   type ProjectAudioRecord,
 } from '../lib/types'
+import { BlobImage } from './blob-image'
 import { IconPlay } from './icons'
 import { isInteractiveTarget } from '../lib/keyboard'
 
@@ -65,6 +67,16 @@ export function PlaybackOverlay(handle: Handle<PlaybackOverlayProps>) {
   /** Index whose media has actually loaded — gates stale timeupdate/ended
    * events from the previous clip that fire before the new source is ready. */
   let loadedIndex = -1
+
+  // Photo segments have no media clock — a wall-clock timer drives their
+  // progress, their music position, and the advance to the next segment.
+  /** Segment index the photo clock belongs to (-1 = none started). */
+  let imageFor = -1
+  /** Elapsed ms accumulated across pauses. */
+  let imageElapsedMs = 0
+  /** performance.now() of the live run, null while paused. */
+  let imageRunStartedAt: number | null = null
+  let imageRaf = 0
 
   // Background music: one audio element under the whole preview, playing
   // the playlist's tracks one after the other (nothing loops — when the
@@ -144,10 +156,23 @@ export function PlaybackOverlay(handle: Handle<PlaybackOverlayProps>) {
   const fadeOutScale = () =>
     props.audio ? playlistFadeOutScale(props.audio, timelinePositionMs(), filmTotalMs()) : 1
 
+  const currentIsImage = () => {
+    const segment = currentSegment()
+    return segment !== null && isImageClip(segment.clip)
+  }
+
+  /** The photo clock's position inside the current segment, in ms. */
+  const imagePositionMs = () =>
+    imageElapsedMs + (imageRunStartedAt !== null ? performance.now() - imageRunStartedAt : 0)
+
   /** Playhead position on the output timeline, in ms. */
   const timelinePositionMs = () => {
     const segment = currentSegment()
     if (!segment) return 0
+    if (isImageClip(segment.clip)) {
+      const total = segment.endMs - segment.startMs
+      return segment.offsetMs + Math.min(imageFor === index ? imagePositionMs() : 0, total)
+    }
     const elapsedSec = videoEl ? Math.max(0, videoEl.currentTime - segment.startMs / 1000) : 0
     return segment.offsetMs + elapsedSec * 1000
   }
@@ -239,7 +264,12 @@ export function PlaybackOverlay(handle: Handle<PlaybackOverlayProps>) {
     musicTrackIndex = next
     audio.src = urlForTrack(next)
     audio.currentTime = trackMediaSec(props.audio!, next, 0)
-    if (videoEl && !videoEl.paused) void audio.play().catch(() => undefined)
+    // Resume when a video is playing *or* a photo clock is running —
+    // during a still the video element is paused/hidden, so gating on
+    // video alone would leave the bed silent for the rest of the photo.
+    if ((videoEl && !videoEl.paused) || imageRunStartedAt !== null) {
+      void audio.play().catch(() => undefined)
+    }
   }
 
   const playMusic = () => {
@@ -272,7 +302,10 @@ export function PlaybackOverlay(handle: Handle<PlaybackOverlayProps>) {
     void (async () => {
       const blobs = [
         ...track.tracks.map((t) => t.blob),
-        ...resolveSegments().map((segment) => segment.clip.blob),
+        // Photos are silent by construction — no audio to measure.
+        ...resolveSegments()
+          .filter((segment) => !isImageClip(segment.clip))
+          .map((segment) => segment.clip.blob),
       ]
       for (const blob of blobs) {
         if (audioEl !== el) return
@@ -372,15 +405,75 @@ export function PlaybackOverlay(handle: Handle<PlaybackOverlayProps>) {
       trackUrls.clear()
       musicTrackIndex = -1
     })
+
+    // Photo-first films call startImage() (and playMusic()) during render,
+    // before this <audio> ref exists. Once the element binds, kick the
+    // bed if the photo clock is already running for the current segment.
+    if (imageRunStartedAt !== null && currentIsImage()) playMusic()
+  }
+
+  const stopImageClock = () => {
+    cancelAnimationFrame(imageRaf)
+    imageRaf = 0
+  }
+
+  /** Freeze the photo clock (Space pause) — music pauses with it. */
+  const pauseImage = () => {
+    if (imageRunStartedAt !== null) {
+      imageElapsedMs += performance.now() - imageRunStartedAt
+      imageRunStartedAt = null
+    }
+    stopImageClock()
+    pauseMusic()
+  }
+
+  /** Start (or resume) the current photo segment's clock and its music. */
+  const startImage = () => {
+    const segment = currentSegment()
+    if (!segment || !isImageClip(segment.clip)) return
+    if (imageFor !== index) {
+      imageFor = index
+      imageElapsedMs = 0
+    }
+    const total = segment.endMs - segment.startMs
+    // Replaying a finished photo starts it over (same as goTo on a video).
+    if (imageElapsedMs >= total) imageElapsedMs = 0
+    imageRunStartedAt = performance.now()
+    needsTap = false
+    playMusic()
+    stopImageClock()
+    const tick = () => {
+      const elapsed = imagePositionMs()
+      segmentProgress = total > 0 ? Math.min(1, elapsed / total) : 1
+      void handle.update()
+      if (elapsed >= total) {
+        imageElapsedMs = total
+        imageRunStartedAt = null
+        stopImageClock()
+        advance()
+        return
+      }
+      imageRaf = requestAnimationFrame(tick)
+    }
+    imageRaf = requestAnimationFrame(tick)
+  }
+
+  /** Drop the photo clock when the playhead leaves its segment. */
+  const resetImageClock = () => {
+    stopImageClock()
+    imageFor = -1
+    imageElapsedMs = 0
+    imageRunStartedAt = null
   }
 
   /** Bind the current segment's blob to the persistent video element.
    * Returns whether a new source was assigned (i.e. `loadedmetadata` will
-   * fire and drive playback). */
+   * fire and drive playback). Photo segments never touch the video source —
+   * they render through their own <img>. */
   const syncVideoSrc = (): boolean => {
     const el = videoEl
     const segment = currentSegment()
-    if (!el || !segment) return false
+    if (!el || !segment || isImageClip(segment.clip)) return false
     if (urlState.blob !== segment.clip.blob) {
       if (urlState.url) URL.revokeObjectURL(urlState.url)
       urlState.url = URL.createObjectURL(segment.clip.blob)
@@ -396,6 +489,14 @@ export function PlaybackOverlay(handle: Handle<PlaybackOverlayProps>) {
     segmentProgress = 0
     needsTap = false
     if (nextIndex === index) {
+      if (currentIsImage()) {
+        // Restart the photo from its first moment, like the video seek.
+        imageElapsedMs = 0
+        imageRunStartedAt = null
+        startImage()
+        void handle.update()
+        return
+      }
       const video = videoEl
       if (video) {
         // Without music there is no per-frame tick — apply the clip's own
@@ -415,6 +516,7 @@ export function PlaybackOverlay(handle: Handle<PlaybackOverlayProps>) {
       return
     }
     index = Math.max(0, Math.min(resolveSegments().length - 1, nextIndex))
+    resetImageClock()
     // Jump the music to the new position now — waiting for the next clip's
     // metadata would leave the old position playing through the load gap.
     syncMusicPosition()
@@ -430,6 +532,7 @@ export function PlaybackOverlay(handle: Handle<PlaybackOverlayProps>) {
     }
     segmentProgress = 0
     index = index + 1
+    resetImageClock()
     // Positionally a no-op (segments abut on the timeline), but keeps the
     // playlist hand-off logic on one path with manual skips.
     syncMusicPosition()
@@ -476,6 +579,11 @@ export function PlaybackOverlay(handle: Handle<PlaybackOverlayProps>) {
         event.preventDefault()
         // Auto-repeat while held must not rapid-toggle pause/resume.
         if (event.repeat) return
+        if (currentIsImage()) {
+          if (imageRunStartedAt !== null) pauseImage()
+          else startImage()
+          return
+        }
         const video = videoEl
         if (!video) return
         if (video.paused) {
@@ -506,6 +614,10 @@ export function PlaybackOverlay(handle: Handle<PlaybackOverlayProps>) {
     window.addEventListener('keydown', onWindowKeyDown)
     signal.addEventListener('abort', () => {
       window.removeEventListener('keydown', onWindowKeyDown)
+      // The photo clock must not keep ticking (and updating a torn-down
+      // handle) after the overlay closes.
+      stopImageClock()
+      imageRunStartedAt = null
     })
   }
 
@@ -545,10 +657,18 @@ export function PlaybackOverlay(handle: Handle<PlaybackOverlayProps>) {
       )
     }
 
-    // Same blob as the previous segment = no new source, so `loadedmetadata`
-    // never re-fires (adjacent duplicated clips) — start this segment
-    // directly. Still-loading media (readyState 0) is left to loadedmetadata.
-    if (!syncVideoSrc() && videoEl && videoEl.readyState >= 1 && loadedIndex !== index) {
+    const isPhoto = isImageClip(segment.clip)
+    if (isPhoto) {
+      // Photos start their own clock; the persistent video element keeps
+      // its previous source but must stop sounding under the still.
+      if (imageFor !== index) {
+        videoEl?.pause()
+        startImage()
+      }
+    } else if (!syncVideoSrc() && videoEl && videoEl.readyState >= 1 && loadedIndex !== index) {
+      // Same blob as the previous segment = no new source, so `loadedmetadata`
+      // never re-fires (adjacent duplicated clips) — start this segment
+      // directly. Still-loading media (readyState 0) is left to loadedmetadata.
       loadedIndex = index
       startPlayback(videoEl)
     }
@@ -593,8 +713,17 @@ export function PlaybackOverlay(handle: Handle<PlaybackOverlayProps>) {
           />
         ) : null}
 
+        {isPhoto ? (
+          <BlobImage
+            key={`${segment.clip.id}:${index}`}
+            blob={segment.clip.blob}
+            className="playback-image"
+            alt=""
+          />
+        ) : null}
+
         <video
-          className="playback-video"
+          className={`playback-video${isPhoto ? ' is-hidden' : ''}`}
           playsInline
           preload="auto"
           mix={[

@@ -3,6 +3,7 @@ import { isIosBrowser } from '../platform'
 import {
   clipMusicVolume,
   clipSoundVolume,
+  isImageClip,
   resolveAudioTrackPlayback,
   type ProjectOrientation,
 } from '../types'
@@ -21,7 +22,9 @@ import {
   decodeBackgroundAudio,
   decodeClipAudio,
   drawCover,
+  drawCoverFrom,
   drawWatermark,
+  loadClipImage,
   loadClipVideo,
   noteEncodeCanvasKind,
   pickOutputSize,
@@ -64,13 +67,19 @@ export async function exportRealtime(
   let width: number
   let height: number
   try {
-    const probe = await loadClipVideo(probeClip.blob, 8000, probeClip.mimeType)
-    ;({ width, height } = pickOutputSize(
-      probe.video.videoWidth,
-      probe.video.videoHeight,
-      options.orientation,
-    ))
-    probe.release()
+    if (isImageClip(probeClip)) {
+      const bitmap = await loadClipImage(probeClip.blob)
+      ;({ width, height } = pickOutputSize(bitmap.width, bitmap.height, options.orientation))
+      bitmap.close()
+    } else {
+      const probe = await loadClipVideo(probeClip.blob, 8000, probeClip.mimeType)
+      ;({ width, height } = pickOutputSize(
+        probe.video.videoWidth,
+        probe.video.videoHeight,
+        options.orientation,
+      ))
+      probe.release()
+    }
   } catch (error) {
     // Probing is not worth dying over: recorded clips carry their capture
     // dimensions, and pickOutputSize has sane defaults for the rest.
@@ -279,20 +288,27 @@ export async function exportRealtime(
   const frameCounter = { count: 0 }
   try {
     for (const [segmentIndex, segment] of plan.segments.entries()) {
-      let loaded: Awaited<ReturnType<typeof loadClipVideo>>
-      try {
-        loaded = await loadClipVideo(segment.clip.blob, 8000, segment.clip.mimeType)
-      } catch (error) {
-        // The realtime engine plays clips through elements — this clip is
-        // genuinely unopenable here. Tag which one for the error report.
-        throw tagExportError(error, {
-          engine: 'realtime',
-          where: 'segment-load',
-          clipIndex: segmentIndex,
-        })
+      const isImage = isImageClip(segment.clip)
+      let loaded: Awaited<ReturnType<typeof loadClipVideo>> | null = null
+      if (!isImage) {
+        try {
+          loaded = await loadClipVideo(segment.clip.blob, 8000, segment.clip.mimeType)
+        } catch (error) {
+          // The realtime engine plays clips through elements — this clip is
+          // genuinely unopenable here. Tag which one for the error report.
+          throw tagExportError(error, {
+            engine: 'realtime',
+            where: 'segment-load',
+            clipIndex: segmentIndex,
+          })
+        }
       }
       try {
-        const clamped = clampSegmentToMedia(segment, loaded.mediaDurationMs)
+        // A photo has no media length to clamp against — its chosen
+        // duration is exact by definition.
+        const clamped = loaded
+          ? clampSegmentToMedia(segment, loaded.mediaDurationMs)
+          : { startMs: segment.startMs, endMs: segment.endMs }
         if (!clamped) continue
         if (audioContext) {
           const now = audioContext.currentTime
@@ -334,32 +350,45 @@ export async function exportRealtime(
             }
           }
         }
-        const paintedMs = await paintSegment({
-          video: loaded.video,
-          blob: segment.clip.blob,
+        const paintShared = {
           startSec: clamped.startMs / 1000,
           endSec: clamped.endMs / 1000,
           canvas,
           ctx,
-          audioContext,
-          // Clip audio joins the graph through the clip-volume gain and
-          // gets peak-normalized on the way in (music or not).
-          clipDestination: clipMixGain ?? dest,
-          normalizeClip: clipMixGain !== null,
           frameCounter,
           // No mirroring needed when the encode canvas is the preview.
           getPreviewCanvas: encodingIntoPreview ? undefined : options.getPreviewCanvas,
           watermarkImage: options.watermarkImage ?? null,
-          onElapsedMs: (elapsed) => {
+          onElapsedMs: (elapsed: number) => {
             if (plan.totalMs > 0) {
               options.onProgress?.(Math.min(1, (paintedTotalMs + elapsed) / plan.totalMs))
             }
           },
-        })
+        }
+        const paintedMs = loaded
+          ? await paintSegment({
+              video: loaded.video,
+              blob: segment.clip.blob,
+              audioContext,
+              // Clip audio joins the graph through the clip-volume gain and
+              // gets peak-normalized on the way in (music or not).
+              clipDestination: clipMixGain ?? dest,
+              normalizeClip: clipMixGain !== null,
+              ...paintShared,
+            })
+          : await paintImageSegment({ blob: segment.clip.blob, ...paintShared }).catch(
+              (error) => {
+                throw tagExportError(error, {
+                  engine: 'realtime',
+                  where: 'image-paint',
+                  clipIndex: segmentIndex,
+                })
+              },
+            )
         paintedTotalMs += paintedMs
         options.onProgress?.(plan.totalMs > 0 ? Math.min(1, paintedTotalMs / plan.totalMs) : 1)
       } finally {
-        loaded.release()
+        loaded?.release()
       }
     }
 
@@ -404,23 +433,91 @@ export async function exportRealtime(
   }
 }
 
-interface PaintSegmentArgs {
-  video: HTMLVideoElement
-  blob: Blob
+interface PaintSharedArgs {
   startSec: number
   endSec: number
   canvas: HTMLCanvasElement
   ctx: CanvasRenderingContext2D
+  frameCounter: { count: number }
+  getPreviewCanvas?: () => HTMLCanvasElement | null
+  watermarkImage: HTMLImageElement | null
+  onElapsedMs: (elapsedMs: number) => void
+}
+
+interface PaintSegmentArgs extends PaintSharedArgs {
+  video: HTMLVideoElement
+  blob: Blob
   audioContext: AudioContext | null
   /** Where the clip's own audio joins the recording graph (the clip-volume
    * gain when the graph exists, else the mux destination). */
   clipDestination: AudioNode | null
   /** Peak-normalize the clip audio (on whenever the graph exists). */
   normalizeClip: boolean
-  frameCounter: { count: number }
-  getPreviewCanvas?: () => HTMLCanvasElement | null
-  watermarkImage: HTMLImageElement | null
-  onElapsedMs: (elapsedMs: number) => void
+}
+
+interface PaintImageSegmentArgs extends PaintSharedArgs {
+  blob: Blob
+}
+
+/**
+ * Photo painter: this engine records a LIVE canvas capture, so the still is
+ * repainted every animation frame for its wall-clock duration (a static
+ * canvas would starve MediaRecorder of frames on some platforms). Photos
+ * contribute no audio — the music bed, when present, keeps playing on its
+ * own scheduled sources.
+ *
+ * @returns painted duration in ms (0 when the segment had nothing to show)
+ */
+async function paintImageSegment({
+  blob,
+  startSec,
+  endSec,
+  canvas,
+  ctx,
+  frameCounter,
+  getPreviewCanvas,
+  watermarkImage,
+  onElapsedMs,
+}: PaintImageSegmentArgs): Promise<number> {
+  const segmentSec = endSec - startSec
+  if (segmentSec <= 0.04) return 0
+
+  const bitmap = await loadClipImage(blob)
+  try {
+    const paintFrame = () => {
+      drawCoverFrom(ctx, bitmap, bitmap.width, bitmap.height, canvas.width, canvas.height)
+      if (watermarkImage) {
+        drawWatermark(ctx, watermarkImage, canvas.width, canvas.height)
+      }
+    }
+    paintFrame()
+    const startedAt = performance.now()
+    await new Promise<void>((resolve) => {
+      let raf = 0
+      const draw = () => {
+        const elapsedSec = (performance.now() - startedAt) / 1000
+        paintFrame()
+        if (elapsedSec >= segmentSec - 0.03) {
+          cancelAnimationFrame(raf)
+          resolve()
+          return
+        }
+        if (frameCounter.count % PREVIEW_EVERY_N_FRAMES === 0) {
+          blitPreview(canvas, getPreviewCanvas?.())
+        }
+        if (frameCounter.count % 30 === 0) {
+          recordVideoLumaSample(canvas)
+        }
+        frameCounter.count += 1
+        onElapsedMs(Math.min(segmentSec, elapsedSec) * 1000)
+        raf = requestAnimationFrame(draw)
+      }
+      raf = requestAnimationFrame(draw)
+    })
+    return Math.round(segmentSec * 1000)
+  } finally {
+    bitmap.close()
+  }
 }
 
 /** @returns painted duration in ms (0 when the segment had nothing to show) */

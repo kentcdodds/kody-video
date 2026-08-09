@@ -20,6 +20,7 @@ import { isIosBrowser } from '../platform'
 import {
   clipMusicVolume,
   clipSoundVolume,
+  isImageClip,
   resolveAudioTrackPlayback,
   type ClipRecord,
   type ProjectOrientation,
@@ -43,7 +44,9 @@ import {
   blitPreview,
   decodeBackgroundAudio,
   decodeClipAudio,
+  drawCoverFrom,
   drawWatermark,
+  loadClipImage,
   loadClipVideo,
   tagExportError,
   pickOutputSize,
@@ -298,35 +301,45 @@ export async function exportWithWebCodecs(
 
   try {
     for (const [segmentIndex, segment] of plan.segments.entries()) {
-      const input = new Input({
-        source: new BlobSource(segment.clip.blob),
-        formats: ALL_FORMATS,
-      })
+      const isImage = isImageClip(segment.clip)
+      const input = isImage
+        ? null
+        : new Input({
+            source: new BlobSource(segment.clip.blob),
+            formats: ALL_FORMATS,
+          })
 
       let loaded: Awaited<ReturnType<typeof loadClipVideo>> | null = null
       try {
-        const mediaDurationMs = await input
-          .computeDuration()
-          .then((seconds) => Math.round(seconds * 1000))
-          .catch(() => 0)
-        let clamped = mediaDurationMs > 0 ? clampSegmentToMedia(segment, mediaDurationMs) : null
-        if (!clamped) {
-          try {
-            loaded = await loadClipVideo(segment.clip.blob, 8000, segment.clip.mimeType)
-            clamped = clampSegmentToMedia(segment, loaded.mediaDurationMs)
-          } catch (error) {
-            // A stubborn element load (iOS WebKit can refuse a blob it
-            // recorded itself — KODY-VIDEO-A) must not kill the export when
-            // it was only measuring duration: the recorder already measured
-            // this clip's real media duration at capture time. Only the
-            // element PUMP truly needs the element.
-            clamped = clampSegmentToMedia(segment, segment.clip.durationMs)
-            if (!clamped) {
-              throw tagExportError(error, {
-                engine: 'webcodecs',
-                where: 'clip-duration',
-                clipIndex: segmentIndex,
-              })
+        let clamped: { startMs: number; endMs: number } | null
+        if (isImage || !input) {
+          // A photo has no media length to clamp against — its chosen
+          // duration is exact by definition.
+          clamped = { startMs: segment.startMs, endMs: segment.endMs }
+        } else {
+          const mediaDurationMs = await input
+            .computeDuration()
+            .then((seconds) => Math.round(seconds * 1000))
+            .catch(() => 0)
+          clamped = mediaDurationMs > 0 ? clampSegmentToMedia(segment, mediaDurationMs) : null
+          if (!clamped) {
+            try {
+              loaded = await loadClipVideo(segment.clip.blob, 8000, segment.clip.mimeType)
+              clamped = clampSegmentToMedia(segment, loaded.mediaDurationMs)
+            } catch (error) {
+              // A stubborn element load (iOS WebKit can refuse a blob it
+              // recorded itself — KODY-VIDEO-A) must not kill the export when
+              // it was only measuring duration: the recorder already measured
+              // this clip's real media duration at capture time. Only the
+              // element PUMP truly needs the element.
+              clamped = clampSegmentToMedia(segment, segment.clip.durationMs)
+              if (!clamped) {
+                throw tagExportError(error, {
+                  engine: 'webcodecs',
+                  where: 'clip-duration',
+                  clipIndex: segmentIndex,
+                })
+              }
             }
           }
         }
@@ -351,7 +364,11 @@ export async function exportWithWebCodecs(
         // by position, so segments can never drift. Adjacent segments
         // CROSSFADE at the joint: the previous slice withheld its tail, and
         // this slice mixes it into its own head (see segment-audio.ts).
-        const buffer = await decodeClipAudio(segment.clip.blob, AUDIO_SAMPLE_RATE)
+        // Photos are silent by construction — a null source slices to
+        // silence without attempting an audio decode on image bytes.
+        const buffer = isImage
+          ? null
+          : await decodeClipAudio(segment.clip.blob, AUDIO_SAMPLE_RATE)
         const sourceChannels = buffer
           ? Array.from({ length: buffer.numberOfChannels }, (_, ch) =>
               buffer.getChannelData(ch),
@@ -447,23 +464,35 @@ export async function exportWithWebCodecs(
           },
         }
 
-        let pumped = false
-        const outcome = await pumpSegmentVideoDecoded({ input, ...pumpShared })
-        pumped = outcome === 'done'
-        if (!pumped) {
-          // Per-clip fallback: undecodable/unsupported clips play through a
-          // video element like before (realtime-paced, but correct).
-          console.info('[export] segment video path: element (realtime-paced)')
+        if (isImage || !input) {
           try {
-            loaded ??= await loadClipVideo(segment.clip.blob, 8000, segment.clip.mimeType)
+            await pumpSegmentImage({ blob: segment.clip.blob, ...pumpShared })
           } catch (error) {
             throw tagExportError(error, {
               engine: 'webcodecs',
-              where: 'element-pump',
+              where: 'image-pump',
               clipIndex: segmentIndex,
             })
           }
-          await pumpSegmentVideo({ video: loaded.video, ...pumpShared })
+        } else {
+          let pumped = false
+          const outcome = await pumpSegmentVideoDecoded({ input, ...pumpShared })
+          pumped = outcome === 'done'
+          if (!pumped) {
+            // Per-clip fallback: undecodable/unsupported clips play through a
+            // video element like before (realtime-paced, but correct).
+            console.info('[export] segment video path: element (realtime-paced)')
+            try {
+              loaded ??= await loadClipVideo(segment.clip.blob, 8000, segment.clip.mimeType)
+            } catch (error) {
+              throw tagExportError(error, {
+                engine: 'webcodecs',
+                where: 'element-pump',
+                clipIndex: segmentIndex,
+              })
+            }
+            await pumpSegmentVideo({ video: loaded.video, ...pumpShared })
+          }
         }
 
         state.outputOffsetSec += (segmentMs - headChopMs - tailChopMs) / 1000
@@ -573,6 +602,22 @@ async function probeOutputSize(
   orientation?: ProjectOrientation,
 ): Promise<{ width: number; height: number }> {
   const clip = plan.segments[0]!.clip
+  if (isImageClip(clip)) {
+    // Photos store their pixel size at import; a decode is the fallback.
+    if ((clip.width ?? 0) > 0 && (clip.height ?? 0) > 0) {
+      return pickOutputSize(clip.width!, clip.height!, orientation)
+    }
+    try {
+      const bitmap = await loadClipImage(clip.blob)
+      try {
+        return pickOutputSize(bitmap.width, bitmap.height, orientation)
+      } finally {
+        bitmap.close()
+      }
+    } catch (error) {
+      throw tagExportError(error, { engine: 'webcodecs', where: 'probe-size', clipIndex: 0 })
+    }
+  }
   try {
     const input = new Input({ source: new BlobSource(clip.blob), formats: ALL_FORMATS })
     const track = await input.getPrimaryVideoTrack()
@@ -739,6 +784,35 @@ async function pumpSegmentVideoDecoded(
 
   if (framesEmitted === 0) return 'unsupported'
   return 'done'
+}
+
+interface ImagePumpArgs extends PumpSharedArgs {
+  blob: Blob
+}
+
+/**
+ * Photo pump: decode the still once and emit it on every 30fps output tick
+ * across the segment — the encoder sees a regular constant-rate stream, so
+ * photos and videos concatenate seamlessly. Runs at hardware speed (the
+ * only per-frame cost is the canvas draw + encode).
+ */
+async function pumpSegmentImage({ blob, ...shared }: ImagePumpArgs): Promise<void> {
+  const { startSec, endSec, onElapsedMs } = shared
+  const emit = makeFrameSink(shared)
+  const bitmap = await loadClipImage(blob)
+  try {
+    const draw = (ctx: CanvasRenderingContext2D, width: number, height: number) =>
+      drawCoverFrom(ctx, bitmap, bitmap.width, bitmap.height, width, height)
+    // The epsilon keeps float accumulation from emitting one tick past the
+    // segment's end (the sink would clamp it onto the same timestamp).
+    for (let tsSec = startSec, first = true; tsSec < endSec - 1e-6; tsSec += FRAME_INTERVAL_SEC) {
+      await emit(draw, tsSec, { force: first })
+      first = false
+      onElapsedMs((tsSec - startSec) * 1000)
+    }
+  } finally {
+    bitmap.close()
+  }
 }
 
 interface PumpArgs extends PumpSharedArgs {

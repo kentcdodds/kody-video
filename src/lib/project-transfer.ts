@@ -8,7 +8,13 @@ import {
   updateProjectAudioTrack,
 } from './storage'
 import { requestPersistentStorage } from './storage-space'
-import type { ClipRecord, Project, ProjectAudioRecord, ProjectOrientation } from './types'
+import {
+  clampImageDurationMs,
+  type ClipRecord,
+  type Project,
+  type ProjectAudioRecord,
+  type ProjectOrientation,
+} from './types'
 
 /**
  * Single-file project backup, used both as a safety net and to move a
@@ -27,6 +33,10 @@ const MAGIC_BYTES = new TextEncoder().encode(MAGIC)
 
 interface ManifestClip {
   mimeType: string
+  /** 'image' for a still photo shown for durationMs (absent = video).
+   * Older app versions ignore this field; the media bytes then fail their
+   * video probe on playback rather than corrupting the import. */
+  kind?: 'image'
   durationMs: number
   trimStartMs: number
   trimEndMs: number
@@ -126,6 +136,7 @@ export function serializeProject(
     ...(project.orientation === 'landscape' ? { orientation: 'landscape' as const } : {}),
     clips: clips.map((clip) => ({
       mimeType: clip.mimeType,
+      ...(clip.kind === 'image' ? { kind: 'image' as const } : {}),
       durationMs: clip.durationMs,
       trimStartMs: clip.trimStartMs,
       trimEndMs: clip.trimEndMs,
@@ -242,6 +253,7 @@ export async function parseProjectBackup(file: Blob): Promise<ParsedBackup> {
     const mimeType = typeof clip.mimeType === 'string' ? clip.mimeType : 'video/webm'
     clips.push({
       mimeType,
+      ...(clip.kind === 'image' ? { kind: 'image' as const } : {}),
       durationMs: clip.durationMs,
       trimStartMs: clip.trimStartMs,
       trimEndMs: clip.trimEndMs,
@@ -383,11 +395,14 @@ async function persistImportedProject(
       // Android content URIs) and leaves clips unreadable. Reading it here
       // both copies the bytes and proves the file is intact.
       const bytes = await clip.blob.arrayBuffer()
+      const isImage = clip.kind === 'image'
       const added = await addClip({
         projectId: project.id,
         blob: new Blob([bytes], { type: clip.mimeType }),
         mimeType: clip.mimeType,
-        durationMs: clip.durationMs,
+        kind: clip.kind,
+        // Photo durations re-clamp into the supported range on the way in.
+        durationMs: isImage ? clampImageDurationMs(clip.durationMs) : clip.durationMs,
         // Keep the original capture time so chapter titles stay truthful.
         createdAt: clip.createdAt,
         width: clip.width,
@@ -397,10 +412,14 @@ async function persistImportedProject(
         locationAccuracyM: clip.locationAccuracyM,
         clipVolume: clip.clipVolume,
         musicVolume: clip.musicVolume,
-        audioPeak: clip.audioPeak,
+        // Photos are silent by construction.
+        audioPeak: isImage ? (clip.audioPeak ?? 0) : clip.audioPeak,
       })
-      // Restore trims (addClip resets them to the full clip).
-      const trimmed = await updateClipTrim(added.id, clip.trimStartMs, clip.trimEndMs)
+      // Restore trims (addClip resets them to the full clip). A photo shows
+      // in full by definition — its trim window IS its duration.
+      const trimmed = isImage
+        ? added
+        : await updateClipTrim(added.id, clip.trimStartMs, clip.trimEndMs)
       // Generate thumbnails now so the slot poster shows right away and the
       // first open doesn't pay the backfill cost. Lazy import keeps mediabunny
       // out of the home-shell graph until an import actually runs.

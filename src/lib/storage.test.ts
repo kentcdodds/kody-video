@@ -33,13 +33,19 @@ import {
   toStoredBlob,
   undoDeleteLastClip,
   updateClipAudioPeak,
+  updateClipDuration,
   updateClipThumbs,
   updateClipVolumes,
   updateProjectAudioTrack,
   updateClipTrim,
 } from './storage'
 import { markWatermarkRemoved } from './entitlement'
-import { MAX_PROJECTS, effectiveDurationMs } from './types'
+import {
+  MAX_IMAGE_DURATION_MS,
+  MAX_PROJECTS,
+  MIN_IMAGE_DURATION_MS,
+  effectiveDurationMs,
+} from './types'
 
 function fakeBlob(label: string): Blob {
   return new Blob([label], { type: 'video/webm' })
@@ -432,6 +438,76 @@ describe('storage layer', () => {
     expect(await getClip(copy.id)).toBeTruthy()
     clips = await getClipsForProject(project.id)
     expect(clips.map((c) => c.id)).toEqual([c2.id, copy.id, c1.id])
+  })
+
+  it('stores photo clips and sets their duration (grow and shrink, clamped)', async () => {
+    const project = await createProject('Photos')
+    const photo = await addClip({
+      projectId: project.id,
+      blob: new Blob(['png-bytes'], { type: 'image/png' }),
+      mimeType: 'image/png',
+      kind: 'image',
+      durationMs: 3000,
+      audioPeak: 0,
+    })
+    expect(photo.kind).toBe('image')
+    expect(photo.trimStartMs).toBe(0)
+    expect(photo.trimEndMs).toBe(3000)
+
+    // addClip itself is the storage gate: out-of-range durations clamp and
+    // any supplied trim window is ignored in favor of 0..durationMs.
+    const clampedIn = await addClip({
+      projectId: project.id,
+      blob: new Blob(['png-bytes'], { type: 'image/png' }),
+      mimeType: 'image/png',
+      kind: 'image',
+      durationMs: 1,
+      trimEndMs: 250,
+      audioPeak: 0,
+    })
+    expect(clampedIn.durationMs).toBe(MIN_IMAGE_DURATION_MS)
+    expect(clampedIn.trimStartMs).toBe(0)
+    expect(clampedIn.trimEndMs).toBe(MIN_IMAGE_DURATION_MS)
+
+    const clampedOut = await addClip({
+      projectId: project.id,
+      blob: new Blob(['png-bytes'], { type: 'image/png' }),
+      mimeType: 'image/png',
+      kind: 'image',
+      durationMs: 10 * 60_000,
+      trimEndMs: 12_000,
+      audioPeak: 0,
+    })
+    expect(clampedOut.durationMs).toBe(MAX_IMAGE_DURATION_MS)
+    expect(clampedOut.trimEndMs).toBe(MAX_IMAGE_DURATION_MS)
+
+    // Lengthen well past the original duration — a photo has no media
+    // length to trim within, so the duration is a free (clamped) choice.
+    const longer = await updateClipDuration(photo.id, 12_000)
+    expect(longer.durationMs).toBe(12_000)
+    expect(longer.trimStartMs).toBe(0)
+    expect(longer.trimEndMs).toBe(12_000)
+    expect(effectiveDurationMs(longer)).toBe(12_000)
+
+    const shorter = await updateClipDuration(photo.id, 900)
+    expect(shorter.durationMs).toBe(900)
+    expect(shorter.trimEndMs).toBe(900)
+
+    // Out-of-range and unsnapped requests clamp into the supported range.
+    expect((await updateClipDuration(photo.id, 1)).durationMs).toBe(MIN_IMAGE_DURATION_MS)
+    expect((await updateClipDuration(photo.id, 10 * 60_000)).durationMs).toBe(
+      MAX_IMAGE_DURATION_MS,
+    )
+    expect((await updateClipDuration(photo.id, 2_222)).durationMs).toBe(2_200)
+
+    // Videos keep their media-bound trim semantics.
+    const video = await addClip({
+      projectId: project.id,
+      blob: fakeBlob('video'),
+      mimeType: 'video/webm',
+      durationMs: 2000,
+    })
+    await expect(updateClipDuration(video.id, 5000)).rejects.toThrow(/photo/i)
   })
 
   it('delete removes blob storage permanently when not undone', async () => {

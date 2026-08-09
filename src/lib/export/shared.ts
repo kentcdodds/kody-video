@@ -140,6 +140,20 @@ async function loadClipVideoOnce(blob: Blob, timeoutMs: number): Promise<LoadedC
   }
 }
 
+/**
+ * Decode a photo clip's blob for export drawing. ImageBitmap is preferred
+ * (decodes off the main thread, honors EXIF orientation in every current
+ * browser); the caller must close() it.
+ */
+export async function loadClipImage(blob: Blob): Promise<ImageBitmap> {
+  const bitmap = await createImageBitmap(blob)
+  if (bitmap.width <= 0 || bitmap.height <= 0) {
+    bitmap.close()
+    throw new Error('Could not decode photo')
+  }
+  return bitmap
+}
+
 export function waitForMediaEvent(
   target: HTMLMediaElement,
   event: string,

@@ -12,6 +12,8 @@ import { streamToOpfsFile } from './export/opfs'
 import type { ClipRecord } from './types'
 
 function extensionFor(mimeType: string): string {
+  const image = /^image\/(\w+)/i.exec(mimeType)
+  if (image) return image[1]!.toLowerCase() === 'jpeg' ? 'jpg' : image[1]!.toLowerCase()
   return /mp4/i.test(mimeType) ? 'mp4' : 'webm'
 }
 

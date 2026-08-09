@@ -1,6 +1,6 @@
 import { loadClipVideo, seekTo } from './export/shared'
 import { updateClipThumbs } from './storage'
-import type { ClipRecord } from './types'
+import { isImageClip, type ClipRecord } from './types'
 
 /** Filmstrip frame height: timeline tiles are 72 CSS px on up-to-3× screens. */
 export const THUMB_HEIGHT = 216
@@ -89,6 +89,53 @@ function canvasToBlob(canvas: HTMLCanvasElement, quality: number): Promise<Blob 
 }
 
 /**
+ * Thumbnails for a photo clip: one filmstrip frame (a still has no moments
+ * to strip through — the single frame stretches across the tile) plus the
+ * high-res poster, both drawn from one decode.
+ */
+export async function generateImageThumbs(blob: Blob): Promise<GeneratedThumbs> {
+  const bitmap = await createImageBitmap(blob)
+  try {
+    if (bitmap.width <= 0 || bitmap.height <= 0) {
+      throw new Error('Could not read photo')
+    }
+    const aspect = bitmap.width / bitmap.height
+    const thumbHeight = THUMB_HEIGHT
+    const thumbWidth = Math.max(2, Math.round(thumbHeight * aspect))
+    const canvas = document.createElement('canvas')
+    canvas.width = thumbWidth
+    canvas.height = thumbHeight
+    const ctx = canvas.getContext('2d', { alpha: false })
+
+    const posterHeight = Math.min(POSTER_HEIGHT, bitmap.height)
+    const posterWidth = Math.max(2, Math.round(posterHeight * aspect))
+    const posterCanvas = document.createElement('canvas')
+    posterCanvas.width = posterWidth
+    posterCanvas.height = posterHeight
+    const posterCtx = posterCanvas.getContext('2d', { alpha: false })
+    if (!ctx || !posterCtx) throw new Error('Canvas not available')
+
+    posterCtx.drawImage(bitmap, 0, 0, posterWidth, posterHeight)
+    ctx.drawImage(posterCanvas, 0, 0, thumbWidth, thumbHeight)
+    const [thumb, poster] = await Promise.all([
+      canvasToBlob(canvas, 0.72),
+      canvasToBlob(posterCanvas, 0.82),
+    ])
+    if (!thumb) throw new Error('Could not capture photo thumbnail')
+    return {
+      thumbs: [thumb],
+      poster: poster ?? thumb,
+      thumbWidth,
+      thumbHeight,
+      videoWidth: bitmap.width,
+      videoHeight: bitmap.height,
+    }
+  } finally {
+    bitmap.close()
+  }
+}
+
+/**
  * Capture a poster + single filmstrip frame straight off the LIVE camera
  * preview at take end. Zero decoder cost: decoding the fresh blob in a
  * hidden <video> while the preview runs blanks the preview on many Androids
@@ -150,6 +197,8 @@ const refineInFlight = new Map<string, Promise<void>>()
  * black flash the live capture avoids.
  */
 export function refineClipFilmstrip(clip: ClipRecord): Promise<void> {
+  // A photo's single frame IS its finished filmstrip — nothing to refine.
+  if (isImageClip(clip)) return Promise.resolve()
   const count = clip.thumbs?.length ?? 0
   if (count === 0 || count >= THUMB_COUNT) return Promise.resolve()
   if (failedThisSession.has(clip.id)) return Promise.resolve()
@@ -200,7 +249,9 @@ export function ensureClipThumbs(clip: ClipRecord): Promise<ClipRecord> {
     try {
       let generated: GeneratedThumbs
       try {
-        generated = await generateClipThumbs(clip.blob)
+        generated = isImageClip(clip)
+          ? await generateImageThumbs(clip.blob)
+          : await generateClipThumbs(clip.blob)
       } catch {
         // Unreadable/undecodable media — retrying costs an 8s timeout every
         // load, so skip this clip for the rest of the session.
