@@ -996,11 +996,14 @@ export function RecordScreen(handle: Handle<RecordScreenProps>) {
             mix={ref((node, signal) => bindCameraVideo(node as HTMLVideoElement, signal))}
           />
 
+          {/* aria-live sits on the LABEL, not the pill: the elapsed readout
+              rewrites its text 10×/s, and a live region around it would make
+              screen readers re-announce (and recompute) every tick. */}
           {recording ? (
             <div className="record-overlay">
-              <div className="record-pill" aria-live="polite">
+              <div className="record-pill">
                 <span className="record-dot" />
-                <span className="record-pill-label">
+                <span className="record-pill-label" aria-live="polite">
                   {recordingMode === 'hands-free' ? 'TAP TO STOP' : 'REC'}
                 </span>
                 <RecordTimer startedAt={recordStartedAt} className="record-elapsed" />
@@ -1010,9 +1013,11 @@ export function RecordScreen(handle: Handle<RecordScreenProps>) {
 
           {screenRecording ? (
             <div className="record-overlay">
-              <div className="record-pill" aria-live="polite">
+              <div className="record-pill">
                 <span className="record-dot" />
-                <span className="record-pill-label">SCREEN — TAP TO STOP</span>
+                <span className="record-pill-label" aria-live="polite">
+                  SCREEN — TAP TO STOP
+                </span>
                 <RecordTimer startedAt={screenRecordStartedAt} className="record-elapsed" />
               </div>
             </div>
