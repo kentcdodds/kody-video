@@ -148,10 +148,24 @@ describe('project backup round trip', () => {
     )
   })
 
-  it('parses backups without an orientation as portrait (older backups)', async () => {
+  it('parses backups without an orientation as unlocked (older backups)', async () => {
     const backup = serializeProject(fakeProject(), [fakeClip('clip_a', 'AAAA')])
     const parsed = await parseProjectBackup(backup)
+    expect(parsed.orientation).toBeUndefined()
+
+    const project = await importProjectBackup(parsed)
+    expect((await listProjects()).find((p) => p.id === project.id)?.orientation).toBeUndefined()
+  })
+
+  it('round trips a portrait lock (so the import keeps forcing that shape)', async () => {
+    const backup = serializeProject({ ...fakeProject('Tall'), orientation: 'portrait' }, [
+      fakeClip('clip_a', 'AAAA'),
+    ])
+    const parsed = await parseProjectBackup(backup)
     expect(parsed.orientation).toBe('portrait')
+
+    const project = await importProjectBackup(parsed)
+    expect((await listProjects()).find((p) => p.id === project.id)?.orientation).toBe('portrait')
   })
 
   it('imports a landscape backup on a free device as a portrait project', async () => {

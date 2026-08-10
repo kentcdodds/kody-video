@@ -7,6 +7,7 @@ export function isMobileBrowser(): boolean {
 interface PlatformOverrides {
   coarsePointer?: boolean
   viewportLandscape?: boolean
+  orientationAngle?: number
 }
 
 /** Test seam: headless Chromium always reports a fine pointer and a
@@ -33,6 +34,18 @@ export function viewportIsLandscape(): boolean {
     return platformOverrides.viewportLandscape
   }
   return typeof window !== 'undefined' && window.matchMedia('(orientation: landscape)').matches
+}
+
+/**
+ * Clockwise degrees the OS turned the layout by to keep it upright (0 = the
+ * device's natural orientation). Missing API = assume natural.
+ */
+export function viewportOrientationAngle(): number {
+  if (platformOverrides.orientationAngle !== undefined) {
+    return platformOverrides.orientationAngle
+  }
+  if (typeof screen === 'undefined') return 0
+  return screen.orientation?.angle ?? 0
 }
 
 /** All iOS browsers share WebKit (and its quirks), whatever their brand. */

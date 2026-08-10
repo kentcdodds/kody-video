@@ -84,9 +84,10 @@ interface Manifest {
   app: 'kody-video'
   exportedAt: number
   projectName: string
-  /** The film's orientation (absent = portrait). Older app versions ignore
-   * this field and import the clips as a portrait project. */
-  orientation?: 'landscape'
+  /** The film's LOCKED orientation (absent = the project never locked one,
+   * which is also what older backups carry). Older app versions ignore this
+   * field and import the clips as a portrait project. */
+  orientation?: ProjectOrientation
   clips: ManifestClip[]
   /** Background-music playlist (absent on projects without one). */
   audio?: ManifestAudio
@@ -133,7 +134,7 @@ export function serializeProject(
     app: 'kody-video',
     exportedAt: Date.now(),
     projectName: project.name,
-    ...(project.orientation === 'landscape' ? { orientation: 'landscape' as const } : {}),
+    ...(project.orientation ? { orientation: project.orientation } : {}),
     clips: clips.map((clip) => ({
       mimeType: clip.mimeType,
       ...(clip.kind === 'image' ? { kind: 'image' as const } : {}),
@@ -195,8 +196,9 @@ export interface ParsedBackupAudio {
 
 export interface ParsedBackup {
   projectName: string
-  /** The film's orientation ('portrait' when the backup carries none). */
-  orientation: ProjectOrientation
+  /** The film's locked orientation (absent when the backup carries none —
+   * an unlocked film, whose exports follow its clips). */
+  orientation?: ProjectOrientation
   clips: Array<Omit<ManifestClip, 'byteLength'> & { blob: Blob }>
   /** Background-music playlist, when the backup carries one. */
   audio: ParsedBackupAudio | null
@@ -314,7 +316,9 @@ export async function parseProjectBackup(file: Blob): Promise<ParsedBackup> {
 
   return {
     projectName: String(manifest.projectName || 'Imported project'),
-    orientation: manifest.orientation === 'landscape' ? 'landscape' : 'portrait',
+    ...(manifest.orientation === 'landscape' || manifest.orientation === 'portrait'
+      ? { orientation: manifest.orientation }
+      : {}),
     clips,
     audio,
   }
@@ -382,7 +386,8 @@ async function persistImportedProject(
   // Landscape projects are a Plus perk, like background music: restoring a
   // Plus-made backup on a free device keeps the clips as a portrait project
   // (the setting is skipped, never a creation failure).
-  const orientation = plus && parsed.orientation === 'landscape' ? 'landscape' : undefined
+  const orientation =
+    parsed.orientation === 'landscape' && !plus ? undefined : parsed.orientation
   const project = await createProject(parsed.projectName, { orientation })
   try {
     let done = 0
