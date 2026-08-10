@@ -1008,8 +1008,9 @@ a {
    - 'adaptive' (home, about, privacy, terms, unlocked — set pre-paint in
      index.html and on navigation in main.tsx): widens on landscape
      viewports, which includes desktop windows by default.
-   - 'wide' (locked-landscape projects, set by the project page): always
-     widens — the layout is stuck sideways wherever it opens.
+   - 'wide' (landscape projects, set by the project page): the shell is
+     sideways-shaped — either because the viewport is, or because the page
+     pinned (counter-rotated) the locked interface into that shape.
    - 'narrow' / absent (portrait projects): the classic column.
    Must sit after the base #root / .app-shell rules AND the min-width
    desktop block so it wins in both. */
@@ -1032,4 +1033,33 @@ html[data-shell='wide'] .app-shell {
   html[data-shell='wide'] #root {
     width: min(1200px, calc(100% - 48px));
   }
+}
+
+/* Pinned interface (locked project, device held the other way — see
+   lib/shell-rotation.ts): the shell takes the viewport's dimensions
+   SWAPPED and counter-rotates out of the OS's auto-rotate, so the locked
+   layout keeps its shape and appears sideways instead of reflowing.
+   The transform makes #root the containing block for its fixed-position
+   descendants, so sheets and overlays come along. */
+html[data-rotate='cw'] #root,
+html[data-rotate='ccw'] #root {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100dvh;
+  height: 100dvw;
+  max-width: none;
+  min-height: 0;
+  margin: 0;
+  border: 0;
+  border-radius: 0;
+  transform-origin: 0 0;
+}
+
+html[data-rotate='cw'] #root {
+  transform: translateX(100dvw) rotate(90deg);
+}
+
+html[data-rotate='ccw'] #root {
+  transform: translateY(100dvh) rotate(-90deg);
 }

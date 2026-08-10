@@ -71,15 +71,20 @@ For a phone on the same network, use your machine’s LAN URL over HTTPS, or tun
   the **first take locks the orientation** (emptying the project of clips
   lets the next first take decide again). Landscape shifts the
   entire interface: the phone-shaped shell widens to the viewport, the
-  record controls become a right-hand rail, the editor puts the player
-  beside the timeline, and hints ask for a turn whenever the device
-  mismatches the locked project. Exports are forced into a landscape
-  project's orientation (mismatched clips center-crop), and the lock
-  travels in backups. On the free plan, rotating an empty project previews
-  the landscape interface but the take that would lock it opens the Plus
-  upsell. Desktop is exempt (webcams and screen shares are landscape media
-  without that being a choice): its projects stay unlocked and exports
-  follow the clips, as always
+  record controls become a right-hand rail, and the editor puts the player
+  beside the timeline. A **locked project is pinned**, both ways: turning
+  the device changes neither the interface nor the shape of what is
+  recorded, exactly like a native camera app. The app locks the screen
+  orientation where browsers allow it (installed PWAs), and otherwise
+  counter-rotates its own shell out of the device's auto-rotate — so a
+  portrait film held sideways (or a landscape film held upright) keeps its
+  layout and simply appears sideways, with a hint asking for a turn.
+  Exports are forced into a locked project's orientation (mismatched clips
+  center-crop), and the lock travels in backups. On the free plan, rotating
+  an empty project previews the landscape interface but the take that would
+  lock it opens the Plus upsell. Desktop is exempt (webcams and screen
+  shares are landscape media without that being a choice): its projects
+  stay unlocked, nothing is pinned, and exports follow the clips
 - Project preview playback: tap edges to skip clips, tap middle to stop
 - Up to **6** stable project slots (create / open / rename / delete, poster art from your clips)
 - Big Go CTA: on-device export to **one video file**, then Share (system sheet) or Save

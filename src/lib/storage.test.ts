@@ -318,23 +318,24 @@ describe('storage layer', () => {
     )
     await expect(setProjectOrientation(project.id, 'landscape')).rejects.toThrow(/plus/i)
     expect((await listProjects())[0]?.orientation).toBeUndefined()
-    // Portrait is the default and never gated.
+    // Portrait is never gated.
     await setProjectOrientation(project.id, 'portrait')
-    expect((await listProjects())[0]?.orientation).toBeUndefined()
+    expect((await listProjects())[0]?.orientation).toBe('portrait')
   })
 
-  it('sets and clears the project orientation for Plus users', async () => {
+  it('sets either project orientation for Plus users', async () => {
     await markWatermarkRemoved('cs_test_storage')
     const project = await createProject('Widescreen')
     const landscape = await setProjectOrientation(project.id, 'landscape')
     expect(landscape.orientation).toBe('landscape')
     expect((await listProjects())[0]?.orientation).toBe('landscape')
 
-    // Back to portrait clears the stored field entirely — indistinguishable
-    // from a project made before the setting existed.
+    // Back to portrait is stored, not cleared: only a project that never
+    // locked an orientation (made before the lock existed, or on desktop)
+    // has no stored field, and its exports still follow its clips.
     const portrait = await setProjectOrientation(project.id, 'portrait')
-    expect(portrait.orientation).toBeUndefined()
-    expect('orientation' in ((await listProjects())[0] ?? {})).toBe(false)
+    expect(portrait.orientation).toBe('portrait')
+    expect((await listProjects())[0]?.orientation).toBe('portrait')
   })
 
   it('creates landscape projects when asked (Plus only)', async () => {

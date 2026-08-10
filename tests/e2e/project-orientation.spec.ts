@@ -16,7 +16,7 @@ async function shellLayout(page: import('@playwright/test').Page) {
 // Playwright project. This file covers what locked projects do everywhere
 // and the fine-pointer (desktop-like) exemption.
 test.describe('project orientation', () => {
-  test('a locked landscape project shifts the shell, persists, and hints upright', async ({
+  test('a locked landscape project shifts the shell sideways, persists, and hints upright', async ({
     page,
   }) => {
     const projectId = await seedProject(page, { clips: 2 })
@@ -28,25 +28,27 @@ test.describe('project orientation', () => {
     await page.goto(`/project/${projectId}`)
     await waitForCameraReady(page)
 
-    // The whole interface swings: document-level data attribute (widens the
-    // shell via CSS) + the page-level class.
-    await expect.poll(() => shellLayout(page)).toBe('wide')
+    // The page knows the film is landscape…
     await expect(page.locator('.project-screen.orientation-landscape')).toBeVisible()
-
-    // Held upright (portrait viewport), the app asks for a turn.
+    // …but a fine-pointer window is not something the user can turn, so the
+    // shell is not pinned sideways: an upright window keeps the phone column
+    // (the landscape layouts need a landscape box) and asks for a turn.
+    await expect.poll(() => shellLayout(page)).toBe('narrow')
     await expect(page.locator('.orientation-hint')).toBeVisible()
     await expect(page.locator('.orientation-hint')).toContainText(/turn your device/i)
 
-    // A reload keeps the landscape interface — the lock is on the project.
+    // A reload keeps the landscape film — the lock is on the project.
     await page.reload()
     await waitForCameraReady(page)
-    await expect.poll(() => shellLayout(page)).toBe('wide')
+    await expect(page.locator('.project-screen.orientation-landscape')).toBeVisible()
 
-    // Turn the phone: the hint goes away and the dock becomes a right-hand
-    // rail (taller than wide, hugging the shell's right edge — at wide
-    // viewports the shell itself sits centered in the desktop frame).
+    // Turn the window: the shell widens, the hint goes away, and the dock
+    // becomes a right-hand rail (taller than wide, hugging the shell's right
+    // edge — at wide viewports the shell itself sits centered in the desktop
+    // frame).
     const viewport = page.viewportSize()!
     await page.setViewportSize({ width: viewport.height, height: viewport.width })
+    await expect.poll(() => shellLayout(page)).toBe('wide')
     await expect(page.locator('.orientation-hint')).toBeHidden()
     const dock = await page.locator('.record-dock').boundingBox()
     const shell = await page.locator('.project-screen').boundingBox()
@@ -82,6 +84,8 @@ test.describe('project orientation', () => {
     })
     expect(orientation).toBeUndefined()
     expect(await shellLayout(page)).toBe('narrow')
+    // Nothing to pin either: a window is not held.
+    expect(await page.evaluate(() => document.documentElement.dataset.rotate)).toBeUndefined()
   })
 
   test('landscape projects export a landscape file from portrait clips', async ({ page }) => {

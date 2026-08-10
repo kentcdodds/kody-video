@@ -11,6 +11,7 @@ import {
   type ClipRecord,
   type ProjectId,
 } from '../lib/types'
+import { contentExtentX, contentX, contentY } from '../lib/shell-rotation'
 import { IconPhoto } from './icons'
 import { TimelineThumbImage } from './timeline-thumb-image'
 
@@ -48,6 +49,7 @@ export function tileWidthForClip(clip: ClipRecord): number {
 
 interface DragState {
   clipId: ClipId
+  /** Press point on the strip's own axes (see lib/shell-rotation.ts). */
   startX: number
   startY: number
   startScrollLeft: number
@@ -95,7 +97,9 @@ export function Timeline(handle: Handle<TimelineProps>) {
       const selectedId = props.selectedClipId
       const target = selectedId ? tileRefs.get(selectedId) : null
       if (!target) return
-      const delta = target.getBoundingClientRect().right - element.getBoundingClientRect().right
+      const delta =
+        contentExtentX(target.getBoundingClientRect()).end -
+        contentExtentX(element.getBoundingClientRect()).end
       // Align the selected clip toward the right edge (with a little padding)
       // so the tail of the project is in view; clamp handles short strips.
       element.scrollLeft = Math.max(0, delta + 12)
@@ -143,14 +147,16 @@ export function Timeline(handle: Handle<TimelineProps>) {
     void handle.update()
   }
 
-  /** Gap index in 0..clips.length (before tile i, or after the last tile). */
-  const gapFromX = (clientX: number): number => {
+  /** Gap index in 0..clips.length (before tile i, or after the last tile).
+   * `x` is on the strip's own axis (contentX) — a pinned interface points
+   * it somewhere other than the viewport's. */
+  const gapFromX = (x: number): number => {
     const track = trackEl
     if (!track) return 0
     const tiles = Array.from(track.querySelectorAll<HTMLElement>('[data-clip-id]'))
     for (let i = 0; i < tiles.length; i++) {
-      const rect = tiles[i].getBoundingClientRect()
-      if (clientX < rect.left + rect.width / 2) return i
+      const tile = contentExtentX(tiles[i].getBoundingClientRect())
+      if (x < tile.start + tile.size / 2) return i
     }
     return tiles.length
   }
@@ -181,8 +187,8 @@ export function Timeline(handle: Handle<TimelineProps>) {
 
     drag = {
       clipId: clip.id,
-      startX: event.clientX,
-      startY: event.clientY,
+      startX: contentX(event),
+      startY: contentY(event),
       startScrollLeft: trackEl?.scrollLeft ?? 0,
       fromIndex: index,
       pointerId: event.pointerId,
@@ -190,18 +196,18 @@ export function Timeline(handle: Handle<TimelineProps>) {
       lifted: false,
       scrolling: false,
       gapIndex: index,
-      samples: [{ t: performance.now(), x: event.clientX }],
+      samples: [{ t: performance.now(), x: contentX(event) }],
     }
   }
 
   /** Keep a lifted clip draggable to offscreen targets. */
-  const edgeAutoScroll = (clientX: number) => {
+  const edgeAutoScroll = (x: number) => {
     const track = trackEl
     if (!track) return
-    const rect = track.getBoundingClientRect()
-    if (clientX < rect.left + EDGE_SCROLL_ZONE_PX) {
+    const strip = contentExtentX(track.getBoundingClientRect())
+    if (x < strip.start + EDGE_SCROLL_ZONE_PX) {
       track.scrollLeft -= EDGE_SCROLL_STEP_PX
-    } else if (clientX > rect.right - EDGE_SCROLL_ZONE_PX) {
+    } else if (x > strip.end - EDGE_SCROLL_ZONE_PX) {
       track.scrollLeft += EDGE_SCROLL_STEP_PX
     }
   }
@@ -210,8 +216,9 @@ export function Timeline(handle: Handle<TimelineProps>) {
     const state = drag
     if (!state || state.pointerId !== event.pointerId) return
 
+    const pointerX = contentX(event)
     if (state.lifted) {
-      const nextGap = gapFromX(event.clientX)
+      const nextGap = gapFromX(pointerX)
       state.gapIndex = nextGap
       // Only an actual gap change re-renders the strip (pointer moves fire
       // at sample rate; React's setState bail-out used to dedupe this).
@@ -219,12 +226,12 @@ export function Timeline(handle: Handle<TimelineProps>) {
         gapIndex = nextGap
         void handle.update()
       }
-      edgeAutoScroll(event.clientX)
+      edgeAutoScroll(pointerX)
       return
     }
 
-    const dx = event.clientX - state.startX
-    const dy = event.clientY - state.startY
+    const dx = pointerX - state.startX
+    const dy = contentY(event) - state.startY
     if (!state.scrolling && Math.hypot(dx, dy) < MOVE_CANCEL_PX) return
 
     // The finger moved before the long press fired: this is a scroll, not a
@@ -238,7 +245,7 @@ export function Timeline(handle: Handle<TimelineProps>) {
     // pan proved flaky on real Android devices, where the gesture could end
     // up neither scrolling nor cancelling.
     if (trackEl) trackEl.scrollLeft = state.startScrollLeft - dx
-    state.samples.push({ t: performance.now(), x: event.clientX })
+    state.samples.push({ t: performance.now(), x: pointerX })
     if (state.samples.length > 6) state.samples.shift()
   }
 
