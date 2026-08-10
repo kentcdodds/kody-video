@@ -3,7 +3,6 @@ import { on, ref } from 'remix/ui'
 import '../styles/record.css'
 import type { Camera } from '../lib/camera'
 import { dragZoomValue } from '../lib/drag-zoom'
-import { contentExtentY, contentY } from '../lib/shell-rotation'
 import { getLocationFix, type LocationFix } from '../lib/location'
 import { pickRecordingMimeType, warmDurationProbe } from '../lib/media'
 import {
@@ -113,9 +112,6 @@ export function RecordScreen(handle: Handle<RecordScreenProps>) {
   /** Live audio-level watch for the current take (silent-mic warning). */
   let micMonitor: MicLevelMonitor | null = null
 
-  /** Drag-zoom geometry lives on the shell's own vertical axis, which a
-   * pinned (counter-rotated) interface points somewhere else entirely — the
-   * gesture is "drag up the stage the user sees", not "up the viewport". */
   let dragZoomPressY = 0
   let dragZoomStartValue = 0
   let dragZoomStageHeight = 0
@@ -918,7 +914,7 @@ export function RecordScreen(handle: Handle<RecordScreenProps>) {
               // from the user's deliberate baseline zoom, not a mid-ramp value.
               cancelAnimationFrame(zoomRestoreRaf)
               dragZoomMoved = false
-              dragZoomPressY = contentY(event)
+              dragZoomPressY = event.clientY
               dragZoomStartValue = zoomBaseline ?? camera.zoom?.value ?? 1
               if (zoomRestoreActive) {
                 // Finish the interrupted ramp instantly so a motionless hold
@@ -927,9 +923,9 @@ export function RecordScreen(handle: Handle<RecordScreenProps>) {
                 camera.setZoom(dragZoomStartValue)
               }
               const stage = event.currentTarget as HTMLDivElement
-              const stageExtent = contentExtentY(stage.getBoundingClientRect())
-              dragZoomStageHeight = stageExtent.size
-              dragZoomStageTop = stageExtent.start
+              const stageRect = stage.getBoundingClientRect()
+              dragZoomStageHeight = stageRect.height
+              dragZoomStageTop = stageRect.top
               stage.setPointerCapture(event.pointerId)
               void beginRecord(event.pointerId, 'hold')
             }),
@@ -942,12 +938,11 @@ export function RecordScreen(handle: Handle<RecordScreenProps>) {
               // Dead zone: natural finger tremble while holding to record must
               // not start zooming. Once crossed, re-anchor so zoom ramps from
               // the current finger position without a jump.
-              const pointerY = contentY(event)
               if (!dragZoomMoved) {
-                if (Math.abs(pointerY - dragZoomPressY) < DRAG_ZOOM_DEADZONE_PX) {
+                if (Math.abs(event.clientY - dragZoomPressY) < DRAG_ZOOM_DEADZONE_PX) {
                   return
                 }
-                dragZoomPressY = pointerY
+                dragZoomPressY = event.clientY
               }
               // Range-anchored mapping (see dragZoomValue's contract): dragging
               // to the top of the stage reaches MAX zoom, to the bottom reaches
@@ -955,7 +950,7 @@ export function RecordScreen(handle: Handle<RecordScreenProps>) {
               // minimum ramp for control and cap partway at that edge.
               const next = dragZoomValue({
                 anchorY: dragZoomPressY,
-                clientY: pointerY,
+                clientY: event.clientY,
                 stageTop: dragZoomStageTop,
                 stageHeight: dragZoomStageHeight || stageEl?.clientHeight || 1,
                 start: dragZoomStartValue,

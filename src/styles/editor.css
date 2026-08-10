@@ -943,35 +943,36 @@
   flex: 0 1 auto;
 }
 
-/* The landscape interface: with the project sideways there is no room for a
-   player stacked over a tall panel — the stage takes the left, and the
-   timeline/tools panel becomes a right-hand column. Keyed on the SHELL's
-   shape, not the viewport's (see record.css). */
-html[data-shell='wide'] .orientation-landscape .editor-screen {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(320px, 44%);
-  grid-template-rows: auto minmax(0, 1fr);
-}
+/* The landscape interface: with the project (and viewport) sideways there
+   is no room for a player stacked over a tall panel — the stage takes the
+   left, and the timeline/tools panel becomes a right-hand column. */
+@media (orientation: landscape) {
+  .orientation-landscape .editor-screen {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(320px, 44%);
+    grid-template-rows: auto minmax(0, 1fr);
+  }
 
-html[data-shell='wide'] .orientation-landscape .editor-top {
-  grid-column: 1 / -1;
-}
+  .orientation-landscape .editor-top {
+    grid-column: 1 / -1;
+  }
 
-html[data-shell='wide'] .orientation-landscape .editor-stage {
-  grid-row: 2;
-  grid-column: 1;
-  margin: 2px 0 calc(12px + var(--safe-bottom)) 14px;
-}
+  .orientation-landscape .editor-stage {
+    grid-row: 2;
+    grid-column: 1;
+    margin: 2px 0 calc(12px + var(--safe-bottom)) 14px;
+  }
 
-html[data-shell='wide'] .orientation-landscape .editor-screen.is-trimming .editor-stage,
-html[data-shell='wide'] .orientation-landscape .editor-screen.is-audio-editing .editor-stage {
-  flex: none;
-}
+  .orientation-landscape .editor-screen.is-trimming .editor-stage,
+  .orientation-landscape .editor-screen.is-audio-editing .editor-stage {
+    flex: none;
+  }
 
-html[data-shell='wide'] .orientation-landscape .editor-panel {
-  grid-row: 2;
-  grid-column: 2;
-  min-height: 0;
-  overflow-y: auto;
-  padding-right: calc(12px + env(safe-area-inset-right, 0px));
+  .orientation-landscape .editor-panel {
+    grid-row: 2;
+    grid-column: 2;
+    min-height: 0;
+    overflow-y: auto;
+    padding-right: calc(12px + env(safe-area-inset-right, 0px));
+  }
 }

@@ -1,12 +1,5 @@
 import { test, expect, type Page } from '@playwright/test'
-import {
-  openNewProject,
-  recordClip,
-  seedProject,
-  totalClipCount,
-  unlockPlus,
-  waitForCameraReady,
-} from './helpers'
+import { openNewProject, recordClip, totalClipCount, unlockPlus } from './helpers'
 
 // Runs under the `touch` Playwright project (real touch emulation, so
 // `pointer: coarse` matches): the rotate-to-choose flow only exists on
@@ -19,19 +12,6 @@ async function shellLayout(page: Page) {
 async function rotate(page: Page) {
   const viewport = page.viewportSize()!
   await page.setViewportSize({ width: viewport.height, height: viewport.width })
-}
-
-/** How the shell is counter-rotated out of the device's auto-rotate. */
-async function shellPin(page: Page) {
-  return page.evaluate(() => document.documentElement.dataset.rotate)
-}
-
-/** The shell's own (pre-transform) box — the shape it lays itself out in. */
-async function shellBox(page: Page) {
-  return page.locator('#root').evaluate((el) => ({
-    width: el.clientWidth,
-    height: el.clientHeight,
-  }))
 }
 
 async function storedOrientation(page: Page) {
@@ -92,17 +72,10 @@ test.describe('rotate-to-choose orientation (touch)', () => {
     await recordClip(page)
     await expect.poll(() => storedOrientation(page)).toBe('landscape')
 
-    // From now on the interface is stuck landscape: turning the phone back
-    // upright pins it — the shell counter-rotates and keeps its landscape
-    // BOX (as wide as the upright viewport is tall), so neither the layout
-    // nor the camera's shape follows the device. It asks for a turn instead.
+    // From now on the interface is stuck landscape — turning the phone back
+    // upright keeps the landscape layout and asks for a turn instead.
     await rotate(page)
     await expect.poll(() => shellLayout(page)).toBe('wide')
-    await expect.poll(() => shellPin(page)).toMatch(/^(cw|ccw)$/)
-    const upright = page.viewportSize()!
-    await expect
-      .poll(() => shellBox(page))
-      .toEqual({ width: upright.height, height: upright.width })
     await expect(page.locator('.orientation-hint')).toBeVisible()
     await expect(page.locator('.orientation-hint')).toContainText(/turn your device sideways/i)
 
@@ -110,45 +83,6 @@ test.describe('rotate-to-choose orientation (touch)', () => {
     await page.reload()
     await page.locator('.camera-video').waitFor()
     await expect.poll(() => shellLayout(page)).toBe('wide')
-    await expect.poll(() => shellPin(page)).toMatch(/^(cw|ccw)$/)
-  })
-
-  test('a portrait-locked project stays portrait when the phone is turned', async ({ page }) => {
-    // The mirror of the landscape lock, and the common case: a portrait film
-    // must not reflow (or reframe the camera) because the phone was tilted.
-    const projectId = await seedProject(page, { clips: 1 })
-    await page.evaluate(async (id) => {
-      const storage = await import('/src/lib/storage.ts')
-      await storage.setProjectOrientation(id, 'portrait')
-    }, projectId)
-    await page.goto(`/project/${projectId}`)
-    await waitForCameraReady(page)
-    await expect.poll(() => shellLayout(page)).toBe('narrow')
-    expect(await shellPin(page)).toBeUndefined()
-
-    const upright = page.viewportSize()!
-    const portraitStage = await page.locator('.record-stage').boundingBox()
-
-    // Turn the phone sideways: the interface is pinned, so the stage keeps
-    // the shape (and size) it had upright, and the portrait layout stands.
-    await rotate(page)
-    await expect.poll(() => shellPin(page)).toMatch(/^(cw|ccw)$/)
-    await expect.poll(() => shellLayout(page)).toBe('narrow')
-    await expect(page.locator('.project-screen.orientation-landscape')).toBeHidden()
-    // The shell still lays itself out upright-shaped; only the transform
-    // turns it, so its own width now runs down the (landscape) viewport.
-    await expect
-      .poll(() => shellBox(page))
-      .toEqual({ width: upright.width, height: upright.height })
-    const pinnedStage = await page.locator('.record-stage').boundingBox()
-    expect(Math.round(pinnedStage!.width)).toBe(Math.round(portraitStage!.height))
-    expect(Math.round(pinnedStage!.height)).toBe(Math.round(portraitStage!.width))
-
-    // And it says which way to hold the phone.
-    await expect(page.locator('.orientation-hint-portrait')).toBeVisible()
-    await expect(page.locator('.orientation-hint-portrait')).toContainText(
-      /turn your device upright/i,
-    )
   })
 
   test('free plan: rotating previews landscape but the take is gated behind Plus', async ({
@@ -180,13 +114,12 @@ test.describe('rotate-to-choose orientation (touch)', () => {
     await upsell.getByRole('button', { name: 'Not now' }).click()
 
     // Turning back upright: everything works free, and the first take locks
-    // portrait (stored, so the lock is told apart from a project that never
-    // locked one — whose export still follows its clips).
+    // portrait (stored as nothing — the default).
     await rotate(page)
     await expect.poll(() => shellLayout(page)).toBe('narrow')
     await expect(page.locator('.orientation-gate-pill')).toBeHidden()
     await recordClip(page)
-    expect(await storedOrientation(page)).toBe('portrait')
+    expect(await storedOrientation(page)).toBeUndefined()
     expect(
       await page.evaluate(async () => {
         const storage = await import('/src/lib/storage.ts')

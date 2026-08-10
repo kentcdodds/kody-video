@@ -17,13 +17,10 @@ export interface Project {
    * (even one shaped like "Project 2") is never mistaken for the default. */
   nameIsDefault?: boolean
   /** The film's orientation, locked in by the first clip recorded on a
-   * touch device (how the device was held) — both values are stored, since
-   * a locked film's exports are forced into its shape. Absent = never
-   * locked, and laid out portrait: projects made before this existed and
-   * desktop projects (whose landscape clips are landscape without that
-   * being a choice, so their exports keep following the clips). A project
-   * with no clips is UNLOCKED — its interface follows the device until the
-   * first take decides. */
+   * touch device (how the device was held). Absent = portrait: projects
+   * made before this existed, desktop projects, and portrait locks all
+   * store nothing. A project with no clips is UNLOCKED — its interface
+   * follows the device until the first take decides. */
   orientation?: ProjectOrientation
 }
 

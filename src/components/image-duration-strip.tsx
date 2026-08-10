@@ -1,6 +1,5 @@
 import type { Handle } from 'remix/ui'
 import { on } from 'remix/ui'
-import { contentExtentX, contentX } from '../lib/shell-rotation'
 import {
   MAX_IMAGE_DURATION_MS,
   MIN_IMAGE_DURATION_MS,
@@ -46,12 +45,10 @@ export function ImageDurationStrip(handle: Handle<ImageDurationStripProps>) {
     void handle.update()
   }
 
-  /** Where along the scale the finger is — measured on the strip's own axis,
-   * which a pinned interface rotates away from the viewport's. */
-  const msFromPointer = (event: PointerEvent, strip: HTMLElement) => {
-    const track = contentExtentX(strip.getBoundingClientRect())
-    if (track.size <= 0) return durationMs
-    const ratio = Math.min(1, Math.max(0, (contentX(event) - track.start) / track.size))
+  const msFromClientX = (clientX: number, strip: HTMLElement) => {
+    const rect = strip.getBoundingClientRect()
+    if (rect.width <= 0) return durationMs
+    const ratio = Math.min(1, Math.max(0, (clientX - rect.left) / rect.width))
     return ratio * MAX_IMAGE_DURATION_MS
   }
 
@@ -68,7 +65,7 @@ export function ImageDurationStrip(handle: Handle<ImageDurationStripProps>) {
     void handle.update()
 
     const onMove = (ev: PointerEvent) => {
-      setDuration(msFromPointer(ev, strip))
+      setDuration(msFromClientX(ev.clientX, strip))
     }
     const onUp = (ev: PointerEvent) => {
       try {

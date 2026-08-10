@@ -24,12 +24,7 @@ import {
   shareFile,
   shareOrDownload,
 } from '../lib/media'
-import {
-  isCoarsePointerDevice,
-  viewportIsLandscape,
-  viewportOrientationAngle,
-} from '../lib/platform'
-import { rotationForLock, setShellRotation } from '../lib/shell-rotation'
+import { isCoarsePointerDevice, viewportIsLandscape } from '../lib/platform'
 import { loadProjectPage, type ProjectLoaderData } from '../lib/project-actions'
 import { projectBackupFilename, serializeProject } from '../lib/project-transfer'
 import {
@@ -215,33 +210,19 @@ export function ProjectPage(handle: Handle<ProjectPageProps>) {
    * data-shell attribute so the CSS can reach the shell (#root) above the
    * app tree ('wide' vs 'narrow' — main.tsx resets it to 'adaptive' when
    * navigating to non-project routes).
-   * A LOCKED project also pins the interface to the device, native-camera
-   * style: turning the phone must change neither the layout nor what the
-   * camera frames. `screen.orientation.lock()` (the manifest allows every
-   * orientation so rotation can happen at all) does that where it exists —
-   * installed PWAs on Android — and rejects silently everywhere else,
-   * including every iOS browser, so the shell counter-rotates the OS's
-   * auto-rotate away instead: the locked layout stays on screen and simply
-   * appears sideways until the device is held the way the project wants
-   * (the mismatch hint says so). An unlocked project frees rotation and
-   * follows it — turning the phone IS the orientation picker.
+   * Installed PWAs additionally get best-effort screen-orientation pins
+   * (the manifest allows every orientation so rotation can happen at all):
+   * a LOCKED project pins the screen to its orientation, native-camera
+   * style; an unlocked project frees rotation so turning the phone can make
+   * the choice. In a browser tab every lock call rejects silently and the
+   * OS's own auto-rotate does the job.
    */
   let appliedShellState: string | null = null
   const syncShellOrientation = (orientation: ProjectOrientation, unlocked: boolean) => {
-    const rotation =
-      unlocked || !isCoarsePointerDevice()
-        ? 0
-        : rotationForLock(orientation, viewportIsLandscape(), viewportOrientationAngle())
-    setShellRotation(rotation)
-    // 'wide' describes the SHAPE the shell ended up with, which a pinned
-    // interface owns regardless of the viewport: a landscape project held
-    // upright is sideways-and-wide, while an (unpinnable) landscape project
-    // in a narrow desktop window keeps the phone column and its layouts.
-    const wide = orientation === 'landscape' && (rotation !== 0 || viewportIsLandscape())
-    const nextState = `${orientation}:${unlocked}:${wide}`
+    const nextState = `${orientation}:${unlocked}`
     if (appliedShellState === nextState) return
     appliedShellState = nextState
-    document.documentElement.dataset.shell = wide ? 'wide' : 'narrow'
+    document.documentElement.dataset.shell = orientation === 'landscape' ? 'wide' : 'narrow'
     try {
       const lockable = screen.orientation as ScreenOrientation & {
         lock?: (lock: string) => Promise<void>
@@ -257,8 +238,7 @@ export function ProjectPage(handle: Handle<ProjectPageProps>) {
   }
   handle.signal.addEventListener('abort', () => {
     // main.tsx owns data-shell for the route being navigated to; this page
-    // only needs to release the pins it took.
-    setShellRotation(0)
+    // only needs to release any screen pin it took.
     try {
       screen.orientation.unlock()
     } catch {
@@ -266,11 +246,10 @@ export function ProjectPage(handle: Handle<ProjectPageProps>) {
     }
   })
 
-  // Rotating the device re-renders (an unlocked layout follows it, a locked
-  // one re-pins itself against it), and on the free plan, turning an
-  // unlocked project sideways is the moment to pitch Plus: the landscape
-  // interface is on screen — the gate (recording is blocked until upgrade or
-  // rotating back) needs explaining.
+  // Rotating the device re-renders (the unlocked layout follows it), and on
+  // the free plan, turning an unlocked project sideways is the moment to
+  // pitch Plus: the landscape interface is on screen — the gate (recording
+  // is blocked until upgrade or rotating back) needs explaining.
   const landscapeMedia = window.matchMedia('(orientation: landscape)')
   const onDeviceOrientationChange = () => {
     if (
@@ -287,13 +266,6 @@ export function ProjectPage(handle: Handle<ProjectPageProps>) {
   landscapeMedia.addEventListener('change', onDeviceOrientationChange)
   handle.signal.addEventListener('abort', () => {
     landscapeMedia.removeEventListener('change', onDeviceOrientationChange)
-  })
-  // Turning a phone from one sideways hold to the other keeps the viewport
-  // landscape (no media-query change) while flipping the angle a pinned
-  // interface counter-rotates by, so the pin needs this event too.
-  screen.orientation?.addEventListener('change', onDeviceOrientationChange)
-  handle.signal.addEventListener('abort', () => {
-    screen.orientation?.removeEventListener('change', onDeviceOrientationChange)
   })
 
   // Lazy creation: a "/project/new" project is persisted only when the
@@ -357,13 +329,11 @@ export function ProjectPage(handle: Handle<ProjectPageProps>) {
     )
     const includeLocation =
       data.watermarkRemoved && data.includeLocationInExports && hasLocation
-    // A LOCKED film exports in its own shape, both ways: turning the device
-    // mid-project must not change the film, so mismatched clips (a portrait
-    // project's sideways take) center-crop. Projects that never locked one
-    // keep following their first clip — desktop and screen recordings are
-    // landscape media without that being a choice, and cropping those would
-    // be a regression, not a feature.
-    const orientation = project?.orientation
+    // Only an explicit landscape choice forces the output shape; portrait
+    // projects keep following their first clip (desktop and screen
+    // recordings are landscape media in "portrait" projects — cropping
+    // those would be a regression, not a feature).
+    const orientation = effectiveOrientation() === 'landscape' ? 'landscape' : undefined
     const signature = exportSignature(clips, watermarked, audio, orientation, includeLocation)
     // Stop camera/mic immediately rather than waiting on record-screen
     // unmount. On iOS the combined mic+camera session can hold decoder
