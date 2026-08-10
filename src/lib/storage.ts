@@ -337,7 +337,7 @@ export async function createProject(
   // Marks eligibility for the default-state cleanup on exit — a
   // caller-chosen name is meaningful and must never be auto-deleted.
   if (!chosenName) project.nameIsDefault = true
-  if (options?.orientation) project.orientation = options.orientation
+  if (options?.orientation === 'landscape') project.orientation = 'landscape'
   await db.put('projects', project)
   await setLastOpenedProjectId(project.id)
   return project
@@ -379,11 +379,8 @@ function assertLandscapeAllowed(settings: Pick<AppMeta, 'watermarkRemoved'>): vo
  * Set the project's orientation — the lock primitive behind the first-take
  * rule (appendRecording) and backup restore. Landscape requires the Plus
  * entitlement (enforced here so every path hits the same gate); portrait is
- * always allowed.
- * BOTH values are stored: a portrait LOCK has to be told apart from a
- * project that never locked one (made before orientation existed, or made
- * on desktop), because a lock also forces the export's shape and those
- * projects must keep following their clips.
+ * always allowed and clears the stored field, so a portrait project is
+ * indistinguishable from one made before orientation existed.
  */
 export async function setProjectOrientation(
   id: ProjectId,
@@ -403,7 +400,9 @@ export async function setProjectOrientation(
     await tx.done
     throw new Error('Project not found')
   }
-  const updated: Project = { ...project, updatedAt: Date.now(), orientation }
+  const updated: Project = { ...project, updatedAt: Date.now() }
+  if (orientation === 'landscape') updated.orientation = 'landscape'
+  else delete updated.orientation
   await completeTransaction([tx.store.put(updated)], tx)
   return updated
 }

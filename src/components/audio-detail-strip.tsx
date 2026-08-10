@@ -1,7 +1,6 @@
 import type { Handle } from 'remix/ui'
 import { on, ref } from 'remix/ui'
 import { decodeBlobAudio } from '../lib/export/shared'
-import { contentExtentX, contentX } from '../lib/shell-rotation'
 import {
   formatDuration,
   resolveAudioTrackPlayback,
@@ -114,12 +113,10 @@ export function AudioDetailStrip(handle: Handle<AudioDetailStripProps>) {
     }
   }
 
-  /** Where along the strip the finger is — measured on the strip's own axis,
-   * which a pinned interface rotates away from the viewport's. */
-  const msFromPointer = (event: PointerEvent, strip: HTMLElement) => {
-    const track = contentExtentX(strip.getBoundingClientRect())
-    if (track.size <= 0) return 0
-    const ratio = Math.min(1, Math.max(0, (contentX(event) - track.start) / track.size))
+  const msFromClientX = (clientX: number, strip: HTMLElement) => {
+    const rect = strip.getBoundingClientRect()
+    if (rect.width <= 0) return 0
+    const ratio = Math.min(1, Math.max(0, (clientX - rect.left) / rect.width))
     return Math.round(ratio * duration())
   }
 
@@ -161,7 +158,7 @@ export function AudioDetailStrip(handle: Handle<AudioDetailStripProps>) {
     void handle.update()
 
     const onMove = (ev: PointerEvent) => {
-      const next = msFromPointer(ev, strip)
+      const next = msFromClientX(ev.clientX, strip)
       if (which === 'start') {
         startMs = Math.max(0, Math.min(next, endMs - MIN_GAP_MS))
         seekAudition(startMs)

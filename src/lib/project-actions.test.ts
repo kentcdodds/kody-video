@@ -75,7 +75,7 @@ describe('appendRecording orientation lock', () => {
     expect((await getProject(project.id))?.orientation).toBe('landscape')
   })
 
-  it('locks portrait (overwriting a stale lock) from an upright first take', async () => {
+  it('locks portrait (clearing any stale lock) from an upright first take', async () => {
     await markWatermarkRemoved('cs_test_actions')
     setPlatformOverridesForTests({ coarsePointer: true, viewportLandscape: true })
     const project = await createProject('Tall')
@@ -90,9 +90,7 @@ describe('appendRecording orientation lock', () => {
     // Emptied project: the next first take re-decides — now held upright.
     setPlatformOverridesForTests({ coarsePointer: true, viewportLandscape: false })
     await record(project.id, 'upright-take')
-    // Stored explicitly: a portrait LOCK pins the interface and forces the
-    // export's shape, which a project that never locked one must not.
-    expect((await getProject(project.id))?.orientation).toBe('portrait')
+    expect((await getProject(project.id))?.orientation).toBeUndefined()
   })
 
   it('never locks on fine-pointer (desktop) devices', async () => {

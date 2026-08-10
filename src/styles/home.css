@@ -89,10 +89,7 @@
    slots, footer) in a column on the right. Landscape phones and desktop
    windows (which are landscape-shaped) both get this. */
 @media (orientation: landscape) {
-  /* .screen.home-screen, not .home-screen: this must beat global.css's
-     .screen { display: flex } no matter which sheet the dev server happens
-     to deliver last (equal specificity made the layout a coin flip). */
-  .screen.home-screen {
+  .home-screen {
     display: grid;
     grid-template-columns: minmax(220px, 34%) minmax(0, 1fr);
     grid-template-rows: minmax(0, 1fr);

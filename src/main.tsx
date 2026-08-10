@@ -5,7 +5,6 @@ import { App } from './app'
 import { initErrorReporting, reportComponentError } from './lib/error-reporting'
 import { sweepExportCache } from './lib/export/export-cache'
 import { onNavigate } from './router'
-import { setShellRotation } from './lib/shell-rotation'
 import './lib/install-prompt'
 
 initErrorReporting()
@@ -33,11 +32,9 @@ function syncRouteChrome(): void {
   // while its data loads. The project page upgrades to 'wide' as soon as it
   // knows the project is landscape-locked (same brief narrow-first paint a
   // hard reload of a landscape project has).
-  const project = path.startsWith('/project/')
-  document.documentElement.dataset.shell = project ? 'narrow' : 'adaptive'
-  // Only a locked project pins its interface against the device; every
-  // other route follows rotation as usual.
-  if (!project) setShellRotation(0)
+  document.documentElement.dataset.shell = path.startsWith('/project/')
+    ? 'narrow'
+    : 'adaptive'
 }
 
 // Styles load before the first SPA paint so we do not flash an unstyled

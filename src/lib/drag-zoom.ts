@@ -12,9 +12,6 @@
  * how zoom is perceived).
  */
 
-/** Every coordinate here is on the STAGE's own vertical axis (contentY /
- * contentExtentY in lib/shell-rotation.ts), not the viewport's: "up" means up
- * the stage the user is looking at, even when the shell is counter-rotated. */
 interface DragZoomInput {
   /** Finger anchor (press point, possibly re-anchored after the dead zone). */
   anchorY: number
