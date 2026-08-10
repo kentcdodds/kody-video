@@ -21,11 +21,16 @@ test.describe('home & app shell', () => {
     // left pane beside the slots (now 3 across).
     const viewport = page.viewportSize()!
     await page.setViewportSize({ width: viewport.height, height: viewport.width })
-    const hero = await page.locator('.home-hero').boundingBox()
-    const slots = await page.locator('.project-slots').boundingBox()
-    expect(hero).not.toBeNull()
-    expect(slots).not.toBeNull()
-    expect(slots!.x).toBeGreaterThan(hero!.x + hero!.width - 2)
+    // Polled: which element paints the hero is a render-time decision, so
+    // the panes land a frame after the resize, not with it.
+    await expect
+      .poll(async () => {
+        const hero = await page.locator('.home-hero').boundingBox()
+        const slots = await page.locator('.project-slots').boundingBox()
+        if (!hero || !slots) return false
+        return slots.x > hero.x + hero.width - 2
+      })
+      .toBe(true)
     // The REAL hero art must render here: portrait mobile shows a spacer
     // (the static #boot-hero paints the LCP art), and rotating must swap in
     // the in-app image — a stale spacer is a blank square.
