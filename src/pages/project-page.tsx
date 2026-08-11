@@ -15,7 +15,7 @@ import { clearExportMarker, markExportStarted, reportError } from '../lib/error-
 import { exportProject, type ExportResult } from '../lib/export'
 import { exportSignature, loadMatchingExport, persistLastExport } from '../lib/export/last-export'
 import { MediaElementFailureError } from '../lib/export/media-error'
-import { wait } from '../lib/export/shared'
+import { unlockExportMediaPlayback, wait } from '../lib/export/shared'
 import {
   canShareFile,
   downloadBlob,
@@ -37,6 +37,7 @@ import { formatBytes, requestPersistentStorage } from '../lib/storage-space'
 import { navigate } from '../router'
 import {
   NEW_PROJECT_ID,
+  isImageClip,
   projectOrientation,
   type ProjectId,
   type ProjectOrientation,
@@ -322,6 +323,12 @@ export function ProjectPage(handle: Handle<ProjectPageProps>) {
     } catch {
       audioContext = undefined
     }
+
+    // Same gesture window: prime muted video playback so iOS (Low Power Mode
+    // / installed PWA) is less likely to reject later detached play() calls
+    // once activation has expired across the export awaits (KODY-VIDEO-W).
+    const unlockClip = clips.find((clip) => !isImageClip(clip))
+    unlockExportMediaPlayback(unlockClip?.blob)
 
     const watermarked = shouldWatermarkExports(data)
     const hasLocation = clips.some(

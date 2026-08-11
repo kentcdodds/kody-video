@@ -48,6 +48,7 @@ import {
   drawWatermark,
   loadClipImage,
   loadClipVideo,
+  playExportVideo,
   tagExportError,
   pickOutputSize,
   noteEncodeCanvasKind,
@@ -859,8 +860,24 @@ async function pumpSegmentVideo({
   await emitAt(startSec, { force: true })
 
   const supportsRvfc = typeof video.requestVideoFrameCallback === 'function'
+  const playback = await playExportVideo(video)
 
-  await video.play()
+  // Autoplay blocked (iOS Low Power Mode / expired gesture): scrub by seek.
+  // This path is offline-paced, so awaiting seeked is fine and keeps frames
+  // timestamp-accurate (unlike the realtime MediaRecorder painter).
+  if (playback === 'blocked') {
+    for (
+      let tsSec = startSec + FRAME_INTERVAL_SEC;
+      tsSec < endSec - 1e-6;
+      tsSec += FRAME_INTERVAL_SEC
+    ) {
+      await seekTo(video, tsSec)
+      await emitAt(tsSec)
+      onElapsedMs((tsSec - startSec) * 1000)
+    }
+    video.pause()
+    return
+  }
 
   try {
     await new Promise<void>((resolve, reject) => {

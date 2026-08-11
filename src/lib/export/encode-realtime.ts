@@ -30,6 +30,7 @@ import {
   pickOutputSize,
   recordVideoLumaSample,
   resolveEncodeCanvas,
+  playExportVideo,
   seekTo,
   tagExportError,
   wait,
@@ -546,9 +547,14 @@ async function paintSegment({
   const audioBuffer = audioContext && clipDestination ? await decodeClipAudio(blob) : null
 
   try {
-    video.muted = true
-    await video.play()
-    await waitForPlaybackStart(video, startSec)
+    // iOS Safari (esp. installed PWA + Low Power Mode) can reject muted
+    // play() once the export tap's user-activation has expired across the
+    // awaits before we get here (KODY-VIDEO-W). Scrub via currentTime so
+    // the MediaRecorder canvas path still paints wall-clock frames.
+    const playback = await playExportVideo(video)
+    if (playback === 'playing') {
+      await waitForPlaybackStart(video, startSec)
+    }
 
     const paintFrame = () => {
       drawCover(ctx, video, canvas.width, canvas.height)
@@ -589,6 +595,7 @@ async function paintSegment({
       }
     }
 
+    const wallStartedAt = performance.now()
     await new Promise<void>((resolve, reject) => {
       let raf = 0
       let lastFrameAt = performance.now()
@@ -603,19 +610,36 @@ async function paintSegment({
 
       const draw = () => {
         const now = performance.now()
-        const elapsed = Math.max(0, video.currentTime - startSec)
-        if (video.ended || video.currentTime >= endSec - 0.04 || elapsed >= segmentSec - 0.03) {
-          finish()
-          return
-        }
-        if (video.currentTime > lastVideoTime + 0.001) {
-          lastVideoTime = video.currentTime
-          lastFrameAt = now
-        } else if (now - lastFrameAt > 8000) {
-          cancelAnimationFrame(raf)
-          video.pause()
-          reject(new Error('Clip playback stalled during export'))
-          return
+        let elapsed: number
+        if (playback === 'playing') {
+          elapsed = Math.max(0, video.currentTime - startSec)
+          if (video.ended || video.currentTime >= endSec - 0.04 || elapsed >= segmentSec - 0.03) {
+            finish()
+            return
+          }
+          if (video.currentTime > lastVideoTime + 0.001) {
+            lastVideoTime = video.currentTime
+            lastFrameAt = now
+          } else if (now - lastFrameAt > 8000) {
+            cancelAnimationFrame(raf)
+            video.pause()
+            reject(new Error('Clip playback stalled during export'))
+            return
+          }
+        } else {
+          // Autoplay blocked: advance the element on the wall clock and
+          // paint whatever frame WebKit has decoded. Do not await seeked —
+          // MediaRecorder is wall-clock paced and must keep receiving
+          // canvas frames in realtime.
+          elapsed = (now - wallStartedAt) / 1000
+          if (elapsed >= segmentSec - 0.03) {
+            finish()
+            return
+          }
+          const target = Math.min(endSec - 0.001, startSec + elapsed)
+          if (Math.abs(video.currentTime - target) > 0.02) {
+            video.currentTime = target
+          }
         }
         paintFrame()
         if (frameCounter.count % PREVIEW_EVERY_N_FRAMES === 0) {
