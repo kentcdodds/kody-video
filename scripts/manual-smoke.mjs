@@ -177,7 +177,8 @@ try {
   else fail('timeline filmstrip thumbnails render', 'no <img> frames found')
   await shot(page, '05-editor')
 
-  await page.getByRole('button', { name: /^trim$/i }).click()
+  // Accessible name is "Trim clip" (aria-label); visible label stays "Trim".
+  await page.getByRole('button', { name: /^trim(?: clip)?$/i }).click()
   const trimStrip = page.getByRole('group', { name: /trim clip/i })
   if (await trimStrip.count()) pass('in-timeline trim mode opens')
   else fail('in-timeline trim mode opens')
