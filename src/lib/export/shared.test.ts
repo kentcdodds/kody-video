@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { makeTestClipBlob } from '../testing/make-test-clip'
 import {
   __isAudioDecodeFailureReportArmedForTests,
@@ -11,11 +11,15 @@ import {
   decodeBlobAudio,
   decodeBlobAudioViaWebAudio,
   decodeClipAudio,
+  isAutoplayBlockedError,
   isWebKitAudioDecoderNotFoundError,
   pickOutputSize,
+  playExportVideo,
+  prepareExportVideoElement,
   resampleAudioBuffer,
   resetAudioDiagnostics,
   resolveEncodeCanvas,
+  unlockExportMediaPlayback,
   waitForPreviewCanvas,
 } from './shared'
 
@@ -310,5 +314,86 @@ describe('waitForPreviewCanvas / resolveEncodeCanvas', () => {
     expect(resolved.kind).toBe('detached')
     expect(resolved.canvas.isConnected).toBe(false)
     resolved.release()
+  })
+})
+
+describe('export muted play helpers (KODY-VIDEO-W)', () => {
+  afterEach(() => {
+    vi.restoreAllMocks()
+  })
+
+  it('detects autoplay NotAllowedError and ignores unrelated failures', () => {
+    expect(
+      isAutoplayBlockedError(
+        new DOMException(
+          'The request is not allowed by the user agent or the platform in the current context, possibly because the user denied permission.',
+          'NotAllowedError',
+        ),
+      ),
+    ).toBe(true)
+    expect(isAutoplayBlockedError(new DOMException('Permission denied', 'NotAllowedError'))).toBe(
+      true,
+    )
+    expect(isAutoplayBlockedError(new DOMException('aborted', 'AbortError'))).toBe(false)
+    expect(isAutoplayBlockedError(new Error('NotAllowedError'))).toBe(false)
+  })
+
+  it('sets Safari-load-bearing muted / playsinline attributes', () => {
+    const video = document.createElement('video')
+    prepareExportVideoElement(video)
+    expect(video.muted).toBe(true)
+    expect(video.defaultMuted).toBe(true)
+    expect(video.playsInline).toBe(true)
+    expect(video.getAttribute('muted')).toBe('')
+    expect(video.getAttribute('playsinline')).toBe('true')
+    expect(video.getAttribute('webkit-playsinline')).toBe('true')
+  })
+
+  it('playExportVideo returns playing when play() resolves', async () => {
+    const video = document.createElement('video')
+    const play = vi.spyOn(video, 'play').mockResolvedValue(undefined)
+    await expect(playExportVideo(video)).resolves.toBe('playing')
+    expect(play).toHaveBeenCalledTimes(1)
+    expect(video.muted).toBe(true)
+  })
+
+  it('playExportVideo returns blocked on NotAllowedError instead of throwing', async () => {
+    const video = document.createElement('video')
+    vi.spyOn(video, 'play').mockRejectedValue(
+      new DOMException(
+        'The request is not allowed by the user agent or the platform in the current context, possibly because the user denied permission.',
+        'NotAllowedError',
+      ),
+    )
+    await expect(playExportVideo(video)).resolves.toBe('blocked')
+  })
+
+  it('playExportVideo rethrows non-autoplay failures', async () => {
+    const video = document.createElement('video')
+    vi.spyOn(video, 'play').mockRejectedValue(new DOMException('aborted', 'AbortError'))
+    await expect(playExportVideo(video)).rejects.toMatchObject({ name: 'AbortError' })
+  })
+
+  it('unlockExportMediaPlayback primes play/pause from a clip blob', async () => {
+    const blob = await makeTestClipBlob()
+    const play = vi
+      .spyOn(HTMLMediaElement.prototype, 'play')
+      .mockResolvedValue(undefined)
+    const pause = vi.spyOn(HTMLMediaElement.prototype, 'pause').mockImplementation(() => undefined)
+
+    unlockExportMediaPlayback(blob)
+    expect(play).toHaveBeenCalled()
+    // Flush the play().then(pause) microtask.
+    await Promise.resolve()
+    await Promise.resolve()
+    expect(pause).toHaveBeenCalled()
+  })
+
+  it('unlockExportMediaPlayback no-ops without a blob', () => {
+    const play = vi.spyOn(HTMLMediaElement.prototype, 'play')
+    unlockExportMediaPlayback(null)
+    unlockExportMediaPlayback(undefined)
+    unlockExportMediaPlayback(new Blob())
+    expect(play).not.toHaveBeenCalled()
   })
 })

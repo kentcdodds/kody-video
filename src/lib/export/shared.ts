@@ -88,9 +88,7 @@ async function loadClipVideoOnce(blob: Blob, timeoutMs: number): Promise<LoadedC
   const url = URL.createObjectURL(blob)
   const video = document.createElement('video')
   video.preload = 'auto'
-  video.muted = true
-  video.playsInline = true
-  video.setAttribute('playsinline', 'true')
+  prepareExportVideoElement(video)
 
   const release = () => {
     try {
@@ -211,6 +209,87 @@ export async function seekTo(video: HTMLVideoElement, sec: number, timeoutMs = 2
   const seeked = waitForMediaEvent(video, 'seeked', timeoutMs).catch(() => undefined)
   video.currentTime = sec
   await seeked
+}
+
+/**
+ * Autoplay-policy / Low Power Mode rejection from HTMLMediaElement.play().
+ * Same DOMException name as getUserMedia permission denial — callers must
+ * only use this on a play() rejection, never on a camera error.
+ */
+export function isAutoplayBlockedError(error: unknown): boolean {
+  return error instanceof DOMException && error.name === 'NotAllowedError'
+}
+
+/**
+ * Safari/iOS treats the muted *attribute* and playsinline flag as load-bearing
+ * for muted autoplay; the JS properties alone are not always enough.
+ */
+export function prepareExportVideoElement(video: HTMLVideoElement): void {
+  video.muted = true
+  video.defaultMuted = true
+  video.playsInline = true
+  video.setAttribute('muted', '')
+  video.setAttribute('playsinline', 'true')
+  video.setAttribute('webkit-playsinline', 'true')
+}
+
+/**
+ * Start muted playback for an export painter. Returns `blocked` when the
+ * user agent refuses play() (iOS Low Power Mode / expired user activation)
+ * so callers can scrub frames via seek instead of failing the export
+ * (KODY-VIDEO-W).
+ */
+export async function playExportVideo(
+  video: HTMLVideoElement,
+): Promise<'playing' | 'blocked'> {
+  prepareExportVideoElement(video)
+  try {
+    await video.play()
+    return 'playing'
+  } catch (error) {
+    if (isAutoplayBlockedError(error)) return 'blocked'
+    throw error
+  }
+}
+
+/**
+ * Soften iOS autoplay / Low Power Mode blocks for later muted export plays.
+ * Must run from the export tap (same reason we unlock AudioContext): play
+ * then pause a muted element while the gesture token is still alive so
+ * subsequent detached muted play() calls are more likely to succeed after
+ * the many awaits that precede paintSegment.
+ */
+export function unlockExportMediaPlayback(sourceBlob?: Blob | null): void {
+  if (typeof document === 'undefined') return
+  if (!sourceBlob || sourceBlob.size <= 0) return
+
+  const video = document.createElement('video')
+  prepareExportVideoElement(video)
+  const objectUrl = URL.createObjectURL(sourceBlob)
+  const release = () => {
+    try {
+      video.pause()
+    } catch {
+      // already released
+    }
+    video.removeAttribute('src')
+    video.load()
+    URL.revokeObjectURL(objectUrl)
+  }
+
+  video.preload = 'auto'
+  video.src = objectUrl
+  // load() during the gesture helps WebKit accept a delayed play() later.
+  video.load()
+  void video
+    .play()
+    .then(() => {
+      video.pause()
+      release()
+    })
+    .catch(() => {
+      release()
+    })
 }
 
 /** Draw the video into the canvas with cover fit (center crop, no bars). */
