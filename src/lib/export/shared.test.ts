@@ -375,7 +375,7 @@ describe('export muted play helpers (KODY-VIDEO-W)', () => {
   })
 
   it('unlockExportMediaPlayback primes play/pause from a clip blob', async () => {
-    const blob = await makeTestClipBlob()
+    const blob = await makeTestClipBlob(200)
     const play = vi
       .spyOn(HTMLMediaElement.prototype, 'play')
       .mockResolvedValue(undefined)
@@ -393,7 +393,7 @@ describe('export muted play helpers (KODY-VIDEO-W)', () => {
     const play = vi.spyOn(HTMLMediaElement.prototype, 'play')
     unlockExportMediaPlayback(null)
     unlockExportMediaPlayback(undefined)
-    unlockExportMediaPlayback(new Blob())
+    unlockExportMediaPlayback(new Blob([]))
     expect(play).not.toHaveBeenCalled()
   })
 })
