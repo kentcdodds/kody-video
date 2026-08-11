@@ -376,24 +376,32 @@ describe('export muted play helpers (KODY-VIDEO-W)', () => {
 
   it('unlockExportMediaPlayback primes play/pause from a clip blob', async () => {
     const blob = await makeTestClipBlob(200)
+    // Spy on the prototype only for this test — browser-mode files share a
+    // page, so leave nothing restored late for sibling suites.
     const play = vi
       .spyOn(HTMLMediaElement.prototype, 'play')
       .mockResolvedValue(undefined)
     const pause = vi.spyOn(HTMLMediaElement.prototype, 'pause').mockImplementation(() => undefined)
-
-    unlockExportMediaPlayback(blob)
-    expect(play).toHaveBeenCalled()
-    // Flush the play().then(pause) microtask.
-    await Promise.resolve()
-    await Promise.resolve()
-    expect(pause).toHaveBeenCalled()
+    try {
+      unlockExportMediaPlayback(blob)
+      expect(play).toHaveBeenCalled()
+      // Flush the play().then(pause) microtask.
+      await Promise.resolve()
+      await Promise.resolve()
+      expect(pause).toHaveBeenCalled()
+    } finally {
+      play.mockRestore()
+      pause.mockRestore()
+    }
   })
 
   it('unlockExportMediaPlayback no-ops without a blob', () => {
-    const play = vi.spyOn(HTMLMediaElement.prototype, 'play')
+    const create = vi.spyOn(document, 'createElement')
     unlockExportMediaPlayback(null)
     unlockExportMediaPlayback(undefined)
     unlockExportMediaPlayback(new Blob([]))
-    expect(play).not.toHaveBeenCalled()
+    // No media element is created when there is nothing to prime.
+    expect(create).not.toHaveBeenCalled()
+    create.mockRestore()
   })
 })

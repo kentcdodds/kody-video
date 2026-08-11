@@ -37,9 +37,17 @@ function clip(): ClipRecord {
 
 describe('exportProject fallback signaling', () => {
   beforeEach(() => {
-    vi.mocked(supportsWebCodecsExport).mockReturnValue(false)
+    // Prefer mockReset over mockClear: in Vitest browser mode, restoreAllMocks
+    // from another file can leave a fn without mockClear until it is re-armed.
+    vi.mocked(supportsWebCodecsExport).mockReset().mockReturnValue(false)
     vi.mocked(exportWithWebCodecs).mockReset()
-    vi.mocked(exportRealtime).mockClear()
+    vi.mocked(exportRealtime).mockReset().mockImplementation(async () => ({
+      blob: new Blob([new Uint8Array(2048)], { type: 'video/webm' }),
+      mimeType: 'video/webm',
+      fileExtension: 'webm' as const,
+      locationIncluded: false,
+      engine: 'realtime' as const,
+    }))
   })
 
   it('calls onFallback once when WebCodecs is unavailable', async () => {
