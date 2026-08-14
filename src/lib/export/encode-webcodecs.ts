@@ -62,7 +62,7 @@ import {
   formatChapterTitle,
   locationForExport,
 } from './mp4-export-metadata'
-import { throwIfExportAborted } from './cancelled'
+import { ExportCancelledError, decodedPumpFailure, throwIfExportAborted } from './cancelled'
 
 const FPS = 30
 const AUDIO_SAMPLE_RATE = 48000
@@ -463,7 +463,6 @@ export async function exportWithWebCodecs(
           watermarkImage,
           signal,
           onElapsedMs: (elapsed: number) => {
-            throwIfExportAborted(signal)
             if (plan.totalMs > 0) {
               onProgress?.(Math.min(1, (state.doneMs + elapsed) / plan.totalMs))
             }
@@ -785,10 +784,7 @@ async function pumpSegmentVideoDecoded(
       onElapsedMs((Math.min(wrapped.timestamp, endSec) - startSec) * 1000)
     }
   } catch (err) {
-    if (framesEmitted > 0) {
-      throw err instanceof Error ? err : new Error('Decoded video pump failed')
-    }
-    return 'unsupported'
+    return decodedPumpFailure(err, framesEmitted)
   }
 
   if (framesEmitted === 0) return 'unsupported'
@@ -914,6 +910,10 @@ async function pumpSegmentVideo({
 
       const handleFrame = (mediaTimeSec: number) => {
         if (finished) return
+        if (shared.signal?.aborted) {
+          abort(new ExportCancelledError())
+          return
+        }
         if (mediaTimeSec > lastMediaTime + 0.001) {
           lastMediaTime = mediaTimeSec
           lastProgressAt = performance.now()

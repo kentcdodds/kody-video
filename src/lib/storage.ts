@@ -267,21 +267,38 @@ export async function setLocationTaggingEnabled(locationTaggingEnabled: boolean)
   await db.put('meta', { ...settings, locationTaggingEnabled })
 }
 
+/** Serialize read-modify-write updates to the singleton meta record so two
+ * rapid pref toggles cannot persist an older snapshot over a newer one. */
+let metaWriteTail: Promise<void> = Promise.resolve()
+
+function enqueueMetaWrite<T>(write: () => Promise<T>): Promise<T> {
+  const run = metaWriteTail.then(write, write)
+  metaWriteTail = run.then(
+    () => undefined,
+    () => undefined,
+  )
+  return run
+}
+
 export async function setKeepWatermark(keepWatermark: boolean): Promise<void> {
-  const db = await getDb()
-  const settings = await getSettings()
-  await db.put('meta', { ...settings, keepWatermark })
+  await enqueueMetaWrite(async () => {
+    const db = await getDb()
+    const settings = await getSettings()
+    await db.put('meta', { ...settings, keepWatermark })
+  })
 }
 
 export async function setIncludeLocationInExports(
   includeLocationInExports: boolean,
 ): Promise<void> {
-  const db = await getDb()
-  const settings = await getSettings()
-  if (includeLocationInExports && settings.watermarkRemoved !== true) {
-    throw new PlusRequiredError('Location export is a Kody Video Plus perk.')
-  }
-  await db.put('meta', { ...settings, includeLocationInExports })
+  await enqueueMetaWrite(async () => {
+    const db = await getDb()
+    const settings = await getSettings()
+    if (includeLocationInExports && settings.watermarkRemoved !== true) {
+      throw new PlusRequiredError('Location export is a Kody Video Plus perk.')
+    }
+    await db.put('meta', { ...settings, includeLocationInExports })
+  })
 }
 
 export async function listProjects(): Promise<Project[]> {

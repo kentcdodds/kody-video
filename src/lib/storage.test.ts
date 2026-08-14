@@ -184,6 +184,15 @@ describe('storage layer', () => {
     expect((await getSettings()).keepWatermark).toBe(false)
   })
 
+  it('serializes overlapping mark and location pref writes', async () => {
+    await markWatermarkRemoved('cs_test_pref_race')
+    await Promise.all([setKeepWatermark(true), setIncludeLocationInExports(true)])
+    expect(await getSettings()).toMatchObject({
+      keepWatermark: true,
+      includeLocationInExports: true,
+    })
+  })
+
   it('gates location capture and export preferences behind Plus', async () => {
     await expect(setLocationTaggingEnabled(true)).rejects.toBeInstanceOf(PlusRequiredError)
     await expect(setIncludeLocationInExports(true)).rejects.toBeInstanceOf(PlusRequiredError)

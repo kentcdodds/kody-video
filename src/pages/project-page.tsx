@@ -543,23 +543,25 @@ export function ProjectPage(handle: Handle<ProjectPageProps>) {
     setExportState(null)
   }
 
-  const persistKeepWatermark = (keep: boolean) => {
+  const persistKeepWatermark = (keep: boolean): Promise<void> => {
     if (data) {
       data = { ...data, keepWatermark: keep }
       void handle.update()
     }
-    void setKeepWatermark(keep).catch((err) => {
+    return setKeepWatermark(keep).catch((err) => {
       reportError(err, 'keep-watermark')
+      throw err
     })
   }
 
-  const persistIncludeLocation = (include: boolean) => {
+  const persistIncludeLocation = (include: boolean): Promise<void> => {
     if (data) {
       data = { ...data, includeLocationInExports: include }
       void handle.update()
     }
-    void setIncludeLocationInExports(include).catch((err) => {
+    return setIncludeLocationInExports(include).catch((err) => {
       reportError(err, 'include-location')
+      throw err
     })
   }
 
@@ -717,12 +719,10 @@ export function ProjectPage(handle: Handle<ProjectPageProps>) {
             bindPreviewCanvas={bindPreviewCanvas}
             onStop={closeExport}
             onKeepWatermarkChange={(keep) => {
-              persistKeepWatermark(keep)
-              startExport({ force: true })
+              void persistKeepWatermark(keep).then(() => startExport({ force: true }))
             }}
             onIncludeLocationChange={(include) => {
-              persistIncludeLocation(include)
-              startExport({ force: true })
+              void persistIncludeLocation(include).then(() => startExport({ force: true }))
             }}
           />
         ) : null}

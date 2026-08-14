@@ -366,7 +366,6 @@ export async function exportRealtime(
           watermarkImage: options.watermarkImage ?? null,
           signal: options.signal,
           onElapsedMs: (elapsed: number) => {
-            throwIfExportAborted(options.signal)
             if (plan.totalMs > 0) {
               options.onProgress?.(Math.min(1, (paintedTotalMs + elapsed) / plan.totalMs))
             }
@@ -502,12 +501,12 @@ async function paintImageSegment({
     }
     paintFrame()
     const startedAt = performance.now()
-    await new Promise<void>((resolve) => {
+    await new Promise<void>((resolve, reject) => {
       let raf = 0
       const draw = () => {
         if (signal?.aborted) {
           cancelAnimationFrame(raf)
-          resolve()
+          reject(new ExportCancelledError())
           return
         }
         const elapsedSec = (performance.now() - startedAt) / 1000
