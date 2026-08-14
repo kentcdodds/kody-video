@@ -142,12 +142,13 @@ export function ProjectPage(handle: Handle<ProjectPageProps>) {
         }
         await handle.update()
         if (!loaded.project || loaded.error || loaded.clips.length === 0) return
+        const projectId = loaded.project.id
         // Thumbs/peaks can finish after the first paint — callers of
         // refresh() only need the persisted clip list before Go/Play.
         void hydrateProjectClips(loaded.clips)
           .then((hydrated) => {
             if (handle.signal.aborted || version !== loadVersion) return
-            if (data && data.project?.id === loaded.project.id) {
+            if (data && data.project?.id === projectId) {
               data = { ...data, clips: hydrated }
               void handle.update()
             }
