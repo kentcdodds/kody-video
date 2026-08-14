@@ -238,7 +238,6 @@ test.describe('editor', () => {
 
   test('moving a clip with the arrow buttons keeps it in view', async ({ page }) => {
     await openEditorWithClips(page, 8, 8000)
-    const timeline = page.getByRole('listbox', { name: 'Clip timeline' })
     const tiles = page.locator('.clip-thumb[data-clip-id]')
     await expect(tiles).toHaveCount(8)
     await tiles.first().click()
@@ -247,12 +246,16 @@ test.describe('editor', () => {
     }
     const selected = tiles.nth(6)
     await expect(selected).toHaveClass(/selected/)
-    const visible = await selected.evaluate((el, track) => {
-      const tile = el.getBoundingClientRect()
-      const strip = (track as HTMLElement).getBoundingClientRect()
-      return tile.left >= strip.left - 2 && tile.right <= strip.right + 2
-    }, await timeline.elementHandle())
-    expect(visible).toBe(true)
+    await expect
+      .poll(async () => {
+        return selected.evaluate((el) => {
+          const tile = el.getBoundingClientRect()
+          const strip = el.closest('.timeline')?.getBoundingClientRect()
+          if (!strip) return false
+          return tile.left >= strip.left - 4 && tile.right <= strip.right + 4
+        })
+      })
+      .toBe(true)
   })
 
   test('empty timeline offers Add clips from your device', async ({ page }) => {

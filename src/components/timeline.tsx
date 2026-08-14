@@ -77,10 +77,23 @@ export function Timeline(handle: Handle<TimelineProps>) {
    * already positions the strip) and follow later moves/selection changes. */
   let followKey: string | null = null
 
+  const scrollSelectedIntoView = (clipId: ClipId) => {
+    const track = trackEl
+    const el = tileRefs.get(clipId)
+    if (!track || !el) return
+    const tile = el.getBoundingClientRect()
+    const strip = track.getBoundingClientRect()
+    const pad = 12
+    if (tile.left < strip.left + pad) {
+      track.scrollLeft += tile.left - strip.left - pad
+    } else if (tile.right > strip.right - pad) {
+      track.scrollLeft += tile.right - strip.right + pad
+    }
+  }
+
   const selectClip = (id: ClipId) => {
     props.onSelect(id)
-    const el = tileRefs.get(id)
-    el?.scrollIntoView({ behavior: 'smooth', inline: 'nearest', block: 'nearest' })
+    scrollSelectedIntoView(id)
   }
 
   /**
@@ -295,12 +308,9 @@ export function Timeline(handle: Handle<TimelineProps>) {
     const isFirst = followKey === null
     followKey = key
     if (isFirst) return
-    queueMicrotask(() => {
-      tileRefs.get(clipId)?.scrollIntoView({
-        behavior: 'smooth',
-        inline: 'nearest',
-        block: 'nearest',
-      })
+    // After a reorder the tiles have not been laid out yet — wait for paint.
+    requestAnimationFrame(() => {
+      requestAnimationFrame(() => scrollSelectedIntoView(clipId))
     })
   }
 
