@@ -7,9 +7,10 @@ export class ExportCancelledError extends Error {
 }
 
 export function isExportCancelled(error: unknown): boolean {
-  if (error instanceof ExportCancelledError) return true
-  if (error instanceof DOMException && error.name === 'AbortError') return true
-  return error instanceof Error && error.name === 'ExportCancelledError'
+  return (
+    error instanceof ExportCancelledError ||
+    (error instanceof Error && error.name === 'ExportCancelledError')
+  )
 }
 
 export function throwIfExportAborted(signal?: AbortSignal): void {
@@ -23,8 +24,9 @@ export function throwIfExportAborted(signal?: AbortSignal): void {
 export function decodedPumpFailure(
   error: unknown,
   framesEmitted: number,
+  signal?: AbortSignal,
 ): 'unsupported' {
-  if (isExportCancelled(error)) {
+  if (isExportCancelled(error) || signal?.aborted) {
     throw error instanceof ExportCancelledError ? error : new ExportCancelledError()
   }
   if (framesEmitted > 0) {

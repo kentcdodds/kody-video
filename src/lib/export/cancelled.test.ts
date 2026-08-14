@@ -22,8 +22,18 @@ describe('export cancellation', () => {
     expect(() => decodedPumpFailure(new Error('stalled'), 2)).toThrow(/stalled/)
   })
 
-  it('recognizes AbortError as a cancel', () => {
-    expect(isExportCancelled(new DOMException('aborted', 'AbortError'))).toBe(true)
+  it('treats a decoder AbortError as a cancel only when the export signal aborted', () => {
+    const controller = new AbortController()
+    expect(decodedPumpFailure(new DOMException('aborted', 'AbortError'), 0)).toBe('unsupported')
+    controller.abort()
+    expect(() =>
+      decodedPumpFailure(new DOMException('aborted', 'AbortError'), 0, controller.signal),
+    ).toThrow(ExportCancelledError)
+  })
+
+  it('does not treat a generic AbortError as a user cancel', () => {
+    expect(isExportCancelled(new DOMException('aborted', 'AbortError'))).toBe(false)
+    expect(isExportCancelled(new ExportCancelledError())).toBe(true)
     expect(isExportCancelled(new Error('nope'))).toBe(false)
   })
 })

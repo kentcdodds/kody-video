@@ -63,7 +63,7 @@ interface EditorScreenProps {
   onOpenExport: () => void
   onPlay: () => void
   showToast: (message: string, action?: ToastAction) => void
-  refresh: () => void
+  refresh: () => void | Promise<void>
 }
 
 export function EditorScreen(handle: Handle<EditorScreenProps>) {
@@ -131,7 +131,10 @@ export function EditorScreen(handle: Handle<EditorScreenProps>) {
         const last = result.added.at(-1)
         if (last) selectedClipId = last.id
         trimming = false
-        if (result.added.length > 0) props.refresh()
+        if (result.added.length > 0) {
+          await props.refresh()
+          optimisticAdds = []
+        }
         if (result.added.length === 0 && result.failed.length > 0) {
           props.showToast(result.failed[0]?.reason || 'Could not add that clip')
         } else if (result.failed.length > 0) {

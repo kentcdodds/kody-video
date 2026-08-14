@@ -784,7 +784,7 @@ async function pumpSegmentVideoDecoded(
       onElapsedMs((Math.min(wrapped.timestamp, endSec) - startSec) * 1000)
     }
   } catch (err) {
-    return decodedPumpFailure(err, framesEmitted)
+    return decodedPumpFailure(err, framesEmitted, args.signal)
   }
 
   if (framesEmitted === 0) return 'unsupported'

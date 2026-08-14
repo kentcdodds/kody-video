@@ -98,6 +98,9 @@ export function ProjectPage(handle: Handle<ProjectPageProps>) {
   let toastTimer = 0
   let exportRun = 0
   let exportAbort: AbortController | null = null
+  /** Previous encode must finish (or reject) before a restarted run opens
+   * decoders — aborting the controller does not stop loadClipVideo. */
+  let exportChain: Promise<void> = Promise.resolve()
   let previewCanvas: HTMLCanvasElement | null = null
   const bindPreviewCanvas = (element: HTMLCanvasElement | null) => {
     previewCanvas = element
@@ -126,10 +129,10 @@ export function ProjectPage(handle: Handle<ProjectPageProps>) {
   /** Monotonic request id: an older in-flight load for the same project
    * (mount racing a post-mutation refresh) must never overwrite newer data. */
   let loadVersion = 0
-  const load = (projectId: string) => {
+  const load = (projectId: string): Promise<void> => {
     loadedForId = projectId
     const version = ++loadVersion
-    void loadProjectPage(projectId)
+    return loadProjectPage(projectId)
       .then(async (loaded) => {
         if (handle.signal.aborted || version !== loadVersion) return
         data = loaded
@@ -137,14 +140,22 @@ export function ProjectPage(handle: Handle<ProjectPageProps>) {
           onboardingInitialized = true
           onboardingOpen = !loaded.onboardingDismissed
         }
-        void handle.update()
+        await handle.update()
         if (!loaded.project || loaded.error || loaded.clips.length === 0) return
-        const hydrated = await hydrateProjectClips(loaded.clips)
-        if (handle.signal.aborted || version !== loadVersion) return
-        if (data && data.project?.id === loaded.project.id) {
-          data = { ...data, clips: hydrated }
-          void handle.update()
-        }
+        // Thumbs/peaks can finish after the first paint — callers of
+        // refresh() only need the persisted clip list before Go/Play.
+        void hydrateProjectClips(loaded.clips)
+          .then((hydrated) => {
+            if (handle.signal.aborted || version !== loadVersion) return
+            if (data && data.project?.id === loaded.project.id) {
+              data = { ...data, clips: hydrated }
+              void handle.update()
+            }
+          })
+          .catch((err) => {
+            if (handle.signal.aborted || version !== loadVersion) return
+            reportError(err, 'hydrate-clips')
+          })
       })
       .catch((err) => {
         if (handle.signal.aborted || version !== loadVersion) return
@@ -166,7 +177,7 @@ export function ProjectPage(handle: Handle<ProjectPageProps>) {
         void handle.update()
       })
   }
-  load(props.projectId)
+  void load(props.projectId)
 
   /** The URL is the authority on which project this page shows. Right after
    * lazy creation, `navigate(replace)` has already rewritten the path while
@@ -177,9 +188,7 @@ export function ProjectPage(handle: Handle<ProjectPageProps>) {
     return match?.[1] ?? props.projectId
   }
 
-  const refresh = () => {
-    load(currentProjectId())
-  }
+  const refresh = (): Promise<void> => load(currentProjectId())
 
   const showToast = (message: string, action?: ToastAction) => {
     window.clearTimeout(toastTimer)
@@ -386,8 +395,21 @@ export function ProjectPage(handle: Handle<ProjectPageProps>) {
       })
       .catch(() => undefined)
 
+    const previous = exportChain
+    let releaseChain = () => {}
+    exportChain = new Promise<void>((resolve) => {
+      releaseChain = resolve
+    })
+
     void (async () => {
       try {
+        await previous.catch(() => undefined)
+        if (exportRun !== runId || signal.aborted) {
+          if (exportRun === runId && exportState?.status === 'exporting') {
+            setExportState(null)
+          }
+          return
+        }
         // Flush the exporting UI so ExportOverlay's canvas is connected before
         // engines poll for it. A fire-and-forget update raced the wait on
         // slow iOS and fell back to a detached (black) canvas (KODY-VIDEO-Q).
@@ -491,8 +513,11 @@ export function ProjectPage(handle: Handle<ProjectPageProps>) {
           usedFallback: result.engine === 'realtime' || (exportState?.usedFallback ?? false),
         })
       } catch (err) {
-        if (isExportCancelled(err) || signal.aborted) {
+        if (signal.aborted || isExportCancelled(err)) {
           if (exportRun !== runId) return
+          if (exportState?.status === 'exporting') {
+            setExportState(null)
+          }
           return
         }
         // Report even when the run was abandoned (closed sheet / retry) —
@@ -532,6 +557,7 @@ export function ProjectPage(handle: Handle<ProjectPageProps>) {
         if (audioContext && audioContext.state !== 'closed') {
           void audioContext.close().catch(() => undefined)
         }
+        releaseChain()
       }
     })()
   }
@@ -575,7 +601,7 @@ export function ProjectPage(handle: Handle<ProjectPageProps>) {
   return () => {
     // The URL param changed in place (lazy create, or another project link).
     if (props.projectId !== loadedForId) {
-      load(props.projectId)
+      void load(props.projectId)
     }
     if (!data) return null
     const project = data.project
