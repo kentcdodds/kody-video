@@ -18,7 +18,7 @@ vi.mock('./encode-webcodecs', () => ({
 
 import { exportRealtime } from './encode-realtime'
 import { exportWithWebCodecs, supportsWebCodecsExport } from './encode-webcodecs'
-import { exportProject } from './index'
+import { ExportCancelledError, exportProject } from './index'
 
 function clip(): ClipRecord {
   return {
@@ -96,5 +96,34 @@ describe('exportProject fallback signaling', () => {
     expect(exportRealtime).not.toHaveBeenCalled()
     expect(result.engine).toBe('webcodecs')
     expect(result.locationIncluded).toBe(true)
+  })
+
+  it('throws immediately when the signal is already aborted', async () => {
+    const controller = new AbortController()
+    controller.abort()
+    await expect(
+      exportProject([clip()], { watermark: false, signal: controller.signal }),
+    ).rejects.toBeInstanceOf(ExportCancelledError)
+    expect(exportWithWebCodecs).not.toHaveBeenCalled()
+    expect(exportRealtime).not.toHaveBeenCalled()
+  })
+
+  it('does not fall back to realtime when WebCodecs is cancelled', async () => {
+    vi.mocked(supportsWebCodecsExport).mockReturnValue(true)
+    vi.mocked(exportWithWebCodecs).mockImplementation(async (...args) => {
+      const signal = args[7] as AbortSignal | undefined
+      if (signal?.aborted) throw new ExportCancelledError()
+      await new Promise<void>((_, reject) => {
+        signal?.addEventListener('abort', () => reject(new ExportCancelledError()), {
+          once: true,
+        })
+      })
+      throw new Error('unreachable')
+    })
+    const controller = new AbortController()
+    const pending = exportProject([clip()], { watermark: false, signal: controller.signal })
+    controller.abort()
+    await expect(pending).rejects.toBeInstanceOf(ExportCancelledError)
+    expect(exportRealtime).not.toHaveBeenCalled()
   })
 })

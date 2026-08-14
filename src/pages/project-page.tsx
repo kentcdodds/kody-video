@@ -12,7 +12,7 @@ import { UpsellSheet } from '../components/upsell-sheet'
 import { REMOVE_WATERMARK_LINK, shouldWatermarkExports } from '../lib/entitlement'
 import { buildClipsZip } from '../lib/clips-zip'
 import { clearExportMarker, markExportStarted, reportError } from '../lib/error-reporting'
-import { exportProject, type ExportResult } from '../lib/export'
+import { exportProject, isExportCancelled, type ExportResult } from '../lib/export'
 import { exportSignature, loadMatchingExport, persistLastExport } from '../lib/export/last-export'
 import { MediaElementFailureError } from '../lib/export/media-error'
 import { unlockExportMediaPlayback, wait } from '../lib/export/shared'
@@ -25,7 +25,7 @@ import {
   shareOrDownload,
 } from '../lib/media'
 import { isCoarsePointerDevice, viewportIsLandscape } from '../lib/platform'
-import { loadProjectPage, type ProjectLoaderData } from '../lib/project-actions'
+import { hydrateProjectClips, loadProjectPage, type ProjectLoaderData } from '../lib/project-actions'
 import { projectBackupFilename, serializeProject } from '../lib/project-transfer'
 import {
   createProject,
@@ -97,6 +97,10 @@ export function ProjectPage(handle: Handle<ProjectPageProps>) {
 
   let toastTimer = 0
   let exportRun = 0
+  let exportAbort: AbortController | null = null
+  /** Previous encode must finish (or reject) before a restarted run opens
+   * decoders — aborting the controller does not stop loadClipVideo. */
+  let exportChain: Promise<void> = Promise.resolve()
   let previewCanvas: HTMLCanvasElement | null = null
   const bindPreviewCanvas = (element: HTMLCanvasElement | null) => {
     previewCanvas = element
@@ -125,21 +129,52 @@ export function ProjectPage(handle: Handle<ProjectPageProps>) {
   /** Monotonic request id: an older in-flight load for the same project
    * (mount racing a post-mutation refresh) must never overwrite newer data. */
   let loadVersion = 0
-  const load = (projectId: string) => {
+  /** Latest load's settle promise — a superseded refresh waits here so
+   * import/Go see the newer clip list instead of clearing optimistic tiles. */
+  let loadTail: Promise<void> = Promise.resolve()
+  const load = (projectId: string): Promise<void> => {
     loadedForId = projectId
     const version = ++loadVersion
-    void loadProjectPage(projectId)
-      .then((loaded) => {
-        if (handle.signal.aborted || version !== loadVersion) return
+    const thisLoad = loadProjectPage(projectId)
+      .then(async (loaded) => {
+        if (handle.signal.aborted) return
+        if (version !== loadVersion) {
+          await loadTail
+          return
+        }
         data = loaded
         if (!onboardingInitialized) {
           onboardingInitialized = true
           onboardingOpen = !loaded.onboardingDismissed
         }
-        void handle.update()
+        await handle.update()
+        if (handle.signal.aborted) return
+        if (version !== loadVersion) {
+          await loadTail
+          return
+        }
+        if (!loaded.project || loaded.error || loaded.clips.length === 0) return
+        const hydratedProjectId = loaded.project.id
+        // Thumbs/peaks can finish after the first paint — callers of
+        // refresh() only need the persisted clip list before Go/Play.
+        void hydrateProjectClips(loaded.clips)
+          .then((hydrated) => {
+            if (handle.signal.aborted || version !== loadVersion) return
+            if (data && data.project?.id === hydratedProjectId) {
+              data = { ...data, clips: hydrated }
+              void handle.update()
+            }
+          })
+          .catch((err) => {
+            if (handle.signal.aborted || version !== loadVersion) return
+            reportError(err, 'hydrate-clips')
+          })
       })
       .catch((err) => {
-        if (handle.signal.aborted || version !== loadVersion) return
+        if (handle.signal.aborted) return
+        if (version !== loadVersion) {
+          return loadTail
+        }
         reportError(err, 'load-project')
         // Reuse the page's error rendering path (banner + back-home link).
         data = {
@@ -157,8 +192,10 @@ export function ProjectPage(handle: Handle<ProjectPageProps>) {
         }
         void handle.update()
       })
+    loadTail = thisLoad.then(() => undefined, () => undefined)
+    return thisLoad
   }
-  load(props.projectId)
+  void load(props.projectId)
 
   /** The URL is the authority on which project this page shows. Right after
    * lazy creation, `navigate(replace)` has already rewritten the path while
@@ -169,9 +206,7 @@ export function ProjectPage(handle: Handle<ProjectPageProps>) {
     return match?.[1] ?? props.projectId
   }
 
-  const refresh = () => {
-    load(currentProjectId())
-  }
+  const refresh = (): Promise<void> => load(currentProjectId())
 
   const showToast = (message: string, action?: ToastAction) => {
     window.clearTimeout(toastTimer)
@@ -308,6 +343,9 @@ export function ProjectPage(handle: Handle<ProjectPageProps>) {
     const project = data.project
     const audio = data.audio
     if (clips.length === 0) return
+    exportAbort?.abort()
+    exportAbort = new AbortController()
+    const signal = exportAbort.signal
     const runId = exportRun + 1
     exportRun = runId
 
@@ -375,8 +413,21 @@ export function ProjectPage(handle: Handle<ProjectPageProps>) {
       })
       .catch(() => undefined)
 
+    const previous = exportChain
+    let releaseChain = () => {}
+    exportChain = new Promise<void>((resolve) => {
+      releaseChain = resolve
+    })
+
     void (async () => {
       try {
+        await previous.catch(() => undefined)
+        if (exportRun !== runId || signal.aborted) {
+          if (exportRun === runId && exportState?.status === 'exporting') {
+            setExportState(null)
+          }
+          return
+        }
         // Flush the exporting UI so ExportOverlay's canvas is connected before
         // engines poll for it. A fire-and-forget update raced the wait on
         // slow iOS and fell back to a detached (black) canvas (KODY-VIDEO-Q).
@@ -421,6 +472,7 @@ export function ProjectPage(handle: Handle<ProjectPageProps>) {
         // this marker survives the reload and reports the death at next boot.
         markExportStarted({ clips: clips.length })
         const result = await exportProject(clips, {
+          signal,
           audioContext,
           watermark: watermarked,
           includeLocation,
@@ -479,6 +531,13 @@ export function ProjectPage(handle: Handle<ProjectPageProps>) {
           usedFallback: result.engine === 'realtime' || (exportState?.usedFallback ?? false),
         })
       } catch (err) {
+        if (signal.aborted || isExportCancelled(err)) {
+          if (exportRun !== runId) return
+          if (exportState?.status === 'exporting') {
+            setExportState(null)
+          }
+          return
+        }
         // Report even when the run was abandoned (closed sheet / retry) —
         // only the UI update is stale, the failure is real.
         reportError(err, 'export', {
@@ -516,13 +575,46 @@ export function ProjectPage(handle: Handle<ProjectPageProps>) {
         if (audioContext && audioContext.state !== 'closed') {
           void audioContext.close().catch(() => undefined)
         }
+        releaseChain()
       }
     })()
   }
 
   const closeExport = () => {
+    exportAbort?.abort()
+    exportAbort = null
     exportRun += 1
     setExportState(null)
+  }
+
+  /** Mid-export Plus toggles persist then restart. Stop, Escape, or a
+   * finished encode during that write must not launch a new forced run. */
+  const restartExportIfStillRunning = (startedAtRun: number) => {
+    if (exportRun !== startedAtRun) return
+    if (exportState?.status !== 'exporting') return
+    startExport({ force: true })
+  }
+
+  const persistKeepWatermark = (keep: boolean): Promise<void> => {
+    if (data) {
+      data = { ...data, keepWatermark: keep }
+      void handle.update()
+    }
+    return setKeepWatermark(keep).catch((err) => {
+      reportError(err, 'keep-watermark')
+      throw err
+    })
+  }
+
+  const persistIncludeLocation = (include: boolean): Promise<void> => {
+    if (data) {
+      data = { ...data, includeLocationInExports: include }
+      void handle.update()
+    }
+    return setIncludeLocationInExports(include).catch((err) => {
+      reportError(err, 'include-location')
+      throw err
+    })
   }
 
   const setExportNotice = (notice: string) => {
@@ -535,7 +627,7 @@ export function ProjectPage(handle: Handle<ProjectPageProps>) {
   return () => {
     // The URL param changed in place (lazy create, or another project link).
     if (props.projectId !== loadedForId) {
-      load(props.projectId)
+      void load(props.projectId)
     }
     if (!data) return null
     const project = data.project
@@ -664,8 +756,28 @@ export function ProjectPage(handle: Handle<ProjectPageProps>) {
             projectName={project.name}
             progress={exportState?.progress ?? 0}
             watermarked={exportState?.watermarked === true}
+            locationIncluded={
+              data.watermarkRemoved &&
+              data.includeLocationInExports &&
+              clips.some((clip) => typeof clip.lat === 'number' && typeof clip.lng === 'number')
+            }
             usedFallback={exportState?.usedFallback === true}
+            purchased={data.watermarkRemoved}
+            keepWatermark={data.keepWatermark}
+            includeLocation={data.includeLocationInExports}
+            hasTaggedClips={clips.some(
+              (clip) => typeof clip.lat === 'number' && typeof clip.lng === 'number',
+            )}
             bindPreviewCanvas={bindPreviewCanvas}
+            onStop={closeExport}
+            onKeepWatermarkChange={(keep) => {
+              const runId = exportRun
+              void persistKeepWatermark(keep).then(() => restartExportIfStillRunning(runId))
+            }}
+            onIncludeLocationChange={(include) => {
+              const runId = exportRun
+              void persistIncludeLocation(include).then(() => restartExportIfStillRunning(runId))
+            }}
           />
         ) : null}
 
@@ -684,20 +796,8 @@ export function ProjectPage(handle: Handle<ProjectPageProps>) {
               (clip) => typeof clip.lat === 'number' && typeof clip.lng === 'number',
             )}
             busy={exportActionCount > 0}
-            onKeepWatermarkChange={(keep) => {
-              data = { ...data!, keepWatermark: keep }
-              void handle.update()
-              void setKeepWatermark(keep).catch((err) => {
-                reportError(err, 'keep-watermark')
-              })
-            }}
-            onIncludeLocationChange={(include) => {
-              data = { ...data!, includeLocationInExports: include }
-              void handle.update()
-              void setIncludeLocationInExports(include).catch((err) => {
-                reportError(err, 'include-location')
-              })
-            }}
+            onKeepWatermarkChange={persistKeepWatermark}
+            onIncludeLocationChange={persistIncludeLocation}
             onRemoveWatermark={() => {
               window.open(REMOVE_WATERMARK_LINK, '_blank', 'noopener')
             }}

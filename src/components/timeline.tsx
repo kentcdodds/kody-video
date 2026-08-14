@@ -36,6 +36,9 @@ interface TimelineProps {
   /** Open the device file picker to append gallery videos. */
   onAddFromDevice?: () => void
   addingFromDevice?: boolean
+  /** Placeholder tiles for files still probing (shown after this clip). */
+  pendingGhostCount?: number
+  pendingGhostAfterId?: ClipId | null
   /** Show per-clip music-volume badges (project has a background track). */
   showAudioBadges?: boolean
   refresh: () => void
@@ -70,11 +73,27 @@ export function Timeline(handle: Handle<TimelineProps>) {
   const tileRefs = new Map<ClipId, HTMLButtonElement>()
   let flingRaf = 0
   let drag: DragState | null = null
+  /** Last selected id+index we scrolled to — skip the first paint (bindTrack
+   * already positions the strip) and follow later moves/selection changes. */
+  let followKey: string | null = null
+
+  const scrollSelectedIntoView = (clipId: ClipId) => {
+    const track = trackEl
+    const el = tileRefs.get(clipId)
+    if (!track || !el) return
+    const tile = el.getBoundingClientRect()
+    const strip = track.getBoundingClientRect()
+    const pad = 12
+    if (tile.left < strip.left + pad) {
+      track.scrollLeft += tile.left - strip.left - pad
+    } else if (tile.right > strip.right - pad) {
+      track.scrollLeft += tile.right - strip.right + pad
+    }
+  }
 
   const selectClip = (id: ClipId) => {
     props.onSelect(id)
-    const el = tileRefs.get(id)
-    el?.scrollIntoView({ behavior: 'smooth', inline: 'nearest', block: 'nearest' })
+    scrollSelectedIntoView(id)
   }
 
   /**
@@ -282,10 +301,57 @@ export function Timeline(handle: Handle<TimelineProps>) {
     void reorderClips(props.projectId, nextIds).then(() => props.refresh())
   }
 
-  return () => {
-    const { clips, selectedClipId, onAddFromDevice, addingFromDevice } = props
+  const followSelected = (clipId: ClipId | null, index: number) => {
+    if (!clipId || index < 0) return
+    const key = `${clipId}:${index}`
+    if (key === followKey) return
+    const isFirst = followKey === null
+    followKey = key
+    if (isFirst) return
+    // After a reorder the tiles have not been laid out yet — wait for paint.
+    requestAnimationFrame(() => {
+      requestAnimationFrame(() => scrollSelectedIntoView(clipId))
+    })
+  }
 
-    if (clips.length === 0) {
+  const ghostTile = (ghostIndex: number) => (
+    <div
+      key={`ghost-${ghostIndex}`}
+      className="clip-thumb is-ghost"
+      style={{ width: `${MIN_TILE_WIDTH}px` }}
+      aria-hidden="true"
+    >
+      <div className="clip-filmstrip">
+        <div className="clip-filmstrip-placeholder" />
+      </div>
+    </div>
+  )
+
+  const renderGhostSlots = (count: number) =>
+    Array.from({ length: count }, (_, ghostIndex) => (
+      <div key={`ghost-slot-${ghostIndex}`} className="timeline-slot">
+        {ghostTile(ghostIndex)}
+      </div>
+    ))
+
+  return () => {
+    const {
+      clips,
+      selectedClipId,
+      onAddFromDevice,
+      addingFromDevice,
+      pendingGhostCount = 0,
+      pendingGhostAfterId = null,
+    } = props
+    const selectedIndex = selectedClipId
+      ? clips.findIndex((clip) => clip.id === selectedClipId)
+      : -1
+    followSelected(selectedClipId, selectedIndex)
+    const ghostAfterIndex = pendingGhostAfterId
+      ? clips.findIndex((clip) => clip.id === pendingGhostAfterId)
+      : -1
+
+    if (clips.length === 0 && pendingGhostCount === 0) {
       return (
         <div key="timeline-empty" className="timeline" aria-label="Timeline empty">
           {onAddFromDevice ? (
@@ -331,8 +397,12 @@ export function Timeline(handle: Handle<TimelineProps>) {
           const isDragging = draggingId === clip.id
           const showDropBefore = draggingId !== null && gapIndex === index
           const isPhoto = isImageClip(clip)
+          const showGhostsAfter =
+            pendingGhostCount > 0 &&
+            draggingId === null &&
+            ghostAfterIndex === index
 
-          return (
+          const tile = (
             <div key={clip.id} className="timeline-slot">
               {showDropBefore ? <div className="timeline-drop-indicator" aria-hidden /> : null}
               <button
@@ -408,7 +478,11 @@ export function Timeline(handle: Handle<TimelineProps>) {
               </button>
             </div>
           )
+          return showGhostsAfter ? [tile, ...renderGhostSlots(pendingGhostCount)] : tile
         })}
+        {pendingGhostCount > 0 && draggingId === null && ghostAfterIndex < 0
+          ? renderGhostSlots(pendingGhostCount)
+          : null}
         {draggingId !== null && gapIndex === clips.length ? (
           <div className="timeline-drop-indicator timeline-drop-trailing" aria-hidden />
         ) : null}

@@ -267,21 +267,38 @@ export async function setLocationTaggingEnabled(locationTaggingEnabled: boolean)
   await db.put('meta', { ...settings, locationTaggingEnabled })
 }
 
+/** Serialize read-modify-write updates to the singleton meta record so two
+ * rapid pref toggles cannot persist an older snapshot over a newer one. */
+let metaWriteTail: Promise<void> = Promise.resolve()
+
+function enqueueMetaWrite<T>(write: () => Promise<T>): Promise<T> {
+  const run = metaWriteTail.then(write, write)
+  metaWriteTail = run.then(
+    () => undefined,
+    () => undefined,
+  )
+  return run
+}
+
 export async function setKeepWatermark(keepWatermark: boolean): Promise<void> {
-  const db = await getDb()
-  const settings = await getSettings()
-  await db.put('meta', { ...settings, keepWatermark })
+  await enqueueMetaWrite(async () => {
+    const db = await getDb()
+    const settings = await getSettings()
+    await db.put('meta', { ...settings, keepWatermark })
+  })
 }
 
 export async function setIncludeLocationInExports(
   includeLocationInExports: boolean,
 ): Promise<void> {
-  const db = await getDb()
-  const settings = await getSettings()
-  if (includeLocationInExports && settings.watermarkRemoved !== true) {
-    throw new PlusRequiredError('Location export is a Kody Video Plus perk.')
-  }
-  await db.put('meta', { ...settings, includeLocationInExports })
+  await enqueueMetaWrite(async () => {
+    const db = await getDb()
+    const settings = await getSettings()
+    if (includeLocationInExports && settings.watermarkRemoved !== true) {
+      throw new PlusRequiredError('Location export is a Kody Video Plus perk.')
+    }
+    await db.put('meta', { ...settings, includeLocationInExports })
+  })
 }
 
 export async function listProjects(): Promise<Project[]> {
@@ -540,6 +557,26 @@ export interface AddClipInput {
   /** Measured whole-clip audio peak — used when importing backups so the
    * clip skips the normalization re-measure on its first load. */
   audioPeak?: number
+  /** Insert after this clip (device Add). Omit to append at the end. */
+  afterClipId?: ClipId
+}
+
+/** Place `clipId` immediately after `afterClipId`, or append when that id is missing. */
+export function insertClipIdAfter(
+  clipIds: ClipId[],
+  clipId: ClipId,
+  afterClipId?: ClipId | null,
+): ClipId[] {
+  const next = [...clipIds]
+  if (afterClipId) {
+    const index = next.indexOf(afterClipId)
+    if (index >= 0) {
+      next.splice(index + 1, 0, clipId)
+      return next
+    }
+  }
+  next.push(clipId)
+  return next
 }
 
 /**
@@ -610,7 +647,7 @@ export async function addClip(input: AddClipInput): Promise<ClipRecord> {
       tx.objectStore('clips').put(clip),
       tx.objectStore('projects').put({
         ...project,
-        clipIds: [...project.clipIds, clip.id],
+        clipIds: insertClipIdAfter(project.clipIds, clip.id, input.afterClipId),
         updatedAt: now,
       }),
     ],

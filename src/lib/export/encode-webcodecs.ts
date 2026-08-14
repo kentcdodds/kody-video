@@ -62,6 +62,7 @@ import {
   formatChapterTitle,
   locationForExport,
 } from './mp4-export-metadata'
+import { ExportCancelledError, decodedPumpFailure, throwIfExportAborted } from './cancelled'
 
 const FPS = 30
 const AUDIO_SAMPLE_RATE = 48000
@@ -142,6 +143,7 @@ export async function exportWithWebCodecs(
   background?: BackgroundAudio | null,
   orientation?: ProjectOrientation,
   includeLocation = false,
+  signal?: AbortSignal,
 ): Promise<ExportResult> {
   if (!supportsWebCodecsExport()) {
     throw new Error('WebCodecs is not available')
@@ -302,6 +304,7 @@ export async function exportWithWebCodecs(
 
   try {
     for (const [segmentIndex, segment] of plan.segments.entries()) {
+      throwIfExportAborted(signal)
       const isImage = isImageClip(segment.clip)
       const input = isImage
         ? null
@@ -458,6 +461,7 @@ export async function exportWithWebCodecs(
           // No mirroring needed when the encode canvas is the preview.
           getPreviewCanvas: encodingIntoPreview ? undefined : getPreviewCanvas,
           watermarkImage,
+          signal,
           onElapsedMs: (elapsed: number) => {
             if (plan.totalMs > 0) {
               onProgress?.(Math.min(1, (state.doneMs + elapsed) / plan.totalMs))
@@ -665,6 +669,7 @@ interface PumpSharedArgs {
   state: PumpState
   getPreviewCanvas?: () => HTMLCanvasElement | null
   watermarkImage?: HTMLImageElement | null
+  signal?: AbortSignal
   onElapsedMs: (elapsedMs: number) => void
 }
 
@@ -680,12 +685,14 @@ function makeFrameSink({
   state,
   getPreviewCanvas,
   watermarkImage,
+  signal,
 }: PumpSharedArgs) {
   return (
     draw: (ctx: CanvasRenderingContext2D, width: number, height: number) => void,
     mediaTimeSec: number,
     options?: { force?: boolean },
   ): Promise<void> => {
+    throwIfExportAborted(signal)
     const clampedSec = Math.min(Math.max(mediaTimeSec, startSec), endSec)
     let tsSec = state.outputOffsetSec + (clampedSec - startSec)
     // Decimate against the output clock: emit one frame per 30fps tick and
@@ -777,10 +784,7 @@ async function pumpSegmentVideoDecoded(
       onElapsedMs((Math.min(wrapped.timestamp, endSec) - startSec) * 1000)
     }
   } catch (err) {
-    if (framesEmitted > 0) {
-      throw err instanceof Error ? err : new Error('Decoded video pump failed')
-    }
-    return 'unsupported'
+    return decodedPumpFailure(err, framesEmitted, args.signal)
   }
 
   if (framesEmitted === 0) return 'unsupported'
@@ -906,6 +910,10 @@ async function pumpSegmentVideo({
 
       const handleFrame = (mediaTimeSec: number) => {
         if (finished) return
+        if (shared.signal?.aborted) {
+          abort(new ExportCancelledError())
+          return
+        }
         if (mediaTimeSec > lastMediaTime + 0.001) {
           lastMediaTime = mediaTimeSec
           lastProgressAt = performance.now()

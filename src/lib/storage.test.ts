@@ -184,6 +184,15 @@ describe('storage layer', () => {
     expect((await getSettings()).keepWatermark).toBe(false)
   })
 
+  it('serializes overlapping mark and location pref writes', async () => {
+    await markWatermarkRemoved('cs_test_pref_race')
+    await Promise.all([setKeepWatermark(true), setIncludeLocationInExports(true)])
+    expect(await getSettings()).toMatchObject({
+      keepWatermark: true,
+      includeLocationInExports: true,
+    })
+  })
+
   it('gates location capture and export preferences behind Plus', async () => {
     await expect(setLocationTaggingEnabled(true)).rejects.toBeInstanceOf(PlusRequiredError)
     await expect(setIncludeLocationInExports(true)).rejects.toBeInstanceOf(PlusRequiredError)
@@ -438,6 +447,31 @@ describe('storage layer', () => {
     expect(await getClip(copy.id)).toBeTruthy()
     clips = await getClipsForProject(project.id)
     expect(clips.map((c) => c.id)).toEqual([c2.id, copy.id, c1.id])
+  })
+
+  it('inserts a clip after a chosen neighbor instead of appending', async () => {
+    const project = await createProject('Insert after')
+    const first = await addClip({
+      projectId: project.id,
+      blob: fakeBlob('1'),
+      mimeType: 'video/webm',
+      durationMs: 1000,
+    })
+    const last = await addClip({
+      projectId: project.id,
+      blob: fakeBlob('3'),
+      mimeType: 'video/webm',
+      durationMs: 1000,
+    })
+    const middle = await addClip({
+      projectId: project.id,
+      blob: fakeBlob('2'),
+      mimeType: 'video/webm',
+      durationMs: 1000,
+      afterClipId: first.id,
+    })
+    const clips = await getClipsForProject(project.id)
+    expect(clips.map((c) => c.id)).toEqual([first.id, middle.id, last.id])
   })
 
   it('stores photo clips and sets their duration (grow and shrink, clamped)', async () => {

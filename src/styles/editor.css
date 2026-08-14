@@ -283,6 +283,33 @@
     linear-gradient(135deg, color-mix(in srgb, var(--bg-elevated) 70%, #000), var(--bg-soft));
 }
 
+.clip-thumb.is-ghost {
+  border-style: dashed;
+  border-color: color-mix(in srgb, var(--accent) 40%, transparent);
+  pointer-events: none;
+  opacity: 0.72;
+}
+
+.clip-thumb.is-ghost .clip-filmstrip-placeholder {
+  background: linear-gradient(
+    90deg,
+    color-mix(in srgb, var(--bg-elevated) 70%, #000) 0%,
+    color-mix(in srgb, var(--accent) 18%, var(--bg-soft)) 50%,
+    color-mix(in srgb, var(--bg-elevated) 70%, #000) 100%
+  );
+  background-size: 200% 100%;
+  animation: timeline-ghost-shimmer 1.2s ease-in-out infinite;
+}
+
+@keyframes timeline-ghost-shimmer {
+  0% {
+    background-position: 100% 0;
+  }
+  100% {
+    background-position: -100% 0;
+  }
+}
+
 .clip-thumb .clip-dur {
   position: absolute;
   right: 4px;
