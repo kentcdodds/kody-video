@@ -129,26 +129,38 @@ export function ProjectPage(handle: Handle<ProjectPageProps>) {
   /** Monotonic request id: an older in-flight load for the same project
    * (mount racing a post-mutation refresh) must never overwrite newer data. */
   let loadVersion = 0
+  /** Latest load's settle promise — a superseded refresh waits here so
+   * import/Go see the newer clip list instead of clearing optimistic tiles. */
+  let loadTail: Promise<void> = Promise.resolve()
   const load = (projectId: string): Promise<void> => {
     loadedForId = projectId
     const version = ++loadVersion
-    return loadProjectPage(projectId)
+    const thisLoad = loadProjectPage(projectId)
       .then(async (loaded) => {
-        if (handle.signal.aborted || version !== loadVersion) return
+        if (handle.signal.aborted) return
+        if (version !== loadVersion) {
+          await loadTail
+          return
+        }
         data = loaded
         if (!onboardingInitialized) {
           onboardingInitialized = true
           onboardingOpen = !loaded.onboardingDismissed
         }
         await handle.update()
+        if (handle.signal.aborted) return
+        if (version !== loadVersion) {
+          await loadTail
+          return
+        }
         if (!loaded.project || loaded.error || loaded.clips.length === 0) return
-        const projectId = loaded.project.id
+        const hydratedProjectId = loaded.project.id
         // Thumbs/peaks can finish after the first paint — callers of
         // refresh() only need the persisted clip list before Go/Play.
         void hydrateProjectClips(loaded.clips)
           .then((hydrated) => {
             if (handle.signal.aborted || version !== loadVersion) return
-            if (data && data.project?.id === projectId) {
+            if (data && data.project?.id === hydratedProjectId) {
               data = { ...data, clips: hydrated }
               void handle.update()
             }
@@ -159,7 +171,10 @@ export function ProjectPage(handle: Handle<ProjectPageProps>) {
           })
       })
       .catch((err) => {
-        if (handle.signal.aborted || version !== loadVersion) return
+        if (handle.signal.aborted) return
+        if (version !== loadVersion) {
+          return loadTail
+        }
         reportError(err, 'load-project')
         // Reuse the page's error rendering path (banner + back-home link).
         data = {
@@ -177,6 +192,8 @@ export function ProjectPage(handle: Handle<ProjectPageProps>) {
         }
         void handle.update()
       })
+    loadTail = thisLoad.then(() => undefined, () => undefined)
+    return thisLoad
   }
   void load(props.projectId)
 
@@ -570,6 +587,14 @@ export function ProjectPage(handle: Handle<ProjectPageProps>) {
     setExportState(null)
   }
 
+  /** Mid-export Plus toggles persist then restart. Stop, Escape, or a
+   * finished encode during that write must not launch a new forced run. */
+  const restartExportIfStillRunning = (startedAtRun: number) => {
+    if (exportRun !== startedAtRun) return
+    if (exportState?.status !== 'exporting') return
+    startExport({ force: true })
+  }
+
   const persistKeepWatermark = (keep: boolean): Promise<void> => {
     if (data) {
       data = { ...data, keepWatermark: keep }
@@ -746,10 +771,12 @@ export function ProjectPage(handle: Handle<ProjectPageProps>) {
             bindPreviewCanvas={bindPreviewCanvas}
             onStop={closeExport}
             onKeepWatermarkChange={(keep) => {
-              void persistKeepWatermark(keep).then(() => startExport({ force: true }))
+              const runId = exportRun
+              void persistKeepWatermark(keep).then(() => restartExportIfStillRunning(runId))
             }}
             onIncludeLocationChange={(include) => {
-              void persistIncludeLocation(include).then(() => startExport({ force: true }))
+              const runId = exportRun
+              void persistIncludeLocation(include).then(() => restartExportIfStillRunning(runId))
             }}
           />
         ) : null}

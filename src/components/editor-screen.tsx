@@ -133,7 +133,9 @@ export function EditorScreen(handle: Handle<EditorScreenProps>) {
         trimming = false
         if (result.added.length > 0) {
           await props.refresh()
-          optimisticAdds = []
+          optimisticAdds = optimisticAdds.filter(
+            (extra) => !props.clips.some((clip) => clip.id === extra.clip.id),
+          )
         }
         if (result.added.length === 0 && result.failed.length > 0) {
           props.showToast(result.failed[0]?.reason || 'Could not add that clip')
