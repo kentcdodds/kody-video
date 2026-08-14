@@ -12,7 +12,7 @@ import { UpsellSheet } from '../components/upsell-sheet'
 import { REMOVE_WATERMARK_LINK, shouldWatermarkExports } from '../lib/entitlement'
 import { buildClipsZip } from '../lib/clips-zip'
 import { clearExportMarker, markExportStarted, reportError } from '../lib/error-reporting'
-import { exportProject, type ExportResult } from '../lib/export'
+import { exportProject, isExportCancelled, type ExportResult } from '../lib/export'
 import { exportSignature, loadMatchingExport, persistLastExport } from '../lib/export/last-export'
 import { MediaElementFailureError } from '../lib/export/media-error'
 import { unlockExportMediaPlayback, wait } from '../lib/export/shared'
@@ -25,7 +25,7 @@ import {
   shareOrDownload,
 } from '../lib/media'
 import { isCoarsePointerDevice, viewportIsLandscape } from '../lib/platform'
-import { loadProjectPage, type ProjectLoaderData } from '../lib/project-actions'
+import { hydrateProjectClips, loadProjectPage, type ProjectLoaderData } from '../lib/project-actions'
 import { projectBackupFilename, serializeProject } from '../lib/project-transfer'
 import {
   createProject,
@@ -97,6 +97,7 @@ export function ProjectPage(handle: Handle<ProjectPageProps>) {
 
   let toastTimer = 0
   let exportRun = 0
+  let exportAbort: AbortController | null = null
   let previewCanvas: HTMLCanvasElement | null = null
   const bindPreviewCanvas = (element: HTMLCanvasElement | null) => {
     previewCanvas = element
@@ -129,7 +130,7 @@ export function ProjectPage(handle: Handle<ProjectPageProps>) {
     loadedForId = projectId
     const version = ++loadVersion
     void loadProjectPage(projectId)
-      .then((loaded) => {
+      .then(async (loaded) => {
         if (handle.signal.aborted || version !== loadVersion) return
         data = loaded
         if (!onboardingInitialized) {
@@ -137,6 +138,13 @@ export function ProjectPage(handle: Handle<ProjectPageProps>) {
           onboardingOpen = !loaded.onboardingDismissed
         }
         void handle.update()
+        if (!loaded.project || loaded.error || loaded.clips.length === 0) return
+        const hydrated = await hydrateProjectClips(loaded.clips)
+        if (handle.signal.aborted || version !== loadVersion) return
+        if (data && data.project?.id === loaded.project.id) {
+          data = { ...data, clips: hydrated }
+          void handle.update()
+        }
       })
       .catch((err) => {
         if (handle.signal.aborted || version !== loadVersion) return
@@ -308,6 +316,9 @@ export function ProjectPage(handle: Handle<ProjectPageProps>) {
     const project = data.project
     const audio = data.audio
     if (clips.length === 0) return
+    exportAbort?.abort()
+    exportAbort = new AbortController()
+    const signal = exportAbort.signal
     const runId = exportRun + 1
     exportRun = runId
 
@@ -421,6 +432,7 @@ export function ProjectPage(handle: Handle<ProjectPageProps>) {
         // this marker survives the reload and reports the death at next boot.
         markExportStarted({ clips: clips.length })
         const result = await exportProject(clips, {
+          signal,
           audioContext,
           watermark: watermarked,
           includeLocation,
@@ -479,6 +491,10 @@ export function ProjectPage(handle: Handle<ProjectPageProps>) {
           usedFallback: result.engine === 'realtime' || (exportState?.usedFallback ?? false),
         })
       } catch (err) {
+        if (isExportCancelled(err) || signal.aborted) {
+          if (exportRun !== runId) return
+          return
+        }
         // Report even when the run was abandoned (closed sheet / retry) —
         // only the UI update is stale, the failure is real.
         reportError(err, 'export', {
@@ -521,8 +537,30 @@ export function ProjectPage(handle: Handle<ProjectPageProps>) {
   }
 
   const closeExport = () => {
+    exportAbort?.abort()
+    exportAbort = null
     exportRun += 1
     setExportState(null)
+  }
+
+  const persistKeepWatermark = (keep: boolean) => {
+    if (data) {
+      data = { ...data, keepWatermark: keep }
+      void handle.update()
+    }
+    void setKeepWatermark(keep).catch((err) => {
+      reportError(err, 'keep-watermark')
+    })
+  }
+
+  const persistIncludeLocation = (include: boolean) => {
+    if (data) {
+      data = { ...data, includeLocationInExports: include }
+      void handle.update()
+    }
+    void setIncludeLocationInExports(include).catch((err) => {
+      reportError(err, 'include-location')
+    })
   }
 
   const setExportNotice = (notice: string) => {
@@ -664,8 +702,28 @@ export function ProjectPage(handle: Handle<ProjectPageProps>) {
             projectName={project.name}
             progress={exportState?.progress ?? 0}
             watermarked={exportState?.watermarked === true}
+            locationIncluded={
+              data.watermarkRemoved &&
+              data.includeLocationInExports &&
+              clips.some((clip) => typeof clip.lat === 'number' && typeof clip.lng === 'number')
+            }
             usedFallback={exportState?.usedFallback === true}
+            purchased={data.watermarkRemoved}
+            keepWatermark={data.keepWatermark}
+            includeLocation={data.includeLocationInExports}
+            hasTaggedClips={clips.some(
+              (clip) => typeof clip.lat === 'number' && typeof clip.lng === 'number',
+            )}
             bindPreviewCanvas={bindPreviewCanvas}
+            onStop={closeExport}
+            onKeepWatermarkChange={(keep) => {
+              persistKeepWatermark(keep)
+              startExport({ force: true })
+            }}
+            onIncludeLocationChange={(include) => {
+              persistIncludeLocation(include)
+              startExport({ force: true })
+            }}
           />
         ) : null}
 
@@ -684,20 +742,8 @@ export function ProjectPage(handle: Handle<ProjectPageProps>) {
               (clip) => typeof clip.lat === 'number' && typeof clip.lng === 'number',
             )}
             busy={exportActionCount > 0}
-            onKeepWatermarkChange={(keep) => {
-              data = { ...data!, keepWatermark: keep }
-              void handle.update()
-              void setKeepWatermark(keep).catch((err) => {
-                reportError(err, 'keep-watermark')
-              })
-            }}
-            onIncludeLocationChange={(include) => {
-              data = { ...data!, includeLocationInExports: include }
-              void handle.update()
-              void setIncludeLocationInExports(include).catch((err) => {
-                reportError(err, 'include-location')
-              })
-            }}
+            onKeepWatermarkChange={persistKeepWatermark}
+            onIncludeLocationChange={persistIncludeLocation}
             onRemoveWatermark={() => {
               window.open(REMOVE_WATERMARK_LINK, '_blank', 'noopener')
             }}

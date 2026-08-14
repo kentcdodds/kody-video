@@ -540,6 +540,26 @@ export interface AddClipInput {
   /** Measured whole-clip audio peak — used when importing backups so the
    * clip skips the normalization re-measure on its first load. */
   audioPeak?: number
+  /** Insert after this clip (device Add). Omit to append at the end. */
+  afterClipId?: ClipId
+}
+
+/** Place `clipId` immediately after `afterClipId`, or append when that id is missing. */
+export function insertClipIdAfter(
+  clipIds: ClipId[],
+  clipId: ClipId,
+  afterClipId?: ClipId | null,
+): ClipId[] {
+  const next = [...clipIds]
+  if (afterClipId) {
+    const index = next.indexOf(afterClipId)
+    if (index >= 0) {
+      next.splice(index + 1, 0, clipId)
+      return next
+    }
+  }
+  next.push(clipId)
+  return next
 }
 
 /**
@@ -610,7 +630,7 @@ export async function addClip(input: AddClipInput): Promise<ClipRecord> {
       tx.objectStore('clips').put(clip),
       tx.objectStore('projects').put({
         ...project,
-        clipIds: [...project.clipIds, clip.id],
+        clipIds: insertClipIdAfter(project.clipIds, clip.id, input.afterClipId),
         updatedAt: now,
       }),
     ],

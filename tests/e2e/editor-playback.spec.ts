@@ -206,6 +206,55 @@ test.describe('editor', () => {
       .toBe(true)
   })
 
+  test('Add inserts the new clip after the selected one', async ({ page }) => {
+    await openEditorWithClips(page, 2)
+    const tiles = page.locator('.clip-thumb[data-clip-id]')
+    await expect(tiles).toHaveCount(2)
+    const firstId = await tiles.nth(0).getAttribute('data-clip-id')
+    const secondId = await tiles.nth(1).getAttribute('data-clip-id')
+    await tiles.first().click()
+
+    const clipPath = await page.evaluate(async () => {
+      const { makeTestClipBlob } = await import('/src/lib/testing/make-test-clip.ts')
+      const blob = await makeTestClipBlob(800)
+      const buffer = await blob.arrayBuffer()
+      return { bytes: Array.from(new Uint8Array(buffer)), type: blob.type || 'video/webm' }
+    })
+    const chooserPromise = page.waitForEvent('filechooser')
+    await page.getByRole('button', { name: 'Add clips from device' }).first().click()
+    const chooser = await chooserPromise
+    await chooser.setFiles({
+      name: 'insert-after.webm',
+      mimeType: clipPath.type,
+      buffer: Buffer.from(clipPath.bytes),
+    })
+    await expect(tiles).toHaveCount(3, { timeout: 20_000 })
+    expect(await tiles.nth(0).getAttribute('data-clip-id')).toBe(firstId)
+    expect(await tiles.nth(2).getAttribute('data-clip-id')).toBe(secondId)
+    await expect(tiles.nth(1)).toHaveClass(/selected/)
+    expect(await tiles.nth(1).getAttribute('data-clip-id')).not.toBe(firstId)
+    expect(await tiles.nth(1).getAttribute('data-clip-id')).not.toBe(secondId)
+  })
+
+  test('moving a clip with the arrow buttons keeps it in view', async ({ page }) => {
+    await openEditorWithClips(page, 8, 8000)
+    const timeline = page.getByRole('listbox', { name: 'Clip timeline' })
+    const tiles = page.locator('.clip-thumb[data-clip-id]')
+    await expect(tiles).toHaveCount(8)
+    await tiles.first().click()
+    for (let i = 0; i < 6; i += 1) {
+      await page.getByRole('button', { name: 'Move clip right' }).click()
+    }
+    const selected = tiles.nth(6)
+    await expect(selected).toHaveClass(/selected/)
+    const visible = await selected.evaluate((el, track) => {
+      const tile = el.getBoundingClientRect()
+      const strip = (track as HTMLElement).getBoundingClientRect()
+      return tile.left >= strip.left - 2 && tile.right <= strip.right + 2
+    }, await timeline.elementHandle())
+    expect(visible).toBe(true)
+  })
+
   test('empty timeline offers Add clips from your device', async ({ page }) => {
     await openSeededProject(page, { clips: 0 })
     // openSeededProject with 0 clips still creates a project; open editor.

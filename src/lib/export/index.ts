@@ -1,6 +1,7 @@
 import { reportError } from '../error-reporting'
 import type { ClipRecord, ProjectOrientation } from '../types'
 import type { BackgroundAudio } from './background-audio'
+import { ExportCancelledError, isExportCancelled, throwIfExportAborted } from './cancelled'
 import { exportRealtime } from './encode-realtime'
 import { exportWithWebCodecs, supportsWebCodecsExport } from './encode-webcodecs'
 import { sweepExportCache, withExportCacheReserved } from './export-cache'
@@ -20,6 +21,7 @@ import {
 
 export type { ExportResult } from './shared'
 export { planExport, type ExportPlan, type PlannedSegment } from './plan'
+export { ExportCancelledError, isExportCancelled } from './cancelled'
 
 export interface ExportOptions {
   onProgress?: (ratio: number) => void
@@ -54,6 +56,8 @@ export interface ExportOptions {
    * try-elsewhere hint without waiting for the finished file.
    */
   onFallback?: () => void
+  /** Abort the in-flight encode (Stop, or a mark/location change). */
+  signal?: AbortSignal
 }
 
 /**
@@ -70,7 +74,9 @@ export async function exportProject(
     throw new Error('Nothing to export yet — record a clip first')
   }
 
+  throwIfExportAborted(options.signal)
   const watermarkImage = options.watermark === false ? null : await loadWatermarkImage()
+  throwIfExportAborted(options.signal)
 
   // Reclaim stale cache (old temp files, the clips zip, an orphaned last
   // export) before writing a new potentially-huge file. The current last
@@ -100,6 +106,7 @@ async function runExport(
         options.background,
         options.orientation,
         options.includeLocation === true,
+        options.signal,
       )
       reportSilentExportAudio({ engine: 'webcodecs', outputMime: result.mimeType })
       reportBlackExportVideo({ engine: 'webcodecs', outputMime: result.mimeType })
@@ -114,6 +121,9 @@ async function runExport(
       }
       return result
     } catch (error) {
+      if (isExportCancelled(error) || options.signal?.aborted) {
+        throw error instanceof ExportCancelledError ? error : new ExportCancelledError()
+      }
       console.warn('WebCodecs export failed; falling back to realtime stitcher', error)
       // Keep the decode-failure report gate: both engines share decodeClipAudio,
       // and a second Sentry event for the same export is just noise (Bugbot).
@@ -122,6 +132,7 @@ async function runExport(
     }
   }
 
+  throwIfExportAborted(options.signal)
   options.onFallback?.()
   const result = await exportRealtime(plan, {
     audioContext: options.audioContext,
@@ -130,6 +141,7 @@ async function runExport(
     watermarkImage,
     background: options.background,
     orientation: options.orientation,
+    signal: options.signal,
   })
   reportSilentExportAudio({ engine: 'realtime', outputMime: result.mimeType })
   reportBlackExportVideo({ engine: 'realtime', outputMime: result.mimeType })

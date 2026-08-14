@@ -36,6 +36,7 @@ import {
   wait,
   type ExportResult,
 } from './shared'
+import { ExportCancelledError, throwIfExportAborted } from './cancelled'
 
 export interface RealtimeExportOptions {
   /**
@@ -53,6 +54,8 @@ export interface RealtimeExportOptions {
   /** Force the output into the project's orientation (absent = follow the
    * first clip). */
   orientation?: ProjectOrientation
+  /** Stop the stitcher as soon as the user cancels (Stop or a pref change). */
+  signal?: AbortSignal
 }
 
 /**
@@ -289,6 +292,7 @@ export async function exportRealtime(
   const frameCounter = { count: 0 }
   try {
     for (const [segmentIndex, segment] of plan.segments.entries()) {
+      throwIfExportAborted(options.signal)
       const isImage = isImageClip(segment.clip)
       let loaded: Awaited<ReturnType<typeof loadClipVideo>> | null = null
       if (!isImage) {
@@ -360,7 +364,9 @@ export async function exportRealtime(
           // No mirroring needed when the encode canvas is the preview.
           getPreviewCanvas: encodingIntoPreview ? undefined : options.getPreviewCanvas,
           watermarkImage: options.watermarkImage ?? null,
+          signal: options.signal,
           onElapsedMs: (elapsed: number) => {
+            throwIfExportAborted(options.signal)
             if (plan.totalMs > 0) {
               options.onProgress?.(Math.min(1, (paintedTotalMs + elapsed) / plan.totalMs))
             }
@@ -417,6 +423,7 @@ export async function exportRealtime(
     }
   }
 
+  throwIfExportAborted(options.signal)
   const blob = await stopped
   if (blob.size < 8_000) {
     throw new Error('Export produced an unusable file')
@@ -442,6 +449,7 @@ interface PaintSharedArgs {
   frameCounter: { count: number }
   getPreviewCanvas?: () => HTMLCanvasElement | null
   watermarkImage: HTMLImageElement | null
+  signal?: AbortSignal
   onElapsedMs: (elapsedMs: number) => void
 }
 
@@ -478,6 +486,7 @@ async function paintImageSegment({
   frameCounter,
   getPreviewCanvas,
   watermarkImage,
+  signal,
   onElapsedMs,
 }: PaintImageSegmentArgs): Promise<number> {
   const segmentSec = endSec - startSec
@@ -496,6 +505,11 @@ async function paintImageSegment({
     await new Promise<void>((resolve) => {
       let raf = 0
       const draw = () => {
+        if (signal?.aborted) {
+          cancelAnimationFrame(raf)
+          resolve()
+          return
+        }
         const elapsedSec = (performance.now() - startedAt) / 1000
         paintFrame()
         if (elapsedSec >= segmentSec - 0.03) {
@@ -535,6 +549,7 @@ async function paintSegment({
   frameCounter,
   getPreviewCanvas,
   watermarkImage,
+  signal,
   onElapsedMs,
 }: PaintSegmentArgs): Promise<number> {
   const segmentSec = endSec - startSec
@@ -609,6 +624,12 @@ async function paintSegment({
       }
 
       const draw = () => {
+        if (signal?.aborted) {
+          cancelAnimationFrame(raf)
+          video.pause()
+          reject(new ExportCancelledError())
+          return
+        }
         const now = performance.now()
         let elapsed: number
         if (playback === 'playing') {

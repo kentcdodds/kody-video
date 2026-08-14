@@ -186,21 +186,12 @@ export async function loadProjectPage(projectId: ProjectId): Promise<ProjectLoad
       }
     }
     await setLastOpenedProjectId(projectId)
-    // Backfill filmstrip thumbnails and the persisted audio-normalization
-    // measurement for clips that lack them. Serially — Android caps
-    // concurrent video decoders hard, and this normally touches at most
-    // the clip that was just recorded.
-    // Lazy: thumbs / clip-audio-peak → export/shared → mediabunny. Home
-    // never hits this path.
-    const { ensureClipThumbs } = await import('./thumbs')
-    const { ensureClipAudioPeak } = await import('./clip-audio-peak')
-    const hydrated: ClipRecord[] = []
-    for (const clip of clips) {
-      hydrated.push(await ensureClipAudioPeak(await ensureClipThumbs(clip)))
-    }
+    // Return stored clips immediately so the timeline can paint. Thumb and
+    // audio-peak backfill runs after first paint (hydrateProjectClips) —
+    // waiting here is what made "Clip added" land before the tile appeared.
     return {
       project,
-      clips: hydrated,
+      clips,
       audio: audio ?? null,
       canUndo: !!undo,
       onboardingDismissed: settings.onboardingDismissed,
@@ -228,6 +219,20 @@ export async function loadProjectPage(projectId: ProjectId): Promise<ProjectLoad
       error: err instanceof Error ? err.message : 'Failed to load project',
     }
   }
+}
+
+/** Generate missing filmstrip thumbs and audio-peak measurements. Serial
+ * because Android caps concurrent video decoders. Safe to call after the
+ * first paint — tiles already render with placeholders. */
+export async function hydrateProjectClips(clips: ClipRecord[]): Promise<ClipRecord[]> {
+  if (clips.length === 0) return clips
+  const { ensureClipThumbs } = await import('./thumbs')
+  const { ensureClipAudioPeak } = await import('./clip-audio-peak')
+  const hydrated: ClipRecord[] = []
+  for (const clip of clips) {
+    hydrated.push(await ensureClipAudioPeak(await ensureClipThumbs(clip)))
+  }
+  return hydrated
 }
 
 export async function appendRecording(

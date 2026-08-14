@@ -9,7 +9,7 @@ import {
   probeDeviceClip,
   probeDeviceImage,
 } from './import-device-clips'
-import { __resetDbForTests, createProject, getClipsForProject } from './storage'
+import { __resetDbForTests, addClip, createProject, getClipsForProject } from './storage'
 import { DEFAULT_IMAGE_DURATION_MS } from './types'
 
 /** A real decodable PNG File, drawn in-page (browser-mode tests). */
@@ -162,5 +162,42 @@ describe('probeDeviceClip / importDeviceClips', () => {
     expect(result.failed[1]?.name).toBe('notes.txt')
     expect(ensureCalls).toBe(0)
     expect(await getClipsForProject(project.id)).toHaveLength(0)
+  })
+
+  it('inserts imported clips after the selected neighbor and reports each add', async () => {
+    const project = await createProject('Insert import')
+    const first = await addClip({
+      projectId: project.id,
+      blob: new Blob(['a'], { type: 'video/webm' }),
+      mimeType: 'video/webm',
+      durationMs: 800,
+    })
+    const last = await addClip({
+      projectId: project.id,
+      blob: new Blob(['b'], { type: 'video/webm' }),
+      mimeType: 'video/webm',
+      durationMs: 800,
+    })
+    const addedIds: string[] = []
+    const result = await importDeviceClips(
+      [await makeTestImageFile('one.png'), await makeTestImageFile('two.png')],
+      {
+        ensureProjectId: async () => project.id,
+        afterClipId: first.id,
+        onAdded: (clip) => {
+          addedIds.push(clip.id)
+        },
+      },
+    )
+    expect(result.failed).toHaveLength(0)
+    expect(result.added).toHaveLength(2)
+    expect(addedIds).toEqual(result.added.map((clip) => clip.id))
+    const clips = await getClipsForProject(project.id)
+    expect(clips.map((clip) => clip.id)).toEqual([
+      first.id,
+      result.added[0]!.id,
+      result.added[1]!.id,
+      last.id,
+    ])
   })
 })

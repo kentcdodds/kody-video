@@ -1,5 +1,11 @@
 import { addClip, clearUndo } from './storage'
-import { DEFAULT_IMAGE_DURATION_MS, type ClipKind, type ClipRecord, type ProjectId } from './types'
+import {
+  DEFAULT_IMAGE_DURATION_MS,
+  type ClipId,
+  type ClipKind,
+  type ClipRecord,
+  type ProjectId,
+} from './types'
 
 /** Accept string for `<input type="file">` — common phone/desktop video
  * types, plus photos (added to the timeline as stills with a chosen
@@ -236,14 +242,16 @@ export async function probeDeviceClip(
 export async function importDeviceClip(
   projectId: ProjectId,
   file: File,
+  afterClipId?: ClipId | null,
 ): Promise<ClipRecord> {
   const probed = await probeDeviceClip(file)
-  return addClip(addClipInputFor(projectId, probed))
+  return addClip(addClipInputFor(projectId, probed, afterClipId))
 }
 
 function addClipInputFor(
   projectId: ProjectId,
   probed: DeviceClipProbe,
+  afterClipId?: ClipId | null,
 ): Parameters<typeof addClip>[0] {
   return {
     projectId,
@@ -254,6 +262,7 @@ function addClipInputFor(
     width: probed.width,
     height: probed.height,
     createdAt: probed.createdAt,
+    ...(afterClipId ? { afterClipId } : {}),
     // Photos are silent by construction — persist the zero measurement so
     // the loader backfill never attempts an audio decode on them.
     ...(probed.kind === 'image' ? { audioPeak: 0 } : {}),
@@ -265,6 +274,10 @@ export interface ImportDeviceClipsOptions {
    * so a failed pick on `/project/new` does not burn a free project slot. */
   ensureProjectId: () => Promise<ProjectId>
   onProgress?: (done: number, total: number) => void
+  /** Insert each new clip after this one (then after the last added). */
+  afterClipId?: ClipId | null
+  /** Fired after each successful persist so the timeline can show the clip. */
+  onAdded?: (clip: ClipRecord) => void
 }
 
 /**
@@ -281,6 +294,7 @@ export async function importDeviceClips(
   const added: ClipRecord[] = []
   const failed: DeviceClipImportFailure[] = []
   let projectId: ProjectId | null = null
+  let afterClipId = options.afterClipId ?? null
   options.onProgress?.(0, list.length)
 
   for (let i = 0; i < list.length; i += 1) {
@@ -288,7 +302,10 @@ export async function importDeviceClips(
     try {
       const probed = await probeDeviceClip(file)
       projectId ??= await options.ensureProjectId()
-      added.push(await addClip(addClipInputFor(projectId, probed)))
+      const clip = await addClip(addClipInputFor(projectId, probed, afterClipId))
+      added.push(clip)
+      afterClipId = clip.id
+      options.onAdded?.(clip)
     } catch (error) {
       failed.push({
         name: file.name || 'clip',

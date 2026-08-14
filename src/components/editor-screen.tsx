@@ -74,8 +74,25 @@ export function EditorScreen(handle: Handle<EditorScreenProps>) {
    * counterpart of `trimming`. */
   let editingTrackId: string | null = null
   let importing = false
+  /** Clips persisted but not yet in props.clips (refresh still in flight). */
+  let optimisticAdds: { clip: ClipRecord; afterId: ClipId | null }[] = []
+  let pendingGhostCount = 0
+  let ghostAfterId: ClipId | null = null
   const fileInputRef: { current: HTMLInputElement | null } = { current: null }
   const previewApi: { current: EditorClipPreviewHandle | null } = { current: null }
+
+  const visibleClips = (loaded: ClipRecord[]): ClipRecord[] => {
+    let next = loaded
+    for (const extra of optimisticAdds) {
+      if (next.some((clip) => clip.id === extra.clip.id)) continue
+      const index = extra.afterId ? next.findIndex((clip) => clip.id === extra.afterId) : -1
+      next =
+        index >= 0
+          ? [...next.slice(0, index + 1), extra.clip, ...next.slice(index + 1)]
+          : [...next, extra.clip]
+    }
+    return next
+  }
 
   const openDevicePicker = () => {
     if (importing || props.interactionLocked) return
@@ -85,6 +102,10 @@ export function EditorScreen(handle: Handle<EditorScreenProps>) {
   const importFromDevice = (files: File[]) => {
     if (files.length === 0 || importing) return
     importing = true
+    const afterId = resolveSelectedId()
+    ghostAfterId = afterId
+    pendingGhostCount = files.length
+    optimisticAdds = []
     void handle.update()
     void (async () => {
       try {
@@ -92,6 +113,15 @@ export function EditorScreen(handle: Handle<EditorScreenProps>) {
         // — a bad pick on /project/new must not create an empty project.
         const result = await importDeviceClips(files, {
           ensureProjectId: props.ensureProjectId,
+          afterClipId: afterId,
+          onAdded: (clip) => {
+            optimisticAdds = [...optimisticAdds, { clip, afterId: ghostAfterId }]
+            ghostAfterId = clip.id
+            pendingGhostCount = Math.max(0, pendingGhostCount - 1)
+            selectedClipId = clip.id
+            trimming = false
+            void handle.update()
+          },
           onProgress: (done, total) => {
             if (total > 1) {
               props.showToast(`Adding clip ${Math.min(done + 1, total)} of ${total}…`)
@@ -118,16 +148,19 @@ export function EditorScreen(handle: Handle<EditorScreenProps>) {
         props.showToast(err instanceof Error ? err.message : 'Could not add clips')
       } finally {
         importing = false
+        pendingGhostCount = 0
         void handle.update()
       }
     })()
   }
 
-  // Derive a valid selection from the loaded clips (no state syncing).
-  const resolveSelectedId = (): ClipId | null =>
-    selectedClipId && props.clips.some((c) => c.id === selectedClipId)
+  // Derive a valid selection from the visible clips (loaded + optimistic).
+  const resolveSelectedId = (clips?: ClipRecord[]): ClipId | null => {
+    const list = clips ?? visibleClips(props.clips)
+    return selectedClipId && list.some((c) => c.id === selectedClipId)
       ? selectedClipId
-      : (props.clips.at(-1)?.id ?? null)
+      : (list.at(-1)?.id ?? null)
+  }
 
   const setSelectedClipId = (id: ClipId | null) => {
     selectedClipId = id
@@ -291,9 +324,14 @@ export function EditorScreen(handle: Handle<EditorScreenProps>) {
   }
 
   return () => {
-    const { project, clips, canUndo, onOpenCamera, onOpenExport, onPlay } = props
+    const { project, canUndo, onOpenCamera, onOpenExport, onPlay } = props
+    const loadedIds = new Set(props.clips.map((clip) => clip.id))
+    if (optimisticAdds.some((extra) => loadedIds.has(extra.clip.id))) {
+      optimisticAdds = optimisticAdds.filter((extra) => !loadedIds.has(extra.clip.id))
+    }
+    const clips = visibleClips(props.clips)
     const totalDurationMs = clips.reduce((sum, clip) => sum + effectiveDurationMs(clip), 0)
-    const resolvedSelectedId = resolveSelectedId()
+    const resolvedSelectedId = resolveSelectedId(clips)
     const selected = clips.find((c) => c.id === resolvedSelectedId) ?? null
     const selectedIndex = selected ? clips.findIndex((c) => c.id === selected.id) : -1
     // Derive the edited track from the loaded audio (no state syncing) —
@@ -443,6 +481,8 @@ export function EditorScreen(handle: Handle<EditorScreenProps>) {
               }}
               onAddFromDevice={openDevicePicker}
               addingFromDevice={importing}
+              pendingGhostCount={pendingGhostCount}
+              pendingGhostAfterId={ghostAfterId}
               showAudioBadges={props.audio !== null}
               refresh={props.refresh}
             />
