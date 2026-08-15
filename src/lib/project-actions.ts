@@ -373,15 +373,9 @@ export async function splitSelectedClip(
   const firstTrim = remapTrimToSlice(clip, 0, left.durationMs)
   const secondTrim = remapTrimToSlice(clip, splitMs, right.durationMs)
 
-  const first = await replaceClipMedia(clipId, {
-    blob: left.blob,
-    mimeType: left.mimeType,
-    durationMs: left.durationMs,
-    trimStartMs: firstTrim.trimStartMs,
-    trimEndMs: firstTrim.trimEndMs,
-    width: left.width ?? clip.width,
-    height: left.height ?? clip.height,
-  })
+  // Insert the right-hand piece first so a failed replace leaves the
+  // original clip intact (the extra tail can be deleted). Replacing first
+  // would drop the second half if addClip then failed.
   const second = await addClip({
     projectId: clip.projectId,
     blob: right.blob,
@@ -398,6 +392,21 @@ export async function splitSelectedClip(
     lng: clip.lng,
     locationAccuracyM: clip.locationAccuracyM,
   })
+  let first: ClipRecord
+  try {
+    first = await replaceClipMedia(clipId, {
+      blob: left.blob,
+      mimeType: left.mimeType,
+      durationMs: left.durationMs,
+      trimStartMs: firstTrim.trimStartMs,
+      trimEndMs: firstTrim.trimEndMs,
+      width: left.width ?? clip.width,
+      height: left.height ?? clip.height,
+    })
+  } catch (error) {
+    await deleteClip(second.id).catch(() => undefined)
+    throw error
+  }
   if (secondTrim.trimStartMs > 0) {
     await updateClipTrim(second.id, secondTrim.trimStartMs, secondTrim.trimEndMs)
     second.trimStartMs = secondTrim.trimStartMs

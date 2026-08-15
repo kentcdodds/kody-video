@@ -143,8 +143,9 @@ export function ClipInfoSheet(handle: Handle<ClipInfoSheetProps>) {
                 className="btn btn-ghost clip-info-action"
                 disabled={working || !canSplit}
                 mix={on('click', () => {
-                  if (splitMs === null) return
-                  void run('split', () => handle.props.onSplit(splitMs))
+                  if (!canSplit) return
+                  const liveSplitMs = resolveSplitMs(clip, handle.props.getPlayheadMs())
+                  void run('split', () => handle.props.onSplit(liveSplitMs))
                 })}
               >
                 <IconSplit size={18} />
