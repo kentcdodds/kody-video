@@ -13,6 +13,10 @@ description: >
 
 Self-assess; user policy overrides.
 
+**Kody Video default:** ship when ready. Do not wait for a separate "Go"
+once CI is green and Bugbot is clear (valid feedback addressed). CodeRabbit
+rate-limits do not block. High-risk work, or an explicit pause, still waits.
+
 - **Low** — green CI; nits ignorable; squash-merge when policy allows.
 - **Medium** — wait for AI reviewer(s); address **valid** feedback (ignore
   insignificant nits / already-fixed / wrong); then merge when policy allows.

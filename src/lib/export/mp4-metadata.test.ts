@@ -7,7 +7,12 @@ import {
 } from 'mediabunny'
 import { describe, expect, it } from 'vitest'
 import { commands } from 'vitest/browser'
-import { formatIso6709, injectMp4Metadata, type Mp4Chapter } from './mp4-metadata'
+import {
+  MP4_MAC_EPOCH_OFFSET,
+  formatIso6709,
+  injectMp4Metadata,
+  type Mp4Chapter,
+} from './mp4-metadata'
 import { KODY_VIDEO_ENCODER, KODY_VIDEO_SITE } from './mp4-export-metadata'
 
 const AVC_DESC = new Uint8Array([
@@ -206,6 +211,40 @@ describe('injectMp4Metadata', () => {
     expect(readUdtaString(out, findBox(out, fourCC('\xa9des'), start, end)!)).toContain(KODY_VIDEO_SITE)
     expect(findBox(out, fourCC('\xa9xyz'), start, end)).toBeNull()
     expect(findBox(out, fourCC('chpl'), start, end)).toBeNull()
+  })
+
+  it('patches mvhd creation_time to the capture instant', async () => {
+    const captureMs = Date.UTC(2026, 7, 8, 20, 30, 0)
+    const src = new Uint8Array(await buildTinyMp4())
+    const srcMoov = findBox(src, fourCC('moov'))
+    const before = findBox(
+      src,
+      fourCC('mvhd'),
+      srcMoov!.offset + srcMoov!.headerSize,
+      srcMoov!.offset + srcMoov!.size,
+    )
+    expect(before).not.toBeNull()
+    const beforeTime = readU32(src, before!.offset + before!.headerSize + 4)
+
+    const out = new Uint8Array(
+      injectMp4Metadata(src.buffer, {
+        chapters: [],
+        creationTimeMs: captureMs,
+      }),
+    )
+    const moov = findBox(out, fourCC('moov'))
+    const mvhd = findBox(
+      out,
+      fourCC('mvhd'),
+      moov!.offset + moov!.headerSize,
+      moov!.offset + moov!.size,
+    )
+    expect(mvhd).not.toBeNull()
+    const version = out[mvhd!.offset + mvhd!.headerSize]
+    expect(version).toBe(0)
+    const written = readU32(out, mvhd!.offset + mvhd!.headerSize + 4)
+    expect(written).toBe(Math.floor(captureMs / 1000) + MP4_MAC_EPOCH_OFFSET)
+    expect(written).not.toBe(beforeTime)
   })
 
   it('is validated by ffmpeg when an MP4-capable binary is available', async () => {

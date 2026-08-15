@@ -131,11 +131,15 @@ in IndexedDB alongside the clip, never inside the MediaRecorder blob. Exports
 omit those coordinates — and filming dates — by default, so a public share
 does not disclose where or when it was made. A separate Plus-only export
 toggle adds calendar dates and coordinates to chapter titles, a `©xyz` geotag
-derived by averaging the majority cluster of clip locations (within 5 km),
-falling back to the first located clip, and a `©day` filming date. WebM
-exports skip this injection (the WebM subset of Matroska excludes chapters).
-Clips recorded before this feature simply lack the data and degrade
-gracefully.
+at the median of the majority cluster of clip locations (within 5 km), falling
+back to the last located clip, and a capture timestamp (`©day` plus
+`mvhd`/`tkhd` creation_time) from the last timeline video that has one — so a
+Photos library can place the film on the right day and map pin. Share and Save
+also stamp `File.lastModified` from that same last-clip time (Web Share copies
+it onto the filesystem created/modified dates). Synology Photos sorts by those
+file dates rather than the MP4 atoms. WebM exports skip this injection (the
+WebM subset of Matroska excludes chapters). Clips recorded before this feature
+simply lack the data and degrade gracefully.
 
 ### Export pipeline
 

@@ -10,19 +10,29 @@ export interface Mp4MetadataInput {
   description?: string
   comment?: string
   encoder?: string
-  /** `YYYY-MM-DD` filming/creation date (omit for public shares). */
+  /** QuickTime `©day` (ISO-8601). Omit for public shares. */
   date?: string
+  /** Unix ms written into `mvhd`/`tkhd`/`mdhd` creation_time (Photos sort). */
+  creationTimeMs?: number
 }
 
 const TYPE_MOOV = fourCC('moov')
 const TYPE_UDTA = fourCC('udta')
 const TYPE_CHPL = fourCC('chpl')
+const TYPE_TRAK = fourCC('trak')
+const TYPE_MDIA = fourCC('mdia')
+const TYPE_MVHD = fourCC('mvhd')
+const TYPE_TKHD = fourCC('tkhd')
+const TYPE_MDHD = fourCC('mdhd')
 const TYPE_XYZ = fourCC('\xa9xyz')
 const TYPE_NAM = fourCC('\xa9nam')
 const TYPE_DES = fourCC('\xa9des')
 const TYPE_CMT = fourCC('\xa9cmt')
 const TYPE_TOO = fourCC('\xa9too')
 const TYPE_DAY = fourCC('\xa9day')
+
+/** Seconds from 1904-01-01 to 1970-01-01 (QuickTime / MP4 epoch). */
+export const MP4_MAC_EPOCH_OFFSET = 2_082_844_800
 
 /**
  * Append Nero chapters (`chpl`), QuickTime text tags (`©nam` / `©des` /
@@ -46,7 +56,20 @@ function injectMp4MetadataInner(buffer: ArrayBuffer, input: Mp4MetadataInput): A
   const comment = optionalText(input.comment)
   const encoder = optionalText(input.encoder)
   const date = optionalText(input.date)
-  if (!hasChapters && !location && !title && !description && !comment && !encoder && !date) {
+  const creationTimeMs =
+    typeof input.creationTimeMs === 'number' && Number.isFinite(input.creationTimeMs)
+      ? input.creationTimeMs
+      : null
+  if (
+    !hasChapters &&
+    !location &&
+    !title &&
+    !description &&
+    !comment &&
+    !encoder &&
+    !date &&
+    creationTimeMs === null
+  ) {
     return buffer
   }
 
@@ -72,17 +95,70 @@ function injectMp4MetadataInner(buffer: ArrayBuffer, input: Mp4MetadataInput): A
   if (encoder) children.push(buildUdtaStringBox(TYPE_TOO, encoder))
   if (date) children.push(buildUdtaStringBox(TYPE_DAY, date))
   if (location) children.push(buildXyzBox(location.lat, location.lng))
-  if (children.length === 0) return buffer
 
-  const udta = wrapBox(TYPE_UDTA, concat(children))
-  const newMoovSize = moov.size + udta.byteLength
-  if (newMoovSize > 0xffff_ffff) return buffer
-
-  const out = new Uint8Array(bytes.byteLength + udta.byteLength)
-  out.set(bytes, 0)
-  writeU32(out, moov.offset, newMoovSize)
-  out.set(udta, bytes.byteLength)
+  let out: Uint8Array
+  if (children.length > 0) {
+    const udta = wrapBox(TYPE_UDTA, concat(children))
+    const newMoovSize = moov.size + udta.byteLength
+    if (newMoovSize > 0xffff_ffff) return buffer
+    out = new Uint8Array(bytes.byteLength + udta.byteLength)
+    out.set(bytes, 0)
+    writeU32(out, moov.offset, newMoovSize)
+    out.set(udta, bytes.byteLength)
+  } else {
+    out = new Uint8Array(bytes)
+  }
+  if (creationTimeMs !== null) patchCreationTimes(out, moov, creationTimeMs)
   return out.buffer
+}
+
+/**
+ * Rewrite movie/track/media creation + modification times so Photos libraries
+ * sort the file by capture time instead of export time.
+ */
+function patchCreationTimes(bytes: Uint8Array, moov: BoxInfo, unixMs: number): void {
+  const macTime = Math.floor(unixMs / 1000) + MP4_MAC_EPOCH_OFFSET
+  if (macTime < 0 || macTime > 0xffff_ffff) return
+  const kids = listBoxes(bytes, moov.offset + moov.headerSize, moov.offset + moov.size)
+  for (const box of kids) {
+    if (box.type === TYPE_MVHD) {
+      patchHeaderTimestamps(bytes, box, macTime)
+      continue
+    }
+    if (box.type !== TYPE_TRAK) continue
+    const trakKids = listBoxes(bytes, box.offset + box.headerSize, box.offset + box.size)
+    for (const trakKid of trakKids) {
+      if (trakKid.type === TYPE_TKHD) patchHeaderTimestamps(bytes, trakKid, macTime)
+      if (trakKid.type !== TYPE_MDIA) continue
+      const mdiaKids = listBoxes(
+        bytes,
+        trakKid.offset + trakKid.headerSize,
+        trakKid.offset + trakKid.size,
+      )
+      for (const mdiaKid of mdiaKids) {
+        if (mdiaKid.type === TYPE_MDHD) patchHeaderTimestamps(bytes, mdiaKid, macTime)
+      }
+    }
+  }
+}
+
+function patchHeaderTimestamps(bytes: Uint8Array, box: BoxInfo, macTime: number): void {
+  const payload = box.offset + box.headerSize
+  if (payload + 5 > bytes.byteLength) return
+  const version = bytes[payload]
+  if (version === 0) {
+    if (payload + 12 > bytes.byteLength) return
+    writeU32(bytes, payload + 4, macTime)
+    writeU32(bytes, payload + 8, macTime)
+    return
+  }
+  if (version === 1) {
+    if (payload + 20 > bytes.byteLength) return
+    writeU32(bytes, payload + 4, 0)
+    writeU32(bytes, payload + 8, macTime)
+    writeU32(bytes, payload + 12, 0)
+    writeU32(bytes, payload + 16, macTime)
+  }
 }
 
 /**
@@ -157,24 +233,28 @@ interface BoxInfo {
 }
 
 function listTopLevelBoxes(bytes: Uint8Array): BoxInfo[] {
+  return listBoxes(bytes, 0, bytes.byteLength)
+}
+
+function listBoxes(bytes: Uint8Array, start: number, end: number): BoxInfo[] {
   const boxes: BoxInfo[] = []
-  let offset = 0
-  while (offset + 8 <= bytes.byteLength) {
-    const view = new DataView(bytes.buffer, bytes.byteOffset + offset, bytes.byteLength - offset)
+  let offset = start
+  while (offset + 8 <= end) {
+    const view = new DataView(bytes.buffer, bytes.byteOffset + offset, end - offset)
     let size = view.getUint32(0)
     const type = view.getUint32(4)
     let headerSize = 8
     if (size === 1) {
-      if (offset + 16 > bytes.byteLength) break
+      if (offset + 16 > end) break
       // Large-size boxes are unused by our muxer; treat as unreadable.
       const large = Number(view.getBigUint64(8))
       if (!Number.isSafeInteger(large) || large < 16) break
       size = large
       headerSize = 16
     } else if (size === 0) {
-      size = bytes.byteLength - offset
+      size = end - offset
     }
-    if (size < headerSize || offset + size > bytes.byteLength) break
+    if (size < headerSize || offset + size > end) break
     boxes.push({ offset, size, type, headerSize })
     offset += size
   }

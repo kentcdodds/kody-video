@@ -2,6 +2,13 @@
 
 Kody Video is a mobile-first, on-device PWA "clips camera": hold to record clips, arrange/trim them on a filmstrip timeline, then export/share one video file (see `README.md` for architecture).
 
+## Shipping
+
+Ship ready PRs by default: once CI is green and Bugbot is clear (valid
+feedback addressed), squash-merge and watch the deploy. Do not wait for a
+separate "Go" unless the change is high-risk or the user pauses. CodeRabbit
+rate-limits do not block. Follow `.cursor/skills/ship-pr/SKILL.md`.
+
 ## Cursor Cloud specific instructions
 
 Contributor and cloud-agent docs live in `docs/contribute/`:

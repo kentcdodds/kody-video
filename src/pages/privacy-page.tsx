@@ -90,8 +90,10 @@ export function PrivacyPage() {
             <a href="https://kody.video">kody.video</a>), and note how many clips (and photos, and
             whether there is music) made the film. The title is whatever you named the project — it
             can identify a person, place, or event if you put that in the name. Automatically
-            captured coordinates, filming dates, and chapter coordinates stay out of the file
-            unless you turn on the Plus option to include clip locations.
+            captured coordinates, filming dates inside the MP4, and chapter coordinates stay out
+            of the file unless you turn on the Plus option to include clip locations. Share and
+            Save still stamp the file&rsquo;s last-modified time from the last clip so photo
+            libraries (including Synology Photos) can sort by when you filmed.
           </p>
         </section>
 
