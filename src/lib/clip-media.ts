@@ -9,6 +9,21 @@ export interface SlicedClipMedia {
   height?: number
 }
 
+/** MP4-family sources (phone camera-roll .mov / .m4v included) must stay
+ * MP4 — Safari often cannot encode those bitstreams into WebM. */
+export function outputMimeForClipMedia(mimeType: string): 'video/mp4' | 'video/webm' {
+  const lower = mimeType.toLowerCase()
+  if (
+    lower.includes('mp4') ||
+    lower.includes('quicktime') ||
+    lower.includes('m4v') ||
+    lower.includes('x-m4v')
+  ) {
+    return 'video/mp4'
+  }
+  return 'video/webm'
+}
+
 /**
  * Re-mux (or transcode) a time range of a video blob into a new file.
  * Used to permanently drop unused trim and to split a clip into two files.
@@ -17,6 +32,7 @@ export async function sliceClipMedia(
   blob: Blob,
   startMs: number,
   endMs: number,
+  mimeHint?: string,
 ): Promise<SlicedClipMedia> {
   const start = Math.max(0, startMs)
   const end = Math.max(start + MIN_SLICE_MS, endMs)
@@ -29,9 +45,9 @@ export async function sliceClipMedia(
 
   const input = new Input({ source: new BlobSource(blob), formats: ALL_FORMATS })
   try {
-    const preferMp4 = (blob.type || '').toLowerCase().includes('mp4')
+    const mimeType = outputMimeForClipMedia(blob.type || mimeHint || '')
+    const preferMp4 = mimeType === 'video/mp4'
     const target = new BufferTarget()
-    const mimeType = preferMp4 ? 'video/mp4' : 'video/webm'
     const output = new Output({
       format: preferMp4 ? new Mp4OutputFormat({ fastStart: 'in-memory' }) : new WebMOutputFormat(),
       target,
