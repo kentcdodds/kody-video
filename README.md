@@ -134,9 +134,11 @@ made. A separate Plus-only export toggle adds coordinates to chapter titles, a
 (within 5 km), falling back to the last located clip, and a capture timestamp
 (`©day` plus `mvhd`/`tkhd` creation_time) from the last timeline video that
 has one — so a Photos library can place the film on the right day and map pin.
-WebM exports skip this injection (the WebM subset of Matroska excludes
-chapters). Clips recorded before this feature simply lack the data and degrade
-gracefully.
+Share and Save also stamp `File.lastModified` from that same last-clip time
+(Web Share copies it onto the filesystem created/modified dates). Synology
+Photos sorts by those file dates rather than the MP4 atoms. WebM exports skip
+this injection (the WebM subset of Matroska excludes chapters). Clips recorded
+before this feature simply lack the data and degrade gracefully.
 
 ### Export pipeline
 

@@ -88,8 +88,11 @@ export function PrivacyPage() {
             Exported or shared files leave the device only when you share or save them yourself.
             MP4 exports always credit Kody Video (<a href="https://kody.video">kody.video</a>) and
             note how many clips (and photos, and whether there is music) made the film. That
-            credit is not personal information. Location, filming dates, and chapter coordinates
-            stay out of the file unless you turn on the Plus option to include clip locations.
+            credit is not personal information. Location, filming dates inside the MP4, and
+            chapter coordinates stay out of the file unless you turn on the Plus option to
+            include clip locations. Share and Save still stamp the file&rsquo;s last-modified
+            time from the last clip so photo libraries (including Synology Photos) can sort by
+            when you filmed.
           </p>
         </section>
 
