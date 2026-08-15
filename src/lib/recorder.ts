@@ -212,11 +212,11 @@ export class HoldRecorder {
       window.clearTimeout(this.recycleTimer)
       this.recycleTimer = 0
       this.stopDummy()
-      // Only count pre-roll once the encoder-startup hole is behind us.
-      // A just-created session is a cold take (takeStartedAt unset).
-      if (performance.now() - adopted.startedAt >= WARMUP_MS) {
-        adopted.takeStartedAt = performance.now()
-      }
+      // Always stamp the press. A young session may still contain the
+      // startup hole, but take length must be press→release — otherwise a
+      // 40ms tap on a 200ms-old warm session looks like a 240ms take and
+      // is saved.
+      adopted.takeStartedAt = performance.now()
       this.session = adopted
       return true
     }
