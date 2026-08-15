@@ -524,7 +524,6 @@ export function EditorScreen(handle: Handle<EditorScreenProps>) {
               }}
               onDone={async (splitMs) => {
                 const { second } = await splitSelectedClip(selected.id, splitMs)
-                selectedClipId = second.id
                 previewApi.current?.pause()
                 try {
                   await props.refresh()
@@ -533,9 +532,10 @@ export function EditorScreen(handle: Handle<EditorScreenProps>) {
                   reportError(err, 'refresh-after-split')
                   props.showToast('Clip split, but the timeline could not refresh')
                 } finally {
-                  // Stay on the strip until refresh settles so the timeline
-                  // never flashes the pre-split list. Do not throw after a
-                  // successful cut — that would re-enable Split on the leftover.
+                  // Keep selection on the source clip (same id as the left
+                  // half) until we leave the strip, so SplitStrip does not
+                  // remount onto the new right half with saving reset.
+                  selectedClipId = second.id
                   setSplitting(false)
                 }
               }}
