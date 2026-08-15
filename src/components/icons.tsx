@@ -153,6 +153,18 @@ export function IconTrim(handle: Handle<IconProps>) {
   )
 }
 
+/** Scissors: split one clip into two. */
+export function IconSplit(handle: Handle<IconProps>) {
+  return () => (
+    <svg {...baseProps(handle.props.size ?? 22)}>
+      <circle cx="6.5" cy="6.5" r="2.25" />
+      <circle cx="6.5" cy="17.5" r="2.25" />
+      <path d="M8.4 7.8L20 18" />
+      <path d="M8.4 16.2L20 6" />
+    </svg>
+  )
+}
+
 export function IconChevronLeft(handle: Handle<IconProps>) {
   return () => (
     <svg {...baseProps(handle.props.size ?? 22)}>

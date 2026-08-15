@@ -1,3 +1,4 @@
+import { clipDownloadFilename } from './clip-facts'
 import { isMobileBrowser } from './platform'
 import type { ClipRecord } from './types'
 import { VIDEO_LONG_EDGE, VIDEO_SHORT_EDGE } from './video-quality'
@@ -486,9 +487,16 @@ export async function shareClipFile(
   projectName: string,
   index: number,
 ): Promise<'shared' | 'downloaded' | 'cancelled'> {
-  const ext = clip.mimeType.includes('mp4') ? 'mp4' : 'webm'
-  const filename = `${slugify(projectName)}-clip-${String(index + 1).padStart(2, '0')}.${ext}`
-  return shareOrDownload(clip.blob, filename)
+  return shareOrDownload(clip.blob, clipDownloadFilename(projectName, index, clip.mimeType))
+}
+
+/** Save a single clip to the device (no share sheet). */
+export async function downloadClipFile(
+  clip: ClipRecord,
+  projectName: string,
+  index: number,
+): Promise<void> {
+  await downloadBlob(clip.blob, clipDownloadFilename(projectName, index, clip.mimeType))
 }
 
 function slugify(value: string): string {
