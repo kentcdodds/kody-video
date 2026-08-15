@@ -2,9 +2,11 @@ import { describe, expect, it } from 'vitest'
 import {
   MIN_SLICE_MS,
   canSplitClip,
+  clampSplitMs,
   clipHasUnusedMedia,
   remapTrimToSlice,
   resolveSplitMs,
+  splitBounds,
 } from './clip-edit'
 
 const video = (trimStartMs: number, trimEndMs: number, durationMs = 2000) => ({
@@ -30,6 +32,33 @@ describe('canSplitClip', () => {
     expect(canSplitClip(video(0, MIN_SLICE_MS * 2 - 1))).toBe(false)
     expect(canSplitClip(video(0, MIN_SLICE_MS * 2))).toBe(true)
     expect(canSplitClip({ ...video(0, 2000), kind: 'image' })).toBe(false)
+  })
+})
+
+describe('splitBounds', () => {
+  it('keeps a MIN_SLICE_MS margin inside the kept window', () => {
+    expect(splitBounds(video(200, 1800))).toEqual({
+      start: 200,
+      end: 1800,
+      min: 300,
+      max: 1700,
+    })
+  })
+})
+
+describe('clampSplitMs', () => {
+  it('clamps into the legal cut range', () => {
+    expect(clampSplitMs(video(200, 1800), 900)).toBe(900)
+    expect(clampSplitMs(video(200, 1800), 200)).toBe(300)
+    expect(clampSplitMs(video(200, 1800), 1800)).toBe(1700)
+  })
+
+  it('falls back to the midpoint when the value is not finite', () => {
+    expect(clampSplitMs(video(200, 1800), Number.NaN)).toBe(1000)
+  })
+
+  it('falls back to the midpoint when no legal cut range exists', () => {
+    expect(clampSplitMs(video(0, MIN_SLICE_MS * 2 - 1), 50)).toBe((MIN_SLICE_MS * 2 - 1) / 2)
   })
 })
 

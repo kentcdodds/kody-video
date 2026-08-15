@@ -22,7 +22,8 @@ test.describe('clip info sheet', () => {
     await expect(sheet.getByText(/1\.5s/)).toBeVisible()
     await expect(sheet.getByText(/WebM/)).toBeVisible()
     await expect(sheet.getByRole('button', { name: 'Download' })).toBeVisible()
-    await expect(sheet.getByRole('button', { name: /split at/i })).toBeVisible()
+    await expect(sheet.getByRole('button', { name: 'Split clip' })).toBeVisible()
+    await expect(sheet.getByText(/handle on the filmstrip/i)).toBeVisible()
     await expect(sheet.getByRole('button', { name: 'Permanently trim' })).toBeDisabled()
   })
 
@@ -36,14 +37,58 @@ test.describe('clip info sheet', () => {
     expect(download.suggestedFilename()).toMatch(/facts-clip-01\.webm/)
   })
 
-  test('split turns one clip into two timeline tiles', async ({ page }) => {
+  test('split opens a filmstrip handle, then cuts at the chosen point', async ({ page }) => {
+    const clipMs = 4000
+    await openEditorWithClips(page, 1, clipMs)
+    const tiles = page.locator('.clip-thumb[data-clip-id]')
+    await expect(tiles).toHaveCount(1)
+    await openClipInfo(page)
+    await page.getByRole('button', { name: 'Split clip' }).click()
+    await expect(page.getByRole('dialog', { name: /clip \d+ info/i })).toBeHidden()
+
+    const strip = page.locator('.split-strip')
+    await expect(strip).toBeVisible()
+    await expect(strip.getByText(/drag the line/i)).toBeVisible()
+    const handle = strip.getByRole('slider', { name: 'Split point' })
+    await expect(handle).toBeVisible()
+
+    const preview = page.locator('.editor-clip-preview')
+    const previewTime = () => preview.evaluate((el) => (el as HTMLVideoElement).currentTime)
+    const track = await strip.locator('.trim-strip-track').boundingBox()
+    const handleBox = await handle.boundingBox()
+    if (!track || !handleBox) throw new Error('split geometry unavailable')
+    const y = handleBox.y + handleBox.height / 2
+    const xAt = (fraction: number) => track.x + track.width * fraction
+    await page.mouse.move(handleBox.x + handleBox.width / 2, y)
+    await page.mouse.down()
+    await page.mouse.move(xAt(0.25), y, { steps: 8 })
+    await expect.poll(previewTime).toBeGreaterThan(0.25 * (clipMs / 1000) - 0.25)
+    expect(await previewTime()).toBeLessThan(0.25 * (clipMs / 1000) + 0.25)
+    await page.mouse.up()
+
+    await strip.getByRole('button', { name: 'Split' }).click()
+    await expect(page.locator('.toast')).toContainText('Clip split', { timeout: 20_000 })
+    await expect(tiles).toHaveCount(2, { timeout: 20_000 })
+  })
+
+  test('canceling split leaves the timeline unchanged', async ({ page }) => {
     await openEditorWithClips(page, 1, 1600)
     const tiles = page.locator('.clip-thumb[data-clip-id]')
     await expect(tiles).toHaveCount(1)
     await openClipInfo(page)
-    await page.getByRole('button', { name: /split at/i }).click()
-    await expect(page.locator('.toast')).toContainText('Clip split', { timeout: 20_000 })
-    await expect(tiles).toHaveCount(2, { timeout: 20_000 })
+    await page.getByRole('button', { name: 'Split clip' }).click()
+    const strip = page.locator('.split-strip')
+    await expect(strip).toBeVisible()
+    await strip.getByRole('button', { name: 'Cancel' }).click()
+    await expect(strip).toBeHidden()
+    await expect(tiles).toHaveCount(1)
+
+    await openClipInfo(page)
+    await page.getByRole('button', { name: 'Split clip' }).click()
+    await expect(strip).toBeVisible()
+    await page.keyboard.press('Escape')
+    await expect(strip).toBeHidden()
+    await expect(tiles).toHaveCount(1)
   })
 
   test('permanently trim deletes unused media from the file', async ({ page }) => {

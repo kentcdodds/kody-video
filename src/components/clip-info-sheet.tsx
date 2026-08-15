@@ -1,9 +1,9 @@
 import type { Handle } from 'remix/ui'
 import { on, ref } from 'remix/ui'
-import { canSplitClip, clipHasUnusedMedia, resolveSplitMs } from '../lib/clip-edit'
+import { canSplitClip, clipHasUnusedMedia } from '../lib/clip-edit'
 import { buildClipFacts } from '../lib/clip-facts'
 import { attachSheetModal } from '../lib/sheet-modal'
-import { effectiveDurationMs, formatDuration, isImageClip, type ClipRecord } from '../lib/types'
+import { effectiveDurationMs, isImageClip, type ClipRecord } from '../lib/types'
 import { IconDownload, IconSplit, IconTrim } from './icons'
 
 interface ClipInfoSheetProps {
@@ -11,14 +11,13 @@ interface ClipInfoSheetProps {
   clips: ClipRecord[]
   index: number
   projectName: string
-  getPlayheadMs: () => number | null
   onPermanentlyTrim: () => Promise<void>
-  onSplit: (splitMs: number) => Promise<void>
+  onStartSplit: () => void
   onDownload: () => Promise<void>
   onClose: () => void
 }
 
-type BusyAction = 'trim' | 'split' | 'download' | null
+type BusyAction = 'trim' | 'download' | null
 
 /** Facts + destructive clip edits (permanent trim, split) and download. */
 export function ClipInfoSheet(handle: Handle<ClipInfoSheetProps>) {
@@ -43,7 +42,7 @@ export function ClipInfoSheet(handle: Handle<ClipInfoSheetProps>) {
   }
 
   return () => {
-    const { clip, clips, index, projectName, getPlayheadMs, onClose } = handle.props
+    const { clip, clips, index, projectName, onClose } = handle.props
     const filmDurationMs = clips.reduce((sum, item) => sum + effectiveDurationMs(item), 0)
     const facts = buildClipFacts(clip, {
       index,
@@ -53,7 +52,6 @@ export function ClipInfoSheet(handle: Handle<ClipInfoSheetProps>) {
     const photo = isImageClip(clip)
     const canTrim = clipHasUnusedMedia(clip)
     const canSplit = canSplitClip(clip)
-    const splitMs = canSplit ? resolveSplitMs(clip, getPlayheadMs()) : null
     const working = busy !== null
 
     return (
@@ -143,17 +141,12 @@ export function ClipInfoSheet(handle: Handle<ClipInfoSheetProps>) {
                 className="btn btn-ghost clip-info-action"
                 disabled={working || !canSplit}
                 mix={on('click', () => {
-                  if (!canSplit) return
-                  const liveSplitMs = resolveSplitMs(clip, handle.props.getPlayheadMs())
-                  void run('split', () => handle.props.onSplit(liveSplitMs))
+                  if (!canSplit || working) return
+                  handle.props.onStartSplit()
                 })}
               >
                 <IconSplit size={18} />
-                {busy === 'split'
-                  ? 'Splitting…'
-                  : splitMs !== null
-                    ? `Split at ${formatDuration(splitMs)}`
-                    : 'Split clip'}
+                Split clip
               </button>
             )}
             <button
@@ -177,11 +170,20 @@ export function ClipInfoSheet(handle: Handle<ClipInfoSheetProps>) {
           </div>
           {photo ? (
             <p className="clip-info-hint muted">Photos can be downloaded; trim and split are for video clips.</p>
-          ) : !canTrim && !confirmingTrim ? (
-            <p className="clip-info-hint muted">
-              Trim the clip first, then permanently delete the unused parts.
-            </p>
-          ) : null}
+          ) : confirmingTrim ? null : (
+            <>
+              {!canTrim ? (
+                <p className="clip-info-hint muted">
+                  Trim the clip first, then permanently delete the unused parts.
+                </p>
+              ) : null}
+              {canSplit ? (
+                <p className="clip-info-hint muted">
+                  Split opens a handle on the filmstrip so you can choose the cut.
+                </p>
+              ) : null}
+            </>
+          )}
         </div>
       </>
     )
