@@ -31,11 +31,11 @@ const STOP_GRACE_MS = 200
  * codec before the first take that cannot yet adopt a live session. */
 const WARMUP_MS = 400
 
-/** Bound warm-session memory: recycle the live encoder every few seconds
- * while idle so a long sit on the record screen does not accumulate a
- * multi-minute MP4 in RAM. The startup hole lands in the discarded
- * pre-roll of the new session. */
-const WARM_RECYCLE_MS = 8_000
+/** Bound warm-session memory: recycle the live encoder often enough that
+ * discarding a short tap does not have to flush a multi-second 1080p
+ * file. The startup hole lands in the discarded pre-roll of the new
+ * session. */
+const WARM_RECYCLE_MS = 1_500
 
 /** Release point on the media timeline: the media ends ~graceMs after the
  * release, so walk back from the measured end — never under the minimum
@@ -308,7 +308,8 @@ export class HoldRecorder {
         finishSession()
         reject(new Error('Recording failed'))
       }
-      const graceMs = options?.graceMs ?? STOP_GRACE_MS
+      const graceMs =
+        takeWallMs < MIN_TAKE_MS ? 0 : (options?.graceMs ?? STOP_GRACE_MS)
       let graceTimer = 0
       const fire = () => {
         window.clearTimeout(graceTimer)

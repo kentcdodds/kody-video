@@ -152,32 +152,14 @@ export function RecordScreen(handle: Handle<RecordScreenProps>) {
   // them as the first-take stutter right at recording start/stop.
   let warmIdleHandle = 0
   let warmTimerHandle = 0
-  let micArmInFlight = false
   const armEncoderIfPossible = () => {
     const stream = camera.getStream()
     if (!stream || !camera.isReady || recording || recorder.isRecording) return
-    if (stream.getAudioTracks().some((track) => track.readyState === 'live')) {
-      recorder.arm(stream)
-      return
-    }
-    if (micArmInFlight) {
-      recorder.warmUp(stream)
-      return
-    }
-    micArmInFlight = true
-    void camera
-      .enableMic()
-      .then(() => {
-        if (recording || recorder.isRecording) return
-        const live = camera.getStream()
-        if (live) recorder.arm(live)
-      })
-      .catch(() => {
-        recorder.warmUp(stream)
-      })
-      .finally(() => {
-        micArmInFlight = false
-      })
+    // Do not enableMic here: that belongs to the press (Android voice-to-text
+    // stays free while idle, and a render-time grant raced short taps).
+    // iOS and a still-warm post-take mic already have audio — arm those.
+    // Otherwise spin a video-only dummy so the hardware encoder is hot.
+    recorder.arm(stream)
   }
   const warmFirstTakePath = () => {
     warmMicMonitorContext()
