@@ -29,12 +29,15 @@ export function exportSignature(
   audio?: Pick<ProjectAudioRecord, 'tracks' | 'fadeIn' | 'fadeOut'> | null,
   orientation?: ProjectOrientation,
   includeLocation = false,
+  projectName = '',
 ): string {
   return JSON.stringify({
     watermarked,
     // Sign explicitly, including false, to invalidate legacy cached exports
     // that may contain location metadata before this privacy control existed.
     includeLocation,
+    // Title is written into the file; a rename must not reuse the old MP4.
+    projectName,
     // Only landscape signs (JSON drops undefined).
     orientation: orientation === 'landscape' ? 'landscape' : undefined,
     clips: clips.map((clip) => [

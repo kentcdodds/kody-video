@@ -41,9 +41,11 @@ export interface ExportOptions {
   /**
    * Include captured coordinates in MP4 metadata and chapter titles.
    * Default false so exports do not disclose location without an explicit
-   * Plus-user opt-in.
+   * Plus-user opt-in. When off, descriptive tags also omit filming dates.
    */
   includeLocation?: boolean
+  /** Project title written into MP4 `©nam` (and the export cache key). */
+  projectName?: string
   /** Background-music playlist mixed under the clips at their per-clip
    * volumes; tracks play one after the other until the film ends. */
   background?: BackgroundAudio | null
@@ -107,6 +109,7 @@ async function runExport(
         options.orientation,
         options.includeLocation === true,
         options.signal,
+        options.projectName ?? '',
       )
       reportSilentExportAudio({ engine: 'webcodecs', outputMime: result.mimeType })
       reportBlackExportVideo({ engine: 'webcodecs', outputMime: result.mimeType })

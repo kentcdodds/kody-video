@@ -6,17 +6,29 @@ export interface Mp4Chapter {
 export interface Mp4MetadataInput {
   chapters: Mp4Chapter[]
   location?: { lat: number; lng: number } | null
+  title?: string
+  description?: string
+  comment?: string
+  encoder?: string
+  /** `YYYY-MM-DD` filming/creation date (omit for public shares). */
+  date?: string
 }
 
 const TYPE_MOOV = fourCC('moov')
 const TYPE_UDTA = fourCC('udta')
 const TYPE_CHPL = fourCC('chpl')
 const TYPE_XYZ = fourCC('\xa9xyz')
+const TYPE_NAM = fourCC('\xa9nam')
+const TYPE_DES = fourCC('\xa9des')
+const TYPE_CMT = fourCC('\xa9cmt')
+const TYPE_TOO = fourCC('\xa9too')
+const TYPE_DAY = fourCC('\xa9day')
 
 /**
- * Append Nero chapters (`chpl`) and/or a QuickTime `©xyz` geotag under
- * `moov/udta`. Only safe when `moov` is the last top-level box (trailing moov
- * / no faststart) — otherwise returns the input unchanged.
+ * Append Nero chapters (`chpl`), QuickTime text tags (`©nam` / `©des` /
+ * `©cmt` / `©too` / `©day`), and/or a `©xyz` geotag under `moov/udta`.
+ * Only safe when `moov` is the last top-level box (trailing moov / no
+ * faststart) — otherwise returns the input unchanged.
  */
 export function injectMp4Metadata(buffer: ArrayBuffer, input: Mp4MetadataInput): ArrayBuffer {
   try {
@@ -29,7 +41,14 @@ export function injectMp4Metadata(buffer: ArrayBuffer, input: Mp4MetadataInput):
 function injectMp4MetadataInner(buffer: ArrayBuffer, input: Mp4MetadataInput): ArrayBuffer {
   const hasChapters = input.chapters.length > 0
   const location = input.location ?? null
-  if (!hasChapters && !location) return buffer
+  const title = optionalText(input.title)
+  const description = optionalText(input.description)
+  const comment = optionalText(input.comment)
+  const encoder = optionalText(input.encoder)
+  const date = optionalText(input.date)
+  if (!hasChapters && !location && !title && !description && !comment && !encoder && !date) {
+    return buffer
+  }
 
   const bytes = new Uint8Array(buffer)
   const top = listTopLevelBoxes(bytes)
@@ -47,6 +66,11 @@ function injectMp4MetadataInner(buffer: ArrayBuffer, input: Mp4MetadataInput): A
 
   const children: Uint8Array[] = []
   if (hasChapters) children.push(buildChplBox(input.chapters))
+  if (title) children.push(buildUdtaStringBox(TYPE_NAM, title))
+  if (description) children.push(buildUdtaStringBox(TYPE_DES, description))
+  if (comment) children.push(buildUdtaStringBox(TYPE_CMT, comment))
+  if (encoder) children.push(buildUdtaStringBox(TYPE_TOO, encoder))
+  if (date) children.push(buildUdtaStringBox(TYPE_DAY, date))
   if (location) children.push(buildXyzBox(location.lat, location.lng))
   if (children.length === 0) return buffer
 
@@ -95,14 +119,23 @@ function buildChplBox(chapters: Mp4Chapter[]): Uint8Array {
 
 /** QuickTime `©xyz`: u16 length, u16 language 0x15c7 (eng), ISO 6709 string. */
 function buildXyzBox(lat: number, lng: number): Uint8Array {
-  const text = formatIso6709(lat, lng)
-  const textBytes = new TextEncoder().encode(text)
+  return buildUdtaStringBox(TYPE_XYZ, formatIso6709(lat, lng))
+}
+
+/** QuickTime user-data text: u16 length, u16 language 0x15c7 (eng), UTF-8. */
+function buildUdtaStringBox(type: number, text: string): Uint8Array {
+  const textBytes = truncateUtf8(text, 0xffff)
   const payload = new Uint8Array(4 + textBytes.byteLength)
   const view = new DataView(payload.buffer)
   view.setUint16(0, textBytes.byteLength)
   view.setUint16(2, 0x15c7)
   payload.set(textBytes, 4)
-  return wrapBox(TYPE_XYZ, payload)
+  return wrapBox(type, payload)
+}
+
+function optionalText(value: string | undefined): string | null {
+  const trimmed = value?.trim() ?? ''
+  return trimmed ? trimmed : null
 }
 
 /** `+DD.DDDD+DDD.DDDD/` (signs always present, 4 decimal places). */
