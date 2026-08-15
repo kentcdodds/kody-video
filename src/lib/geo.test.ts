@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { deriveProjectLocation, haversineMeters } from './geo'
+import { deriveProjectLocation, haversineMeters, medianPoint } from './geo'
 
 describe('haversineMeters', () => {
   it('returns ~0 for identical points', () => {
@@ -13,6 +13,12 @@ describe('haversineMeters', () => {
     )
     expect(d).toBeGreaterThan(1000)
     expect(d).toBeLessThan(2000)
+  })
+})
+
+describe('medianPoint', () => {
+  it('rejects an empty list', () => {
+    expect(() => medianPoint([])).toThrow(RangeError)
   })
 })
 
@@ -32,7 +38,7 @@ describe('deriveProjectLocation', () => {
     })
   })
 
-  it('averages a tight city cluster', () => {
+  it('uses the median of a tight city cluster', () => {
     const points = [
       { lat: 37.7749, lng: -122.4194 },
       { lat: 37.7751, lng: -122.4192 },
@@ -40,33 +46,24 @@ describe('deriveProjectLocation', () => {
       { lat: 37.7750, lng: -122.4190 },
     ]
     const loc = deriveProjectLocation(points)
-    expect(loc).not.toBeNull()
-    const avgLat = points.reduce((s, p) => s + p.lat, 0) / points.length
-    const avgLng = points.reduce((s, p) => s + p.lng, 0) / points.length
-    expect(loc!.lat).toBeCloseTo(avgLat, 10)
-    expect(loc!.lng).toBeCloseTo(avgLng, 10)
+    expect(loc).toEqual(medianPoint(points))
   })
 
-  it('averages the majority cluster and excludes a far outlier', () => {
-    // Asymmetric so the result cannot accidentally equal the first clip alone.
+  it('uses the median of the majority cluster and excludes a far outlier', () => {
     const cluster = [
       { lat: 48.8566, lng: 2.3522 },
-      { lat: 48.8600, lng: 2.3600 },
-      { lat: 48.8500, lng: 2.3400 },
+      { lat: 48.86, lng: 2.36 },
+      { lat: 48.85, lng: 2.34 },
     ]
     const outlier = { lat: -33.8688, lng: 151.2093 } // Sydney
     const loc = deriveProjectLocation([...cluster, outlier])
-    expect(loc).not.toBeNull()
-    const avgLat = cluster.reduce((s, p) => s + p.lat, 0) / cluster.length
-    const avgLng = cluster.reduce((s, p) => s + p.lng, 0) / cluster.length
-    expect(loc!.lat).toBeCloseTo(avgLat, 10)
-    expect(loc!.lng).toBeCloseTo(avgLng, 10)
-    expect(loc).not.toEqual(cluster[0])
+    expect(loc).toEqual(medianPoint(cluster))
   })
 
-  it('falls back to the first geo clip when there is no majority cluster', () => {
+  it('falls back to the last geo clip when there is no majority cluster', () => {
     const first = { lat: 40.7128, lng: -74.006 } // NYC
     const second = { lat: 35.6762, lng: 139.6503 } // Tokyo
-    expect(deriveProjectLocation([first, second])).toEqual(first)
+    const third = { lat: -33.8688, lng: 151.2093 } // Sydney
+    expect(deriveProjectLocation([first, second, third])).toEqual(third)
   })
 })

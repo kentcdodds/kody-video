@@ -7,6 +7,8 @@ import {
   formatChapterTitle,
   formatClipMix,
   formatMetadataDuration,
+  formatQuickTimeDay,
+  lastCaptureTimeMs,
   locationForExport,
 } from './mp4-export-metadata'
 
@@ -112,10 +114,24 @@ describe('MP4 export descriptive metadata', () => {
       includeLocation: true,
     })
 
-    expect(tags.date).toBe('2026-08-08')
+    expect(tags.creationTimeMs).toBe(laterDay.createdAt)
+    expect(tags.date).toBe(formatQuickTimeDay(laterDay.createdAt))
     expect(tags.description).toContain('Filmed 2026-08-08 – 2026-08-09')
     expect(tags.comment).toBe('2 clips · 6s · kody.video')
     expect(tags.comment).not.toContain('2026-08-08')
+  })
+
+  it('uses the last timeline video for created-at, skipping a trailing photo', () => {
+    const lastVideo = {
+      ...video,
+      createdAt: new Date(2026, 7, 8, 16, 0).getTime(),
+    }
+    const trailingPhoto = {
+      ...photo,
+      createdAt: new Date(2026, 7, 10, 12, 0).getTime(),
+    }
+    expect(lastCaptureTimeMs([video, lastVideo, trailingPhoto])).toBe(lastVideo.createdAt)
+    expect(lastCaptureTimeMs([photo, trailingPhoto])).toBe(trailingPhoto.createdAt)
   })
 
   it('falls back to a generic title and never treats empty names as identifying', () => {

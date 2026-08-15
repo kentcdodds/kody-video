@@ -19,13 +19,14 @@ export function haversineMeters(
 }
 
 /**
- * Pick a single project geotag from clip coordinates.
+ * Pick a single project geotag from clip coordinates (timeline order).
  *
  * 1. Collect points with both lat and lng.
  * 2. For each point as a seed, form the subset within 5 km (haversine).
  * 3. Keep the largest such subset (stable on ties: first seed wins).
- * 4. If that subset is a majority (≥ 50%) of geo points, return its average;
- *    otherwise return the first geo clip's coordinates.
+ * 4. If that subset is a majority (≥ 50%) of geo points, return its
+ *    component-wise median (Photos-friendly pin, outlier-resistant);
+ *    otherwise return the last geo clip's coordinates.
  *
  * Seeding (vs a single global centroid) is required so a far outlier cannot
  * yank the centroid outside the dense cluster and erase the majority.
@@ -58,11 +59,26 @@ export function deriveProjectLocation(
   const aroundCentroid = points.filter((p) => haversineMeters(p, centroid) <= CLUSTER_RADIUS_M)
   if (aroundCentroid.length > best.length) best = aroundCentroid
 
-  if (best.length * 2 >= points.length) {
-    return {
-      lat: best.reduce((sum, p) => sum + p.lat, 0) / best.length,
-      lng: best.reduce((sum, p) => sum + p.lng, 0) / best.length,
-    }
+  if (best.length * 2 >= points.length) return medianPoint(best)
+  const last = points[points.length - 1]
+  return { lat: last.lat, lng: last.lng }
+}
+
+/** Independent median of lat and lng — the typical pin for a tight cluster. */
+export function medianPoint(
+  points: { lat: number; lng: number }[],
+): { lat: number; lng: number } {
+  if (points.length === 0) {
+    throw new RangeError('Expected at least one point')
   }
-  return { lat: points[0].lat, lng: points[0].lng }
+  return {
+    lat: medianNumber(points.map((p) => p.lat)),
+    lng: medianNumber(points.map((p) => p.lng)),
+  }
+}
+
+function medianNumber(values: number[]): number {
+  const sorted = [...values].sort((a, b) => a - b)
+  const mid = Math.floor(sorted.length / 2)
+  return sorted.length % 2 === 0 ? (sorted[mid - 1] + sorted[mid]) / 2 : sorted[mid]
 }
