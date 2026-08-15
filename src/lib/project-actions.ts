@@ -5,6 +5,7 @@ import {
   deleteClip,
   deleteProjectIfPristine,
   duplicateClip,
+  getClip,
   getClipsForProject,
   getProject,
   getProjectAudio,
@@ -13,6 +14,7 @@ import {
   listProjects,
   moveClip,
   removeProjectAudioTrack,
+  replaceClipMedia,
   setLastOpenedProjectId,
   setProjectOrientation,
   undoDeleteLastClip,
@@ -29,9 +31,11 @@ import { probeAudioFile } from './audio-import'
 import { estimateExportCacheBytes } from './export/export-cache'
 import { estimateStorageSpace, type StorageSpace } from './storage-space'
 import type { GeneratedThumbs } from './thumbs'
+import { canSplitClip, clipHasUnusedMedia, remapTrimToSlice, resolveSplitMs } from './clip-edit'
 import {
   NEW_PROJECT_ID,
   effectiveDurationMs,
+  isImageClip,
   type ClipId,
   type ClipRecord,
   type Project,
@@ -326,6 +330,90 @@ export async function trimClip(
   trimEndMs: number,
 ): Promise<void> {
   await updateClipTrim(clipId, trimStartMs, trimEndMs)
+}
+
+/** Bake the saved trim into the file and drop the unused head/tail. */
+export async function permanentlyTrimClip(clipId: ClipId): Promise<ClipRecord> {
+  const clip = await getClip(clipId)
+  if (!clip) throw new Error('Clip not found')
+  if (isImageClip(clip)) throw new Error('Photos have no unused video to delete')
+  if (!clipHasUnusedMedia(clip)) throw new Error('This clip is already kept in full')
+
+  const startMs = Math.max(0, clip.trimStartMs)
+  const endMs = Math.min(clip.trimEndMs, clip.durationMs)
+  const { sliceClipMedia } = await import('./clip-media')
+  const sliced = await sliceClipMedia(clip.blob, startMs, endMs)
+  const updated = await replaceClipMedia(clipId, {
+    blob: sliced.blob,
+    mimeType: sliced.mimeType,
+    durationMs: sliced.durationMs,
+    width: sliced.width ?? clip.width,
+    height: sliced.height ?? clip.height,
+  })
+  await clearUndo(clip.projectId)
+  return decorateSlicedClip(updated)
+}
+
+/** Cut the clip into two timeline pieces at the playhead (or kept midpoint). */
+export async function splitSelectedClip(
+  clipId: ClipId,
+  playheadMs: number | null,
+): Promise<{ first: ClipRecord; second: ClipRecord }> {
+  const clip = await getClip(clipId)
+  if (!clip) throw new Error('Clip not found')
+  if (!canSplitClip(clip)) throw new Error('This clip is too short to split')
+
+  const splitMs = resolveSplitMs(clip, playheadMs)
+  const { sliceClipMedia } = await import('./clip-media')
+  const [left, right] = await Promise.all([
+    sliceClipMedia(clip.blob, 0, splitMs),
+    sliceClipMedia(clip.blob, splitMs, clip.durationMs),
+  ])
+
+  const firstTrim = remapTrimToSlice(clip, 0, left.durationMs)
+  const secondTrim = remapTrimToSlice(clip, splitMs, right.durationMs)
+
+  const first = await replaceClipMedia(clipId, {
+    blob: left.blob,
+    mimeType: left.mimeType,
+    durationMs: left.durationMs,
+    trimStartMs: firstTrim.trimStartMs,
+    trimEndMs: firstTrim.trimEndMs,
+    width: left.width ?? clip.width,
+    height: left.height ?? clip.height,
+  })
+  const second = await addClip({
+    projectId: clip.projectId,
+    blob: right.blob,
+    mimeType: right.mimeType,
+    durationMs: right.durationMs,
+    trimEndMs: secondTrim.trimEndMs,
+    width: right.width ?? clip.width,
+    height: right.height ?? clip.height,
+    createdAt: clip.createdAt,
+    afterClipId: clip.id,
+    clipVolume: clip.clipVolume,
+    musicVolume: clip.musicVolume,
+    lat: clip.lat,
+    lng: clip.lng,
+    locationAccuracyM: clip.locationAccuracyM,
+  })
+  if (secondTrim.trimStartMs > 0) {
+    await updateClipTrim(second.id, secondTrim.trimStartMs, secondTrim.trimEndMs)
+    second.trimStartMs = secondTrim.trimStartMs
+    second.trimEndMs = secondTrim.trimEndMs
+  }
+  await clearUndo(clip.projectId)
+  return {
+    first: await decorateSlicedClip(first),
+    second: await decorateSlicedClip(second),
+  }
+}
+
+async function decorateSlicedClip(clip: ClipRecord): Promise<ClipRecord> {
+  const { ensureClipThumbs } = await import('./thumbs')
+  const { ensureClipAudioPeak } = await import('./clip-audio-peak')
+  return ensureClipAudioPeak(await ensureClipThumbs(clip))
 }
 
 /** Set a photo clip's on-screen duration (can grow as well as shrink). */

@@ -691,6 +691,75 @@ export async function updateClipThumbs(clipId: ClipId, input: ClipThumbsInput): 
   await completeTransaction([tx.store.put(updated)], tx)
 }
 
+export interface ReplaceClipMediaInput {
+  blob: Blob
+  mimeType: string
+  durationMs: number
+  trimStartMs?: number
+  trimEndMs?: number
+  width?: number
+  height?: number
+}
+
+/**
+ * Replace a clip's stored media (permanent trim / split). Thumbs, poster,
+ * and audio-peak are cleared so the next hydrate rebuilds them for the
+ * new bytes. Trim defaults to the full new duration.
+ */
+export async function replaceClipMedia(
+  clipId: ClipId,
+  input: ReplaceClipMediaInput,
+): Promise<ClipRecord> {
+  const durableBlob = await toStoredBlob(input.blob, input.mimeType)
+  const durationMs = Math.max(0, Math.round(input.durationMs))
+  const start = Math.max(0, Math.min(input.trimStartMs ?? 0, durationMs))
+  const end = Math.max(start, Math.min(input.trimEndMs ?? durationMs, durationMs))
+
+  const db = await getDb()
+  const tx = db.transaction(['clips', 'projects'], 'readwrite')
+  const clip = await tx.objectStore('clips').get(clipId)
+  if (!clip) {
+    await tx.done.catch(() => undefined)
+    throw new Error('Clip not found')
+  }
+  const project = await tx.objectStore('projects').get(clip.projectId)
+  if (!project) {
+    await tx.done.catch(() => undefined)
+    throw new Error('Project not found')
+  }
+
+  const updated: ClipRecord = {
+    id: clip.id,
+    projectId: clip.projectId,
+    mimeType: input.mimeType,
+    durationMs,
+    trimStartMs: start,
+    trimEndMs: end,
+    createdAt: clip.createdAt,
+    blob: durableBlob,
+    ...(clip.kind ? { kind: clip.kind } : {}),
+    width: input.width ?? clip.width,
+    height: input.height ?? clip.height,
+    ...(clip.lat !== undefined ? { lat: clip.lat } : {}),
+    ...(clip.lng !== undefined ? { lng: clip.lng } : {}),
+    ...(clip.locationAccuracyM !== undefined ? { locationAccuracyM: clip.locationAccuracyM } : {}),
+    ...(clip.clipVolume !== undefined ? { clipVolume: clip.clipVolume } : {}),
+    ...(clip.musicVolume !== undefined ? { musicVolume: clip.musicVolume } : {}),
+  }
+
+  await completeTransaction(
+    [
+      tx.objectStore('clips').put(updated),
+      tx.objectStore('projects').put({
+        ...project,
+        updatedAt: Date.now(),
+      }),
+    ],
+    tx,
+  )
+  return updated
+}
+
 export async function updateClipTrim(
   clipId: ClipId,
   trimStartMs: number,

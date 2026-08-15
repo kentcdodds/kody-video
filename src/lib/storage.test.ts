@@ -38,6 +38,7 @@ import {
   updateClipVolumes,
   updateProjectAudioTrack,
   updateClipTrim,
+  replaceClipMedia,
 } from './storage'
 import { markWatermarkRemoved } from './entitlement'
 import {
@@ -447,6 +448,43 @@ describe('storage layer', () => {
     expect(await getClip(copy.id)).toBeTruthy()
     clips = await getClipsForProject(project.id)
     expect(clips.map((c) => c.id)).toEqual([c2.id, copy.id, c1.id])
+  })
+
+  it('replaceClipMedia swaps the blob and resets thumbs and trim', async () => {
+    const project = await createProject('Bake trim')
+    const clip = await addClip({
+      projectId: project.id,
+      blob: fakeBlob('full'),
+      mimeType: 'video/webm',
+      durationMs: 2000,
+      lat: 1,
+      lng: 2,
+      clipVolume: 0.4,
+    })
+    await updateClipTrim(clip.id, 250, 1500)
+    await updateClipThumbs(clip.id, {
+      thumbs: [fakeBlob('thumb')],
+      poster: fakeBlob('poster'),
+      thumbWidth: 80,
+      thumbHeight: 140,
+    })
+
+    const replaced = await replaceClipMedia(clip.id, {
+      blob: fakeBlob('cut'),
+      mimeType: 'video/webm',
+      durationMs: 1250,
+      width: 320,
+      height: 568,
+    })
+    expect(replaced.durationMs).toBe(1250)
+    expect(replaced.trimStartMs).toBe(0)
+    expect(replaced.trimEndMs).toBe(1250)
+    expect(replaced.thumbs).toBeUndefined()
+    expect(replaced.poster).toBeUndefined()
+    expect(replaced.audioPeak).toBeUndefined()
+    expect(replaced.lat).toBe(1)
+    expect(replaced.clipVolume).toBe(0.4)
+    expect(await replaced.blob.text()).toBe('cut')
   })
 
   it('inserts a clip after a chosen neighbor instead of appending', async () => {

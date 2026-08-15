@@ -6,12 +6,15 @@ import {
   duplicateSelectedClip,
   importDeviceClips,
   moveSelectedClip,
+  permanentlyTrimClip,
   removeClip,
   setAudioTrackSettings,
   setClipDuration,
+  splitSelectedClip,
   trimClip,
   undoLastDelete,
 } from '../lib/project-actions'
+import { downloadClipFile } from '../lib/media'
 import {
   effectiveDurationMs,
   formatDuration,
@@ -24,6 +27,7 @@ import {
 } from '../lib/types'
 import { AudioDetailStrip } from './audio-detail-strip'
 import { AudioStrip } from './audio-strip'
+import { ClipInfoSheet } from './clip-info-sheet'
 import { EditorClipPreview, type EditorClipPreviewHandle } from './editor-clip-preview'
 import {
   IconBack,
@@ -73,6 +77,7 @@ export function EditorScreen(handle: Handle<EditorScreenProps>) {
   /** Track whose detail view (trim, level, fades) is open — the audio
    * counterpart of `trimming`. */
   let editingTrackId: string | null = null
+  let clipInfoOpen = false
   let importing = false
   /** Clips persisted but not yet in props.clips (refresh still in flight). */
   let optimisticAdds: { clip: ClipRecord; afterId: ClipId | null }[] = []
@@ -228,7 +233,10 @@ export function EditorScreen(handle: Handle<EditorScreenProps>) {
     const selected = clips.find((c) => c.id === resolvedSelectedId) ?? null
     const selectedIndex = selected ? clips.findIndex((c) => c.id === selected.id) : -1
     if (event.code === 'Escape') {
-      if (trimming) {
+      if (clipInfoOpen) {
+        clipInfoOpen = false
+        void handle.update()
+      } else if (trimming) {
         previewApi.current?.pause()
         setTrimming(false)
       } else if (editingTrackId) {
@@ -238,7 +246,7 @@ export function EditorScreen(handle: Handle<EditorScreenProps>) {
       }
       return
     }
-    if (trimming || editingTrackId) return
+    if (trimming || editingTrackId || clipInfoOpen) return
     switch (event.code) {
       case 'ArrowLeft':
       case 'ArrowRight': {
@@ -427,6 +435,15 @@ export function EditorScreen(handle: Handle<EditorScreenProps>) {
               clips={clips}
               audio={props.audio}
               apiRef={previewApi}
+              onInfoClick={
+                trimming || editingTrack
+                  ? undefined
+                  : () => {
+                      previewApi.current?.pause()
+                      clipInfoOpen = true
+                      void handle.update()
+                    }
+              }
             />
           ) : (
             <div className="editor-empty-preview">Select a clip in the timeline</div>
@@ -619,6 +636,38 @@ export function EditorScreen(handle: Handle<EditorScreenProps>) {
             <kbd>D</kbd> duplicate · <kbd>⌫</kbd> delete · <kbd>P</kbd> play · <kbd>Esc</kbd> camera
           </div>
         </div>
+
+        {clipInfoOpen && selected ? (
+          <ClipInfoSheet
+            clip={selected}
+            clips={clips}
+            index={selectedIndex}
+            projectName={project.name}
+            getPlayheadMs={() => previewApi.current?.getCurrentTimeMs() ?? null}
+            onPermanentlyTrim={async () => {
+              const updated = await permanentlyTrimClip(selected.id)
+              clipInfoOpen = false
+              selectedClipId = updated.id
+              await props.refresh()
+              props.showToast('Unused parts deleted')
+            }}
+            onSplit={async (splitMs) => {
+              const { second } = await splitSelectedClip(selected.id, splitMs)
+              clipInfoOpen = false
+              selectedClipId = second.id
+              await props.refresh()
+              props.showToast('Clip split')
+            }}
+            onDownload={async () => {
+              await downloadClipFile(selected, project.name, selectedIndex)
+              props.showToast('Clip downloaded')
+            }}
+            onClose={() => {
+              clipInfoOpen = false
+              void handle.update()
+            }}
+          />
+        ) : null}
       </div>
     )
   }

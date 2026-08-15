@@ -17,7 +17,7 @@ import {
 } from '../lib/preview-music-bed'
 import { BlobImage } from './blob-image'
 import { BlobVideo } from './blob-video'
-import { IconPause, IconPlay } from './icons'
+import { IconInfo, IconPause, IconPlay } from './icons'
 import {
   clipMusicVolume,
   clipSoundVolume,
@@ -33,6 +33,7 @@ const MIX_GLIDE_TAU_MS = 200
 export interface EditorClipPreviewHandle {
   seekToMs: (timeMs: number) => void
   pause: () => void
+  getCurrentTimeMs: () => number
 }
 
 interface EditorClipPreviewProps {
@@ -44,6 +45,8 @@ interface EditorClipPreviewProps {
   /** Background-music playlist (null when none / not unlocked). */
   audio: ProjectAudioRecord | null
   apiRef?: { current: EditorClipPreviewHandle | null }
+  /** Timeline view: open the clip info sheet from the preview corner. */
+  onInfoClick?: () => void
 }
 
 function nudgeFrame(video: HTMLVideoElement): void {
@@ -72,7 +75,11 @@ export function EditorClipPreview(handle: Handle<EditorClipPreviewProps>) {
     const bindImage = (_node: Element, signal: AbortSignal) => {
       const apiRef = props.apiRef
       if (!apiRef) return
-      const api = { seekToMs: () => undefined, pause: () => undefined }
+      const api = {
+        seekToMs: () => undefined,
+        pause: () => undefined,
+        getCurrentTimeMs: () => 0,
+      }
       apiRef.current = api
       signal.addEventListener('abort', () => {
         // A remount may bind the replacement before this abort runs —
@@ -88,6 +95,7 @@ export function EditorClipPreview(handle: Handle<EditorClipPreviewProps>) {
           alt="Selected photo"
           mix={ref(bindImage)}
         />
+        {props.onInfoClick ? <PreviewInfoButton onClick={props.onInfoClick} /> : null}
       </div>
     )
   }
@@ -448,6 +456,7 @@ export function EditorClipPreview(handle: Handle<EditorClipPreviewProps>) {
         el.pause()
         setPlaying(false)
       },
+      getCurrentTimeMs: () => (media?.currentTime ?? 0) * 1000,
     }
     signal.addEventListener('abort', () => {
       // A remount (remountKey change) may bind the replacement element
@@ -570,7 +579,24 @@ export function EditorClipPreview(handle: Handle<EditorClipPreviewProps>) {
         >
           {playing ? <IconPause size={18} /> : <IconPlay size={18} />}
         </button>
+        {props.onInfoClick ? <PreviewInfoButton onClick={props.onInfoClick} /> : null}
       </div>
     )
   }
+}
+
+function PreviewInfoButton(handle: Handle<{ onClick: () => void }>) {
+  return () => (
+    <button
+      type="button"
+      className="editor-preview-info"
+      aria-label="Clip info"
+      mix={on('click', (event) => {
+        event.stopPropagation()
+        handle.props.onClick()
+      })}
+    >
+      <IconInfo size={18} />
+    </button>
+  )
 }
