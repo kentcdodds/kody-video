@@ -45,12 +45,18 @@ export function SplitStrip(handle: Handle<SplitStripProps>) {
     const strip = dragHandle.closest('.trim-strip-track') as HTMLElement | null
     if (!strip) return
 
+    const originMs = splitMs
+    const originX = event.clientX
     dragHandle.setPointerCapture(event.pointerId)
     dragging = true
     void handle.update()
+    props.onSeek(splitMs)
 
     const onMove = (ev: PointerEvent) => {
-      applySplitMs(msFromClientX(ev.clientX, strip))
+      const width = strip.getBoundingClientRect().width
+      if (width <= 0) return
+      const deltaMs = Math.round(((ev.clientX - originX) / width) * duration())
+      applySplitMs(originMs + deltaMs)
     }
 
     const onUp = (ev: PointerEvent) => {
@@ -69,8 +75,6 @@ export function SplitStrip(handle: Handle<SplitStripProps>) {
     dragHandle.addEventListener('pointermove', onMove)
     dragHandle.addEventListener('pointerup', onUp)
     dragHandle.addEventListener('pointercancel', onUp)
-
-    applySplitMs(msFromClientX(event.clientX, strip))
   }
 
   const startTrackScrub = (event: PointerEvent) => {

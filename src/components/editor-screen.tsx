@@ -526,13 +526,17 @@ export function EditorScreen(handle: Handle<EditorScreenProps>) {
                 const { second } = await splitSelectedClip(selected.id, splitMs)
                 selectedClipId = second.id
                 previewApi.current?.pause()
-                setSplitting(false)
                 try {
                   await props.refresh()
                   props.showToast('Clip split')
                 } catch (err) {
                   reportError(err, 'refresh-after-split')
                   props.showToast('Clip split, but the timeline could not refresh')
+                } finally {
+                  // Stay on the strip until refresh settles so the timeline
+                  // never flashes the pre-split list. Do not throw after a
+                  // successful cut — that would re-enable Split on the leftover.
+                  setSplitting(false)
                 }
               }}
             />
