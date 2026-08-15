@@ -241,6 +241,8 @@ export async function appendRecording(
     blob: Blob
     mimeType: string
     durationMs: number
+    /** Default trim-in (warm-encoder pre-roll sits before the press). */
+    trimStartMs?: number
     /** Default trim-out (recordings end their kept range at the release
      * point; the media itself runs a stop-grace longer). */
     trimEndMs?: number
@@ -270,6 +272,7 @@ export async function appendRecording(
     blob: input.blob,
     mimeType: input.mimeType,
     durationMs: input.durationMs,
+    trimStartMs: input.trimStartMs,
     trimEndMs: input.trimEndMs,
     width: input.width,
     height: input.height,

@@ -407,6 +407,20 @@ describe('storage layer', () => {
     expect(clamped.trimEndMs).toBe(1000)
   })
 
+  it('stores a default trim-in for adopted warm recordings', async () => {
+    const project = await createProject('Warm')
+    const clip = await addClip({
+      projectId: project.id,
+      blob: fakeBlob('warm'),
+      mimeType: 'video/mp4',
+      durationMs: 4500,
+      trimStartMs: 2300,
+      trimEndMs: 4300,
+    })
+    expect(clip.trimStartMs).toBe(2300)
+    expect(clip.trimEndMs).toBe(4300)
+  })
+
   it('appends clips, trims, reorders, duplicates, deletes, and undoes', async () => {
     const project = await createProject('Edit me')
     const c1 = await addClip({

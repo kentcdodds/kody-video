@@ -25,6 +25,7 @@ import {
   type ClipRecord,
   type ProjectOrientation,
 } from '../types'
+import { videoBitrateFor } from '../video-quality'
 import {
   applyGainEnvelope,
   boundaryRampHalfMs,
@@ -63,27 +64,17 @@ import {
   locationForExport,
 } from './mp4-export-metadata'
 import { ExportCancelledError, decodedPumpFailure, throwIfExportAborted } from './cancelled'
+import {
+  EXPORT_FPS,
+  EXPORT_FRAME_INTERVAL_SEC,
+  planExportFrame,
+} from './export-frame-clock'
 
-const FPS = 30
+const FPS = EXPORT_FPS
 const AUDIO_SAMPLE_RATE = 48000
 const AUDIO_CHANNELS = 2
 const AUDIO_BITRATE = 192_000
 const KEYFRAME_INTERVAL_SEC = 2
-// Decimation to the output frame rate runs against a virtual 30fps output
-// clock (see makeFrameSink): high-rate sources otherwise push extra frames
-// through the same bitrate budget, cutting bits-per-frame — that was the
-// source of the blocky artifacts on long exports. The tolerance admits a
-// frame slightly ahead of its tick so a jittery 30fps source never drops
-// legitimate frames.
-const FRAME_INTERVAL_SEC = 1 / FPS
-const DECIMATE_TOLERANCE_SEC = 0.3 / FPS
-
-/** ~0.12 bits per pixel at 30fps — clean hardware-AVC territory without
- * ballooning the file. Scales down for small outputs instead of spending a
- * flat 4Mbps on everything. */
-function videoBitrateFor(width: number, height: number): number {
-  return Math.round(Math.min(6_000_000, Math.max(1_500_000, width * height * FPS * 0.12)))
-}
 
 export function supportsWebCodecsExport(): boolean {
   return typeof VideoEncoder !== 'undefined' && typeof VideoFrame !== 'undefined'
@@ -652,7 +643,7 @@ async function probeOutputSize(
 
 interface PumpState {
   lastVideoTsSec: number
-  /** Next 30fps output-clock tick; frames arriving before it are dropped. */
+  /** Next 30fps output-clock tick; earlier frames are held or dropped. */
   nextFrameTsSec: number
   outputOffsetSec: number
   doneMs: number
@@ -694,38 +685,50 @@ function makeFrameSink({
   ): Promise<void> => {
     throwIfExportAborted(signal)
     const clampedSec = Math.min(Math.max(mediaTimeSec, startSec), endSec)
-    let tsSec = state.outputOffsetSec + (clampedSec - startSec)
-    // Decimate against the output clock: emit one frame per 30fps tick and
-    // drop the rest, so ANY source rate (40, 60, 120fps) caps at exactly
-    // FPS long-run — a fixed minimum gap would let a 40fps source through
-    // untouched. Segment anchor frames are forced: every segment must
-    // contribute at least its first frame.
-    if (!options?.force && tsSec < state.nextFrameTsSec - DECIMATE_TOLERANCE_SEC) {
-      return Promise.resolve()
+    const tsSec = state.outputOffsetSec + (clampedSec - startSec)
+    // Keep jittery 30fps frames, drop 60fps extras, and hold the last
+    // canvas across source gaps so a 170ms hole becomes a freeze instead
+    // of a timestamp jump (the choppiness in the Pixel debug clips).
+    const plan = planExportFrame(
+      { nextFrameTsSec: state.nextFrameTsSec, lastVideoTsSec: state.lastVideoTsSec },
+      tsSec,
+      options,
+    )
+    if (!plan) return Promise.resolve()
+
+    const emitHold = async () => {
+      for (let i = 0; i < plan.holdTicks; i += 1) {
+        const holdTs = state.nextFrameTsSec + i * EXPORT_FRAME_INTERVAL_SEC
+        if (holdTs <= state.lastVideoTsSec) continue
+        state.lastVideoTsSec = holdTs
+        state.frameCount += 1
+        await videoSource.add(holdTs, 1 / FPS)
+      }
     }
-    // Stay on the tick grid while the source keeps up; resync from the
-    // frame itself across gaps (slow sources, segment jumps).
-    state.nextFrameTsSec = Math.max(state.nextFrameTsSec, tsSec) + FRAME_INTERVAL_SEC
-    if (tsSec <= state.lastVideoTsSec) {
-      tsSec = state.lastVideoTsSec + 0.001
-    }
-    draw(ctx, canvas.width, canvas.height)
-    if (watermarkImage) {
-      drawWatermark(ctx, watermarkImage, canvas.width, canvas.height)
-    }
-    state.lastVideoTsSec = tsSec
-    // Wall-clock throttled: the decoded pump can process frames far faster
-    // than realtime, so per-frame-count sampling would burn time blitting.
-    const now = performance.now()
-    if (now - state.lastPreviewAtMs >= PREVIEW_INTERVAL_MS) {
-      state.lastPreviewAtMs = now
-      blitPreview(canvas, getPreviewCanvas?.())
-    }
-    if (state.frameCount % 30 === 0) {
-      recordVideoLumaSample(canvas)
-    }
-    state.frameCount += 1
-    return videoSource.add(tsSec, 1 / FPS)
+
+    return emitHold().then(() => {
+      throwIfExportAborted(signal)
+      let emitTsSec = plan.emitTsSec
+      if (emitTsSec <= state.lastVideoTsSec) {
+        emitTsSec = state.lastVideoTsSec + 0.001
+      }
+      draw(ctx, canvas.width, canvas.height)
+      if (watermarkImage) {
+        drawWatermark(ctx, watermarkImage, canvas.width, canvas.height)
+      }
+      state.lastVideoTsSec = emitTsSec
+      state.nextFrameTsSec = plan.nextFrameTsSec
+      const now = performance.now()
+      if (now - state.lastPreviewAtMs >= PREVIEW_INTERVAL_MS) {
+        state.lastPreviewAtMs = now
+        blitPreview(canvas, getPreviewCanvas?.())
+      }
+      if (state.frameCount % 30 === 0) {
+        recordVideoLumaSample(canvas)
+      }
+      state.frameCount += 1
+      return videoSource.add(emitTsSec, 1 / FPS)
+    })
   }
 }
 
@@ -810,7 +813,7 @@ async function pumpSegmentImage({ blob, ...shared }: ImagePumpArgs): Promise<voi
       drawCoverFrom(ctx, bitmap, bitmap.width, bitmap.height, width, height)
     // The epsilon keeps float accumulation from emitting one tick past the
     // segment's end (the sink would clamp it onto the same timestamp).
-    for (let tsSec = startSec, first = true; tsSec < endSec - 1e-6; tsSec += FRAME_INTERVAL_SEC) {
+    for (let tsSec = startSec, first = true; tsSec < endSec - 1e-6; tsSec += EXPORT_FRAME_INTERVAL_SEC) {
       await emit(draw, tsSec, { force: first })
       first = false
       onElapsedMs((tsSec - startSec) * 1000)
@@ -871,9 +874,9 @@ async function pumpSegmentVideo({
   // timestamp-accurate (unlike the realtime MediaRecorder painter).
   if (playback === 'blocked') {
     for (
-      let tsSec = startSec + FRAME_INTERVAL_SEC;
+      let tsSec = startSec + EXPORT_FRAME_INTERVAL_SEC;
       tsSec < endSec - 1e-6;
-      tsSec += FRAME_INTERVAL_SEC
+      tsSec += EXPORT_FRAME_INTERVAL_SEC
     ) {
       await seekTo(video, tsSec)
       await emitAt(tsSec)

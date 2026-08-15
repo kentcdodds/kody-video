@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { takeTrimEndMs } from './recorder'
+import { takeTrimEndMs, takeTrimStartMs } from './recorder'
 
 describe('takeTrimEndMs', () => {
   it('walks the trim-out back by the real stop grace', () => {
@@ -19,5 +19,20 @@ describe('takeTrimEndMs', () => {
 
   it('never exceeds the measured media duration', () => {
     expect(takeTrimEndMs(100, 0)).toBe(100)
+  })
+})
+
+describe('takeTrimStartMs', () => {
+  it('skips adopted pre-roll so the kept range is the wall-clock hold', () => {
+    expect(takeTrimStartMs(4300, 2000)).toBe(2300)
+  })
+
+  it('is 0 for a cold start (take length matches the trimmed media)', () => {
+    expect(takeTrimStartMs(2000, 2000)).toBe(0)
+    expect(takeTrimStartMs(2000, 2100)).toBe(0)
+  })
+
+  it('is 0 when there is no take length', () => {
+    expect(takeTrimStartMs(2000, 0)).toBe(0)
   })
 })

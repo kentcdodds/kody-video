@@ -1,5 +1,6 @@
 import { pickRecorderMimeType } from '../media'
 import { isIosBrowser } from '../platform'
+import { videoBitrateFor } from '../video-quality'
 import {
   clipMusicVolume,
   clipSoundVolume,
@@ -270,7 +271,10 @@ export async function exportRealtime(
   let recorder: MediaRecorder
   try {
     recorder = mimeType
-      ? new MediaRecorder(mixedStream, { mimeType, videoBitsPerSecond: 3_000_000 })
+      ? new MediaRecorder(mixedStream, {
+          mimeType,
+          videoBitsPerSecond: videoBitrateFor(width, height),
+        })
       : new MediaRecorder(mixedStream)
   } catch {
     recorder = new MediaRecorder(mixedStream)
