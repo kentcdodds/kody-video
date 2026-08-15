@@ -540,6 +540,8 @@ export interface AddClipInput {
   /** 'image' for a still photo shown for `durationMs`; omit for video. */
   kind?: ClipKind
   durationMs: number
+  /** Default trim-in; adopted warm recordings skip encoder pre-roll. */
+  trimStartMs?: number
   /** Default trim-out point; recordings pass the release point so the
    * stop-grace tail (real media past the finger-lift) starts trimmed off. */
   trimEndMs?: number
@@ -608,16 +610,20 @@ export async function addClip(input: AddClipInput): Promise<ClipRecord> {
   const durableBlob = await toStoredBlob(input.blob, input.mimeType)
 
   const now = Date.now()
+  const trimEndMs = isImage
+    ? durationMs
+    : Math.max(0, Math.min(input.trimEndMs ?? durationMs, durationMs))
+  const trimStartMs = isImage
+    ? 0
+    : Math.max(0, Math.min(input.trimStartMs ?? 0, trimEndMs))
   const clip: ClipRecord = {
     id: newId('clip'),
     projectId: input.projectId,
     blob: durableBlob,
     mimeType: input.mimeType,
     durationMs,
-    trimStartMs: 0,
-    trimEndMs: isImage
-      ? durationMs
-      : Math.max(0, Math.min(input.trimEndMs ?? durationMs, durationMs)),
+    trimStartMs,
+    trimEndMs,
     createdAt: input.createdAt ?? now,
     ...(isImage ? { kind: 'image' as const } : {}),
     width: input.width,

@@ -24,23 +24,24 @@ import {
 } from './shared'
 
 describe('pickOutputSize', () => {
-  it('follows the source aspect, capped at 1280 on the long edge', () => {
-    expect(pickOutputSize(1080, 1920)).toEqual({ width: 720, height: 1280 })
-    expect(pickOutputSize(1920, 1080)).toEqual({ width: 1280, height: 720 })
+  it('follows the source aspect, capped at 1920 on the long edge', () => {
+    expect(pickOutputSize(1080, 1920)).toEqual({ width: 1080, height: 1920 })
+    expect(pickOutputSize(1920, 1080)).toEqual({ width: 1920, height: 1080 })
+    expect(pickOutputSize(2160, 3840)).toEqual({ width: 1080, height: 1920 })
     // Never upscales; keeps dimensions even.
     expect(pickOutputSize(321, 569)).toEqual({ width: 322, height: 570 })
   })
 
   it('forces a landscape project onto portrait sources by swapping dims', () => {
-    expect(pickOutputSize(1080, 1920, 'landscape')).toEqual({ width: 1280, height: 720 })
+    expect(pickOutputSize(1080, 1920, 'landscape')).toEqual({ width: 1920, height: 1080 })
     expect(pickOutputSize(320, 568, 'landscape')).toEqual({ width: 568, height: 320 })
     // Already landscape: untouched.
-    expect(pickOutputSize(1920, 1080, 'landscape')).toEqual({ width: 1280, height: 720 })
+    expect(pickOutputSize(1920, 1080, 'landscape')).toEqual({ width: 1920, height: 1080 })
   })
 
   it('forces a portrait project onto landscape sources by swapping dims', () => {
-    expect(pickOutputSize(1920, 1080, 'portrait')).toEqual({ width: 720, height: 1280 })
-    expect(pickOutputSize(1080, 1920, 'portrait')).toEqual({ width: 720, height: 1280 })
+    expect(pickOutputSize(1920, 1080, 'portrait')).toEqual({ width: 1080, height: 1920 })
+    expect(pickOutputSize(1080, 1920, 'portrait')).toEqual({ width: 1080, height: 1920 })
   })
 
   it('leaves square sources alone in both orientations', () => {

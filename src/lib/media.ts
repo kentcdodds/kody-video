@@ -1,5 +1,6 @@
 import { isMobileBrowser } from './platform'
 import type { ClipRecord } from './types'
+import { VIDEO_LONG_EDGE, VIDEO_SHORT_EDGE } from './video-quality'
 
 export { isIosBrowser, isMobileBrowser } from './platform'
 
@@ -64,8 +65,8 @@ export async function openCameraStream(
         : true
       : false
   const baseConstraints: MediaTrackConstraints = {
-    width: { ideal: 1280 },
-    height: { ideal: 720 },
+    width: { ideal: VIDEO_LONG_EDGE },
+    height: { ideal: VIDEO_SHORT_EDGE },
     frameRate: { ideal: 30 },
   }
 

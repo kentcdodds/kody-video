@@ -152,10 +152,27 @@ export function RecordScreen(handle: Handle<RecordScreenProps>) {
   // them as the first-take stutter right at recording start/stop.
   let warmIdleHandle = 0
   let warmTimerHandle = 0
+  const armEncoderIfPossible = () => {
+    const stream = camera.getStream()
+    if (recording || recorder.isRecording) return
+    // Lens switch nulls the preview before opening the next exclusive
+    // rear camera — drop warm clones in that same notify() turn.
+    if (!stream) {
+      recorder.disarm()
+      return
+    }
+    if (!camera.isReady) return
+    // Do not enableMic here: that belongs to the press (Android voice-to-text
+    // stays free while idle, and a render-time grant raced short taps).
+    // iOS and a still-warm post-take mic already have audio — arm those.
+    // Otherwise spin a video-only dummy so the hardware encoder is hot.
+    recorder.arm(stream)
+  }
   const warmFirstTakePath = () => {
     warmMicMonitorContext()
     pickRecordingMimeType()
     warmDurationProbe()
+    armEncoderIfPossible()
   }
   if (typeof window.requestIdleCallback === 'function') {
     warmIdleHandle = window.requestIdleCallback(warmFirstTakePath, { timeout: 3000 })
@@ -390,7 +407,11 @@ export function RecordScreen(handle: Handle<RecordScreenProps>) {
     beginInFlight = true
     pointerId = nextPointerId
     try {
-      // Grab the mic only for this take so Brave/Android voice-to-text stays free while idle.
+      // Start the hardware encoder during the mic await (or adopt the
+      // already-warm session) so the ~170ms startup hole is not the
+      // first frames of the take.
+      const preview = camera.getStream()
+      if (preview) recorder.arm(preview)
       await camera.enableMic()
       // Aborted presses keep the just-acquired mic warm — the real press
       // usually follows within moments and must not pay a fresh
@@ -414,6 +435,7 @@ export function RecordScreen(handle: Handle<RecordScreenProps>) {
         throw new Error('Microphone unavailable')
       }
 
+      recorder.arm(stream)
       const startedOk = recorder.start(stream)
       if (!startedOk) {
         pointerId = null
@@ -557,6 +579,7 @@ export function RecordScreen(handle: Handle<RecordScreenProps>) {
         // A quick next hold already replaced the mirror via
         // startThumbMirror — only tear it down when this take is the last.
         stopThumbMirror()
+        armEncoderIfPossible()
       }
     }
   }
@@ -724,6 +747,7 @@ export function RecordScreen(handle: Handle<RecordScreenProps>) {
         // background.
         void endRecord(undefined, { flushNow: true })
       }
+      recorder.disarm()
       camera.stop()
       cameraStoppedInBackground = true
       return
@@ -864,6 +888,7 @@ export function RecordScreen(handle: Handle<RecordScreenProps>) {
   }
 
   return () => {
+    armEncoderIfPossible()
     const { project, clips, storage, onOpenEditor, onOpenExport, onPlay } = props
     const totalDurationMs = clips.reduce((sum, clip) => sum + effectiveDurationMs(clip), 0)
     const zoomLevels = camera.zoom ? zoomChipLevels(camera.zoom) : []
