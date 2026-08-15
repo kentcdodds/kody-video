@@ -1230,6 +1230,34 @@ export async function deleteClip(clipId: ClipId): Promise<DeletedClipSnapshot | 
   return snapshot
 }
 
+/** Remove a clip without writing an undo snapshot — for rolling back a
+ * failed split so a real prior undo is not overwritten. */
+export async function discardClip(clipId: ClipId): Promise<boolean> {
+  const db = await getDb()
+  const clip = await db.get('clips', clipId)
+  if (!clip) return false
+  const project = await db.get('projects', clip.projectId)
+  if (!project) return false
+
+  const index = project.clipIds.indexOf(clipId)
+  if (index < 0) return false
+
+  const clipIds = project.clipIds.filter((id) => id !== clipId)
+  const tx = db.transaction(['clips', 'projects'], 'readwrite')
+  await completeTransaction(
+    [
+      tx.objectStore('clips').delete(clipId),
+      tx.objectStore('projects').put({
+        ...project,
+        clipIds,
+        updatedAt: Date.now(),
+      }),
+    ],
+    tx,
+  )
+  return true
+}
+
 export async function getUndoSnapshot(projectId: ProjectId): Promise<DeletedClipSnapshot | undefined> {
   const db = await getDb()
   return db.get('undo', projectId)

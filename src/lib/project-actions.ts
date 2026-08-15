@@ -3,6 +3,7 @@ import {
   addProjectAudioTrack,
   clearUndo,
   deleteClip,
+  discardClip,
   deleteProjectIfPristine,
   duplicateClip,
   getClip,
@@ -345,7 +346,7 @@ export async function permanentlyTrimClip(clipId: ClipId): Promise<ClipRecord> {
   const startMs = Math.max(0, clip.trimStartMs)
   const endMs = Math.min(clip.trimEndMs, clip.durationMs)
   const { sliceClipMedia } = await import('./clip-media')
-  const sliced = await sliceClipMedia(clip.blob, startMs, endMs)
+  const sliced = await sliceClipMedia(clip.blob, startMs, endMs, clip.mimeType)
   const updated = await replaceClipMedia(clipId, {
     blob: sliced.blob,
     mimeType: sliced.mimeType,
@@ -369,8 +370,8 @@ export async function splitSelectedClip(
   const splitMs = resolveSplitMs(clip, playheadMs)
   const { sliceClipMedia } = await import('./clip-media')
   const [left, right] = await Promise.all([
-    sliceClipMedia(clip.blob, 0, splitMs),
-    sliceClipMedia(clip.blob, splitMs, clip.durationMs),
+    sliceClipMedia(clip.blob, 0, splitMs, clip.mimeType),
+    sliceClipMedia(clip.blob, splitMs, clip.durationMs, clip.mimeType),
   ])
 
   const firstTrim = remapTrimToSlice(clip, 0, left.durationMs)
@@ -407,7 +408,9 @@ export async function splitSelectedClip(
       height: left.height ?? clip.height,
     })
   } catch (error) {
-    await deleteClip(second.id).catch(() => undefined)
+    // discardClip (not deleteClip) so a failed split cannot overwrite a
+    // real undo snapshot with the orphaned right-hand half.
+    await discardClip(second.id).catch(() => undefined)
     throw error
   }
   if (secondTrim.trimStartMs > 0) {

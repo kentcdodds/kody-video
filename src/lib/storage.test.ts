@@ -8,6 +8,7 @@ import {
   createProject,
   ProjectLimitError,
   deleteClip,
+  discardClip,
   deleteProject,
   deleteProjectIfPristine,
   duplicateClip,
@@ -499,6 +500,28 @@ describe('storage layer', () => {
     expect(replaced.lat).toBe(1)
     expect(replaced.clipVolume).toBe(0.4)
     expect(await replaced.blob.text()).toBe('cut')
+  })
+
+  it('discardClip removes a clip without writing undo', async () => {
+    const project = await createProject('Rollback')
+    const keep = await addClip({
+      projectId: project.id,
+      blob: fakeBlob('keep'),
+      mimeType: 'video/webm',
+      durationMs: 800,
+    })
+    const extra = await addClip({
+      projectId: project.id,
+      blob: fakeBlob('extra'),
+      mimeType: 'video/webm',
+      durationMs: 800,
+    })
+    await deleteClip(keep.id)
+    expect((await getUndoSnapshot(project.id))?.clip.id).toBe(keep.id)
+
+    expect(await discardClip(extra.id)).toBe(true)
+    expect(await getClip(extra.id)).toBeUndefined()
+    expect((await getUndoSnapshot(project.id))?.clip.id).toBe(keep.id)
   })
 
   it('inserts a clip after a chosen neighbor instead of appending', async () => {

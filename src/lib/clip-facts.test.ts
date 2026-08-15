@@ -38,6 +38,7 @@ describe('clip fact formatters', () => {
 
   it('names a downloaded clip from the project and mime', () => {
     expect(clipDownloadFilename('Ski Trip', 0, 'video/mp4')).toBe('ski-trip-clip-01.mp4')
+    expect(clipDownloadFilename('Ski Trip', 1, 'video/quicktime')).toBe('ski-trip-clip-02.mp4')
     expect(clipDownloadFilename('Ski Trip', 3, 'image/png')).toBe('ski-trip-clip-04.png')
   })
 })

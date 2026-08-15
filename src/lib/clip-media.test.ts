@@ -2,8 +2,18 @@ import { beforeEach, describe, expect, it } from 'vitest'
 import { permanentlyTrimClip, splitSelectedClip } from './project-actions'
 import { __resetDbForTests, addClip, createProject, getClip, getClipsForProject, updateClipTrim } from './storage'
 import { makeTestClipBlob } from './testing/make-test-clip'
-import { sliceClipMedia } from './clip-media'
+import { outputMimeForClipMedia, sliceClipMedia } from './clip-media'
 import { measureBlobDuration } from './media'
+
+describe('outputMimeForClipMedia', () => {
+  it('keeps MP4-family camera-roll types on MP4', () => {
+    expect(outputMimeForClipMedia('video/mp4')).toBe('video/mp4')
+    expect(outputMimeForClipMedia('video/quicktime')).toBe('video/mp4')
+    expect(outputMimeForClipMedia('video/x-m4v')).toBe('video/mp4')
+    expect(outputMimeForClipMedia('video/webm')).toBe('video/webm')
+    expect(outputMimeForClipMedia('')).toBe('video/webm')
+  })
+})
 
 describe('sliceClipMedia', () => {
   it('encodes a shorter file for a kept window', async () => {
