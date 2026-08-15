@@ -147,7 +147,9 @@ see the README) — plain `http://<lan-ip>` fails in most browsers.
   date), while enabling export location adds coordinates to chapter titles, a
   median ©xyz geotag, and a capture timestamp (©day + file creation_time) from
   the last timeline video
-- [ ] Share opens the system share sheet (fresh tap, no silent failure)
+- [ ] Share opens the system share sheet (fresh tap, no silent failure). The
+  shared/saved File's lastModified is the last timeline video's capture time
+  (Synology Photos sorts by that filesystem date)
 - [ ] Export failure path offers "Save clips instead"
 
 ### Purchases (Stripe, production)

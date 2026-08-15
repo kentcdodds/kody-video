@@ -430,8 +430,27 @@ export async function canFlipCamera(): Promise<boolean> {
   }
 }
 
-export async function downloadBlob(blob: Blob, filename: string): Promise<void> {
-  const url = URL.createObjectURL(blob)
+/**
+ * Wrap bytes as a named File. `lastModified` is the only timestamp the File
+ * API exposes — Synology Photos (and many NAS/photo libraries) sort by the
+ * filesystem created/modified times, which Web Share copies from this field.
+ * Created and updated become the same instant when the OS first writes the
+ * file. Invalid stamps are omitted so the browser defaults to now.
+ */
+export function fileFromBlob(blob: Blob, filename: string, lastModified?: number): File {
+  const options: FilePropertyBag = { type: blob.type || 'video/webm' }
+  if (typeof lastModified === 'number' && Number.isFinite(lastModified) && lastModified > 0) {
+    options.lastModified = lastModified
+  }
+  return new File([blob], filename, options)
+}
+
+export async function downloadBlob(
+  blob: Blob,
+  filename: string,
+  lastModified?: number,
+): Promise<void> {
+  const url = URL.createObjectURL(fileFromBlob(blob, filename, lastModified))
   const anchor = document.createElement('a')
   anchor.href = url
   anchor.download = filename
@@ -443,8 +462,8 @@ export async function downloadBlob(blob: Blob, filename: string): Promise<void> 
   setTimeout(() => URL.revokeObjectURL(url), 60_000)
 }
 
-export function canShareFile(blob: Blob, filename: string): boolean {
-  const file = new File([blob], filename, { type: blob.type || 'video/webm' })
+export function canShareFile(blob: Blob, filename: string, lastModified?: number): boolean {
+  const file = fileFromBlob(blob, filename, lastModified)
   return navigator.canShare?.({ files: [file] }) === true
 }
 
@@ -453,8 +472,12 @@ export function canShareFile(blob: Blob, filename: string): boolean {
  * (Web Share requires transient activation) — never from the tail of an
  * async flow.
  */
-export async function shareFile(blob: Blob, filename: string): Promise<'shared' | 'cancelled'> {
-  const file = new File([blob], filename, { type: blob.type || 'video/webm' })
+export async function shareFile(
+  blob: Blob,
+  filename: string,
+  lastModified?: number,
+): Promise<'shared' | 'cancelled'> {
+  const file = fileFromBlob(blob, filename, lastModified)
   try {
     await navigator.share({ files: [file], title: filename })
     return 'shared'
@@ -469,15 +492,16 @@ export async function shareFile(blob: Blob, filename: string): Promise<'shared' 
 export async function shareOrDownload(
   blob: Blob,
   filename: string,
+  lastModified?: number,
 ): Promise<'shared' | 'downloaded' | 'cancelled'> {
-  if (canShareFile(blob, filename)) {
+  if (canShareFile(blob, filename, lastModified)) {
     try {
-      return await shareFile(blob, filename)
+      return await shareFile(blob, filename, lastModified)
     } catch {
       // Fall through to download attempt.
     }
   }
-  await downloadBlob(blob, filename)
+  await downloadBlob(blob, filename, lastModified)
   return 'downloaded'
 }
 
@@ -487,7 +511,11 @@ export async function shareClipFile(
   projectName: string,
   index: number,
 ): Promise<'shared' | 'downloaded' | 'cancelled'> {
-  return shareOrDownload(clip.blob, clipDownloadFilename(projectName, index, clip.mimeType))
+  return shareOrDownload(
+    clip.blob,
+    clipDownloadFilename(projectName, index, clip.mimeType),
+    clip.createdAt,
+  )
 }
 
 /** Save a single clip to the device (no share sheet). */
@@ -496,7 +524,11 @@ export async function downloadClipFile(
   projectName: string,
   index: number,
 ): Promise<void> {
-  await downloadBlob(clip.blob, clipDownloadFilename(projectName, index, clip.mimeType))
+  await downloadBlob(
+    clip.blob,
+    clipDownloadFilename(projectName, index, clip.mimeType),
+    clip.createdAt,
+  )
 }
 
 function slugify(value: string): string {

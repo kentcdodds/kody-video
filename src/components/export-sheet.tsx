@@ -248,8 +248,9 @@ export function ExportSheet(handle: Handle<ExportSheetProps>) {
                   ) : null}
                   <p className="export-location-note">
                     Location is off by default. Exports still credit kody.video and note the clip
-                    count — never where or when you filmed, unless you turn this on. Chapter
-                    markers stay in the video either way.
+                    count — never where you filmed, unless you turn this on. Share and Save stamp
+                    the file date from the last clip so Photos apps can sort. Chapter markers stay
+                    in the video either way.
                   </p>
                 </div>
               ) : null}

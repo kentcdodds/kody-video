@@ -14,6 +14,7 @@ import { buildClipsZip } from '../lib/clips-zip'
 import { clearExportMarker, markExportStarted, reportError } from '../lib/error-reporting'
 import { exportProject, isExportCancelled, type ExportResult } from '../lib/export'
 import { exportSignature, loadMatchingExport, persistLastExport } from '../lib/export/last-export'
+import { lastCaptureTimeMs } from '../lib/export/mp4-export-metadata'
 import { MediaElementFailureError } from '../lib/export/media-error'
 import { unlockExportMediaPlayback, wait } from '../lib/export/shared'
 import {
@@ -682,6 +683,9 @@ export function ProjectPage(handle: Handle<ProjectPageProps>) {
     const exportFilename = exportState?.result
       ? projectFilename(project.name, exportState.result.fileExtension)
       : null
+    // Synology Photos sorts by filesystem created/modified, which Web Share
+    // copies from File.lastModified — stamp the last timeline video's time.
+    const captureTimeMs = lastCaptureTimeMs(clips) ?? undefined
     const orientation = effectiveOrientation()
     const unlocked = orientationUnlocked()
     syncShellOrientation(orientation, unlocked)
@@ -816,7 +820,7 @@ export function ProjectPage(handle: Handle<ProjectPageProps>) {
             canShare={
               !!exportState.result &&
               !!exportFilename &&
-              canShareFile(exportState.result.blob, exportFilename)
+              canShareFile(exportState.result.blob, exportFilename, captureTimeMs)
             }
             fileExtension={exportState.result?.fileExtension ?? null}
             fileSizeBytes={exportState.result?.blob.size ?? null}
@@ -824,7 +828,7 @@ export function ProjectPage(handle: Handle<ProjectPageProps>) {
               const result = exportState?.result
               if (!result || !exportFilename) return
               beginExportAction()
-              void shareFile(result.blob, exportFilename)
+              void shareFile(result.blob, exportFilename, captureTimeMs)
                 .then((outcome) => {
                   // A cancel (AbortError → 'cancelled') is a routine user action,
                   // not something worth announcing — only confirm real shares.
@@ -839,7 +843,7 @@ export function ProjectPage(handle: Handle<ProjectPageProps>) {
               const result = exportState?.result
               if (!result || !exportFilename) return
               beginExportAction()
-              void downloadBlob(result.blob, exportFilename)
+              void downloadBlob(result.blob, exportFilename, captureTimeMs)
                 .then(() => {
                   setExportNotice('Saved — check your downloads.')
                 })
