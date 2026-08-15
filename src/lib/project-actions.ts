@@ -358,7 +358,7 @@ export async function permanentlyTrimClip(clipId: ClipId): Promise<ClipRecord> {
   return decorateSlicedClip(updated)
 }
 
-/** Cut the clip into two timeline pieces at the playhead (or kept midpoint). */
+/** Cut the clip into two timeline pieces at `playheadMs` (or the kept midpoint). */
 export async function splitSelectedClip(
   clipId: ClipId,
   playheadMs: number | null,

@@ -15,6 +15,7 @@ import {
   undoLastDelete,
 } from '../lib/project-actions'
 import { downloadClipFile } from '../lib/media'
+import { resolveSplitMs } from '../lib/clip-edit'
 import {
   effectiveDurationMs,
   formatDuration,
@@ -41,6 +42,7 @@ import {
   IconUndo,
 } from './icons'
 import { ImageDurationStrip } from './image-duration-strip'
+import { SplitStrip } from './split-strip'
 import { Timeline } from './timeline'
 import { TrimStrip } from './trim-strip'
 import type { ToastAction } from './record-screen'
@@ -74,6 +76,9 @@ export function EditorScreen(handle: Handle<EditorScreenProps>) {
   const { props } = handle
   let selectedClipId: ClipId | null = props.clips.at(-1)?.id ?? null
   let trimming = false
+  /** Filmstrip split-point picker (peer of `trimming`). */
+  let splitting = false
+  let splitInitialMs = 0
   /** Track whose detail view (trim, level, fades) is open — the audio
    * counterpart of `trimming`. */
   let editingTrackId: string | null = null
@@ -125,6 +130,7 @@ export function EditorScreen(handle: Handle<EditorScreenProps>) {
             pendingGhostCount = Math.max(0, pendingGhostCount - 1)
             selectedClipId = clip.id
             trimming = false
+            splitting = false
             void handle.update()
           },
           onProgress: (done, total) => {
@@ -136,6 +142,7 @@ export function EditorScreen(handle: Handle<EditorScreenProps>) {
         const last = result.added.at(-1)
         if (last) selectedClipId = last.id
         trimming = false
+        splitting = false
         if (result.added.length > 0) {
           await props.refresh()
           optimisticAdds = optimisticAdds.filter(
@@ -178,6 +185,13 @@ export function EditorScreen(handle: Handle<EditorScreenProps>) {
   }
   const setTrimming = (next: boolean) => {
     trimming = next
+    if (next) splitting = false
+    void handle.update()
+  }
+
+  const setSplitting = (next: boolean) => {
+    splitting = next
+    if (next) trimming = false
     void handle.update()
   }
 
@@ -189,6 +203,7 @@ export function EditorScreen(handle: Handle<EditorScreenProps>) {
   const openTrim = (clip: ClipRecord) => {
     previewApi.current?.pause()
     trimming = true
+    splitting = false
     editingTrackId = null
     // Seek after the commit: entering trim can remount the preview (the trim
     // override changes its remount key), and the seek must land on the new
@@ -200,6 +215,20 @@ export function EditorScreen(handle: Handle<EditorScreenProps>) {
     void handle.update()
   }
 
+  const openSplit = (clip: ClipRecord) => {
+    previewApi.current?.pause()
+    const playheadMs = previewApi.current?.getCurrentTimeMs() ?? null
+    splitInitialMs = resolveSplitMs(clip, playheadMs)
+    clipInfoOpen = false
+    trimming = false
+    splitting = true
+    editingTrackId = null
+    // Same remount-then-seek as trim: the preview shows the full source
+    // while the handle is dragged, so the cut frame is visible.
+    handle.queueTask(() => previewApi.current?.seekToMs(splitInitialMs))
+    void handle.update()
+  }
+
   const handleDelete = () => {
     const id = resolveSelectedId()
     if (!id) return
@@ -207,6 +236,7 @@ export function EditorScreen(handle: Handle<EditorScreenProps>) {
       await removeClip(id)
       selectedClipId = null
       trimming = false
+      splitting = false
       void handle.update()
       props.refresh()
       props.showToast('Clip deleted', {
@@ -239,6 +269,9 @@ export function EditorScreen(handle: Handle<EditorScreenProps>) {
       } else if (trimming) {
         previewApi.current?.pause()
         setTrimming(false)
+      } else if (splitting) {
+        previewApi.current?.pause()
+        setSplitting(false)
       } else if (editingTrackId) {
         setEditingTrackId(null)
       } else {
@@ -246,7 +279,7 @@ export function EditorScreen(handle: Handle<EditorScreenProps>) {
       }
       return
     }
-    if (trimming || editingTrackId || clipInfoOpen) return
+    if (trimming || splitting || editingTrackId || clipInfoOpen) return
     switch (event.code) {
       case 'ArrowLeft':
       case 'ArrowRight': {
@@ -357,7 +390,7 @@ export function EditorScreen(handle: Handle<EditorScreenProps>) {
 
     return (
       <div
-        className={`editor-screen${trimming ? ' is-trimming' : ''}${editingTrack ? ' is-audio-editing' : ''}${importing ? ' is-importing' : ''}`}
+        className={`editor-screen${trimming ? ' is-trimming' : ''}${splitting ? ' is-splitting' : ''}${editingTrack ? ' is-audio-editing' : ''}${importing ? ' is-importing' : ''}`}
         mix={ref((_node, signal) => {
           window.addEventListener('keydown', onWindowKeyDown)
           signal.addEventListener('abort', () => {
@@ -423,10 +456,11 @@ export function EditorScreen(handle: Handle<EditorScreenProps>) {
             <EditorClipPreview
               key={selected.id}
               clip={
-                trimming
+                trimming || splitting
                   ? {
                       ...selected,
-                      // While trimming, show full clip so handle seeks are visible.
+                      // While trimming or splitting, show full clip so handle
+                      // seeks are visible (including into unused regions).
                       trimStartMs: 0,
                       trimEndMs: selected.durationMs,
                     }
@@ -436,7 +470,7 @@ export function EditorScreen(handle: Handle<EditorScreenProps>) {
               audio={props.audio}
               apiRef={previewApi}
               onInfoClick={
-                trimming || editingTrack
+                trimming || splitting || editingTrack
                   ? undefined
                   : () => {
                       previewApi.current?.pause()
@@ -478,6 +512,25 @@ export function EditorScreen(handle: Handle<EditorScreenProps>) {
                 setTrimming(false)
               }}
             />
+          ) : splitting && selected ? (
+            <SplitStrip
+              key={selected.id}
+              clip={selected}
+              initialSplitMs={splitInitialMs}
+              onSeek={(timeMs) => previewApi.current?.seekToMs(timeMs)}
+              onCancel={() => {
+                previewApi.current?.pause()
+                setSplitting(false)
+              }}
+              onDone={async (splitMs) => {
+                const { second } = await splitSelectedClip(selected.id, splitMs)
+                selectedClipId = second.id
+                await props.refresh()
+                previewApi.current?.pause()
+                setSplitting(false)
+                props.showToast('Clip split')
+              }}
+            />
           ) : editingTrack && props.audio ? (
             <AudioDetailStrip
               key={editingTrack.id}
@@ -499,6 +552,7 @@ export function EditorScreen(handle: Handle<EditorScreenProps>) {
               onSelect={(id) => {
                 selectedClipId = id
                 trimming = false
+                splitting = false
                 void handle.update()
               }}
               onAddFromDevice={openDevicePicker}
@@ -510,7 +564,7 @@ export function EditorScreen(handle: Handle<EditorScreenProps>) {
             />
           )}
 
-          {!trimming && !editingTrack ? (
+          {!trimming && !splitting && !editingTrack ? (
             <AudioStrip
               ensureProjectId={props.ensureProjectId}
               audio={props.audio}
@@ -523,6 +577,7 @@ export function EditorScreen(handle: Handle<EditorScreenProps>) {
               onEditTrack={(trackId) => {
                 previewApi.current?.pause()
                 trimming = false
+                splitting = false
                 setEditingTrackId(trackId)
               }}
               showToast={props.showToast}
@@ -530,7 +585,7 @@ export function EditorScreen(handle: Handle<EditorScreenProps>) {
             />
           ) : null}
 
-          {!trimming && !editingTrack ? (
+          {!trimming && !splitting && !editingTrack ? (
             <div className="editor-actions" role="toolbar" aria-label="Clip actions">
               <ActionButton
                 label="Delete"
@@ -643,7 +698,6 @@ export function EditorScreen(handle: Handle<EditorScreenProps>) {
             clips={clips}
             index={selectedIndex}
             projectName={project.name}
-            getPlayheadMs={() => previewApi.current?.getCurrentTimeMs() ?? null}
             onPermanentlyTrim={async () => {
               const updated = await permanentlyTrimClip(selected.id)
               clipInfoOpen = false
@@ -651,12 +705,8 @@ export function EditorScreen(handle: Handle<EditorScreenProps>) {
               await props.refresh()
               props.showToast('Unused parts deleted')
             }}
-            onSplit={async (splitMs) => {
-              const { second } = await splitSelectedClip(selected.id, splitMs)
-              clipInfoOpen = false
-              selectedClipId = second.id
-              await props.refresh()
-              props.showToast('Clip split')
+            onStartSplit={() => {
+              if (selected) openSplit(selected)
             }}
             onDownload={async () => {
               await downloadClipFile(selected, project.name, selectedIndex)

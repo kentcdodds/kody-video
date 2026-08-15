@@ -58,6 +58,7 @@
 }
 
 .editor-screen.is-trimming .editor-stage,
+.editor-screen.is-splitting .editor-stage,
 .editor-screen.is-audio-editing .editor-stage {
   flex: 0.9 1 auto;
 }
@@ -532,6 +533,70 @@
   background: var(--accent);
 }
 
+.split-strip-hint {
+  margin: 0;
+  font-size: 0.78rem;
+}
+
+.split-halves-label {
+  font-weight: 500;
+  color: var(--ink-muted);
+}
+
+.split-cut {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 2px;
+  transform: translateX(-50%);
+  background: var(--accent);
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--bg-elevated) 55%, transparent);
+  pointer-events: none;
+  z-index: 2;
+}
+
+.split-handle {
+  position: absolute;
+  top: -4px;
+  bottom: -4px;
+  width: 22px;
+  min-height: var(--tap);
+  margin: 0;
+  padding: 0;
+  transform: translateX(-50%);
+  border-radius: 8px;
+  background: var(--accent);
+  border: 2px solid color-mix(in srgb, var(--bg-elevated) 70%, #fff);
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.35);
+  z-index: 3;
+  cursor: ew-resize;
+  touch-action: none;
+}
+
+.split-handle::before,
+.split-handle::after {
+  content: '';
+  position: absolute;
+  left: 50%;
+  width: 3px;
+  height: 10px;
+  transform: translateX(-50%);
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--ink-strong) 70%, transparent);
+}
+
+.split-handle::before {
+  top: 8px;
+}
+
+.split-handle::after {
+  bottom: 8px;
+}
+
+.split-handle.active {
+  transform: translateX(-50%) scale(1.06);
+}
+
 .trim-strip-actions {
   display: flex;
   gap: 8px;
@@ -1000,6 +1065,7 @@
   }
 
   .orientation-landscape .editor-screen.is-trimming .editor-stage,
+  .orientation-landscape .editor-screen.is-splitting .editor-stage,
   .orientation-landscape .editor-screen.is-audio-editing .editor-stage {
     flex: none;
   }
