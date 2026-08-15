@@ -9,12 +9,13 @@ async function openEditorWithClips(page: Page, clips: number, clipMs?: number): 
 
 async function openClipInfo(page: Page): Promise<void> {
   await page.getByRole('button', { name: 'Clip info' }).click()
-  await expect(page.getByRole('dialog', { name: /clip 1 info/i })).toBeVisible()
+  await expect(page.getByRole('dialog', { name: /clip \d+ info/i })).toBeVisible()
 }
 
 test.describe('clip info sheet', () => {
   test('info button opens facts about the selected clip', async ({ page }) => {
     await openEditorWithClips(page, 2, 1500)
+    await page.locator('.clip-thumb').first().click()
     await openClipInfo(page)
     const sheet = page.locator('.clip-info-sheet')
     await expect(sheet.getByText('1 of 2')).toBeVisible()
