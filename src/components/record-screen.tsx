@@ -154,7 +154,14 @@ export function RecordScreen(handle: Handle<RecordScreenProps>) {
   let warmTimerHandle = 0
   const armEncoderIfPossible = () => {
     const stream = camera.getStream()
-    if (!stream || !camera.isReady || recording || recorder.isRecording) return
+    if (recording || recorder.isRecording) return
+    // Lens switch nulls the preview before opening the next exclusive
+    // rear camera — drop warm clones in that same notify() turn.
+    if (!stream) {
+      recorder.disarm()
+      return
+    }
+    if (!camera.isReady) return
     // Do not enableMic here: that belongs to the press (Android voice-to-text
     // stays free while idle, and a render-time grant raced short taps).
     // iOS and a still-warm post-take mic already have audio — arm those.

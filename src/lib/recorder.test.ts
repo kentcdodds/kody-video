@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { takeTrimEndMs, takeTrimStartMs } from './recorder'
+import { takeFallbackDurationMs, takeTrimEndMs, takeTrimStartMs } from './recorder'
 
 describe('takeTrimEndMs', () => {
   it('walks the trim-out back by the real stop grace', () => {
@@ -34,5 +34,28 @@ describe('takeTrimStartMs', () => {
 
   it('is 0 when there is no take length', () => {
     expect(takeTrimStartMs(2000, 0)).toBe(0)
+  })
+})
+
+describe('takeFallbackDurationMs', () => {
+  it('keeps adopted pre-roll in the blob length so trim-in can skip it', () => {
+    // Warm session started 800ms before press; 2000ms hold; 200ms grace.
+    const fallbackMs = takeFallbackDurationMs(0, 3000, 2000)
+    expect(fallbackMs).toBe(3000)
+    const trimEndMs = takeTrimEndMs(fallbackMs, 200)
+    expect(trimEndMs).toBe(2800)
+    expect(takeTrimStartMs(trimEndMs, 2000)).toBe(800)
+  })
+
+  it('matches a cold start (no pre-roll) after walking back grace', () => {
+    const fallbackMs = takeFallbackDurationMs(0, 2200, 2000)
+    expect(fallbackMs).toBe(2200)
+    const trimEndMs = takeTrimEndMs(fallbackMs, 200)
+    expect(trimEndMs).toBe(2000)
+    expect(takeTrimStartMs(trimEndMs, 2000)).toBe(0)
+  })
+
+  it('never reports shorter than the wall-clock hold', () => {
+    expect(takeFallbackDurationMs(1000, 1500, 2000)).toBe(2000)
   })
 })

@@ -53,6 +53,17 @@ export function takeTrimStartMs(trimEndMs: number, takeWallMs: number): number {
   return Math.max(0, trimEndMs - takeWallMs)
 }
 
+/** Blob length when media duration cannot be measured: encoder start →
+ * stop (adopted pre-roll + hold + grace). Never shorter than the hold,
+ * so a clock inversion cannot hide the take. */
+export function takeFallbackDurationMs(
+  sessionStartedAt: number,
+  stoppedAt: number,
+  takeWallMs: number,
+): number {
+  return Math.max(takeWallMs, Math.round(stoppedAt - sessionStartedAt))
+}
+
 /**
  * Hold-to-record helper around MediaRecorder.
  * Starts on press, stops on release; returns a Blob for IndexedDB storage.
@@ -103,9 +114,46 @@ export class HoldRecorder {
   private dummyClones: MediaStreamTrack[] = []
   private stopping = false
   private recycleTimer = 0
+  /** Preview stream the current warm/dummy encoder was built from.
+   * Camera swaps mint a new MediaStream; clones from the previous one
+   * keep the old camera open (Android exclusive HAL / privacy dot). */
+  private warmSource: MediaStream | null = null
+  private warmSourceEnded: (() => void) | null = null
   /** Cuts a pending stop grace short — set only while a stop() is waiting
    * out its grace window (see cancel()). */
   private fireStopNow: (() => void) | null = null
+
+  private warmSessionIsReusable(stream: MediaStream): boolean {
+    if (this.warmSource !== stream) return false
+    if (this.warm?.recorder.state !== 'recording') return false
+    if (!sessionHasLiveAudio(this.warm)) return false
+    return this.warm.clonedTracks.every((track) => track.readyState === 'live')
+  }
+
+  private unbindWarmSource(): void {
+    const stream = this.warmSource
+    const onEnded = this.warmSourceEnded
+    this.warmSource = null
+    this.warmSourceEnded = null
+    const video = stream?.getVideoTracks()[0]
+    if (video && onEnded) video.removeEventListener('ended', onEnded)
+  }
+
+  private bindWarmSource(stream: MediaStream): void {
+    this.unbindWarmSource()
+    this.warmSource = stream
+    const video = stream.getVideoTracks()[0]
+    if (!video) return
+    // Preview track.stop() (flip / lens / tab hide) must drop clones in
+    // the same turn the camera HAL is released — otherwise Android cannot
+    // open the next exclusive rear lens.
+    const onEnded = () => {
+      if (this.warmSource !== stream) return
+      this.disarm()
+    }
+    this.warmSourceEnded = onEnded
+    video.addEventListener('ended', onEnded)
+  }
 
   get isRecording(): boolean {
     return this.session?.recorder.state === 'recording'
@@ -117,10 +165,7 @@ export class HoldRecorder {
    * is running or a warm session is already live on a compatible stream. */
   arm(stream: MediaStream): void {
     if (this.isRecording || this.stopping) return
-    if (this.warm?.recorder.state === 'recording' && sessionHasLiveAudio(this.warm)) {
-      const videoLive = this.warm.clonedTracks.every((track) => track.readyState === 'live')
-      if (videoLive) return
-    }
+    if (this.warmSessionIsReusable(stream)) return
     if (!stream.getAudioTracks().some((track) => track.readyState === 'live')) {
       this.warmUp(stream)
       return
@@ -129,6 +174,7 @@ export class HoldRecorder {
     const created = this.createSession(stream)
     if (!created) return
     this.warm = created
+    this.bindWarmSource(stream)
     this.recycleTimer = window.setTimeout(() => {
       this.recycleTimer = 0
       if (this.session || this.stopping) return
@@ -142,8 +188,10 @@ export class HoldRecorder {
    * real MediaRecorder may still pay startup, which is why arm() is
    * preferred once audio is available. */
   warmUp(stream: MediaStream): void {
-    if (this.isRecording || this.stopping || this.warming) return
-    if (this.warm?.recorder.state === 'recording') return
+    if (this.isRecording || this.stopping) return
+    if (this.warmSessionIsReusable(stream)) return
+    if (this.warming && this.warmSource === stream) return
+    this.disarm()
     const video = stream.getVideoTracks()[0]
     if (!video || video.readyState !== 'live') return
     this.stopDummy()
@@ -155,6 +203,7 @@ export class HoldRecorder {
       this.warming = true
       this.dummyRecorder = recorder
       this.dummyClones = [clone]
+      this.bindWarmSource(stream)
       recorder.ondataavailable = () => undefined
       recorder.onstop = () => {
         this.finishDummy(recorder)
@@ -177,6 +226,7 @@ export class HoldRecorder {
       this.warming = false
       this.dummyRecorder = null
       this.dummyClones = []
+      this.unbindWarmSource()
     }
   }
 
@@ -187,6 +237,7 @@ export class HoldRecorder {
     this.recycleTimer = 0
     const warm = this.warm
     this.warm = null
+    this.unbindWarmSource()
     if (!warm) return
     warm.recorder.ondataavailable = null
     warm.recorder.onstop = () => stopSessionTracks(warm)
@@ -206,9 +257,11 @@ export class HoldRecorder {
   start(stream: MediaStream): boolean {
     if (this.isRecording || this.stopping) return false
 
-    if (this.warm?.recorder.state === 'recording' && sessionHasLiveAudio(this.warm)) {
+    if (this.warmSessionIsReusable(stream)) {
       const adopted = this.warm
+      if (!adopted) return false
       this.warm = null
+      this.unbindWarmSource()
       window.clearTimeout(this.recycleTimer)
       this.recycleTimer = 0
       this.stopDummy()
@@ -267,14 +320,18 @@ export class HoldRecorder {
           resolve(null)
           return
         }
+        const fallbackMs = takeFallbackDurationMs(
+          session.startedAt,
+          performance.now(),
+          takeWallMs,
+        )
         // The blob's real duration differs from wall clock (encoder start
         // latency, stop grace, adopted pre-roll); trims and export math
         // must use the media duration.
         void measureBlobDuration(blob)
           .then((measuredMs) => {
-            const durationMs = measuredMs > 0 ? measuredMs : takeWallMs
-            const trimEndMs =
-              measuredMs > 0 ? takeTrimEndMs(measuredMs, graceActualMs) : takeWallMs
+            const durationMs = measuredMs > 0 ? measuredMs : fallbackMs
+            const trimEndMs = takeTrimEndMs(durationMs, graceActualMs)
             resolve({
               blob,
               mimeType: session.mimeType || blob.type || 'video/webm',
@@ -288,17 +345,19 @@ export class HoldRecorder {
           .catch((error) => {
             // A media-element failure means the browser cannot decode this
             // take at all — keeping it would only fail again at export.
-            // Timeouts still fall back to wall-clock (streamy WebM).
+            // Timeouts still fall back to session wall-clock (streamy WebM)
+            // so adopted pre-roll stays outside the kept range.
             if (isMediaElementFailure(error)) {
               resolve(null)
               return
             }
+            const trimEndMs = takeTrimEndMs(fallbackMs, graceActualMs)
             resolve({
               blob,
               mimeType: session.mimeType || blob.type || 'video/webm',
-              durationMs: takeWallMs,
-              trimStartMs: 0,
-              trimEndMs: takeWallMs,
+              durationMs: fallbackMs,
+              trimStartMs: takeTrimStartMs(trimEndMs, takeWallMs),
+              trimEndMs,
               width,
               height,
             })
