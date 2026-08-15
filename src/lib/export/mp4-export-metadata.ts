@@ -22,8 +22,13 @@ export interface ExportDescriptiveMetadata {
   encoder: string
   description: string
   comment: string
-  /** Earliest clip day (`YYYY-MM-DD`) — only when location is opted in. */
+  /**
+   * QuickTime `©day` for the last timeline video that has a capture time —
+   * only when location is opted in.
+   */
   date?: string
+  /** Same instant as `date`, for patching `mvhd`/`tkhd`/`mdhd` creation_time. */
+  creationTimeMs?: number
 }
 
 /** Recording start ≈ createdAt − durationMs (wall-clock capture window). */
@@ -93,10 +98,15 @@ export function buildExportDescriptiveMetadata(
   const descriptionLines = [`${parts.join(' · ')}`]
 
   let date: string | undefined
+  let creationTimeMs: number | undefined
   if (input.includeLocation) {
+    const captureMs = lastCaptureTimeMs(input.clips)
     const range = filmedLocalDateRange(input.clips)
+    if (captureMs !== null) {
+      creationTimeMs = captureMs
+      date = formatQuickTimeDay(captureMs)
+    }
     if (range) {
-      date = range.start
       descriptionLines.push(
         range.start === range.end
           ? `Filmed ${range.start}`
@@ -113,7 +123,35 @@ export function buildExportDescriptiveMetadata(
     comment: commentParts.join(' · '),
     description: descriptionLines.join('\n'),
     date,
+    creationTimeMs,
   }
+}
+
+/**
+ * Capture time of the last timeline video that has `createdAt`. Photos and
+ * imported stills are skipped so a trailing photo does not move the film;
+ * if the film is photos-only, the last photo's time is used.
+ */
+export function lastCaptureTimeMs(
+  clips: Pick<ClipRecord, 'kind' | 'createdAt'>[],
+): number | null {
+  for (let i = clips.length - 1; i >= 0; i -= 1) {
+    if (isImageClip(clips[i])) continue
+    if (Number.isFinite(clips[i].createdAt)) return clips[i].createdAt
+  }
+  for (let i = clips.length - 1; i >= 0; i -= 1) {
+    if (Number.isFinite(clips[i].createdAt)) return clips[i].createdAt
+  }
+  return null
+}
+
+/** Local ISO-8601 with offset — what Photos reads from QuickTime `©day`. */
+export function formatQuickTimeDay(ms: number): string {
+  const date = new Date(ms)
+  const offsetMin = -date.getTimezoneOffset()
+  const sign = offsetMin >= 0 ? '+' : '-'
+  const abs = Math.abs(offsetMin)
+  return `${date.getFullYear()}-${pad2(date.getMonth() + 1)}-${pad2(date.getDate())}T${pad2(date.getHours())}:${pad2(date.getMinutes())}:${pad2(date.getSeconds())}${sign}${pad2(Math.floor(abs / 60))}${pad2(abs % 60)}`
 }
 
 export function formatClipMix(clips: Pick<ClipRecord, 'kind'>[]): string {

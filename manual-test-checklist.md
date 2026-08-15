@@ -145,7 +145,8 @@ see the README) — plain `http://<lan-ip>` fails in most browsers.
   title, a clip-count comment, and a Kody Video / kody.video encoder credit.
   Tagged clips export as chapters only by default (no coordinates or filming
   date), while enabling export location adds coordinates to chapter titles, a
-  ©xyz geotag, and a ©day date
+  median ©xyz geotag, and a capture timestamp (©day + file creation_time) from
+  the last timeline video
 - [ ] Share opens the system share sheet (fresh tap, no silent failure)
 - [ ] Export failure path offers "Save clips instead"
 
