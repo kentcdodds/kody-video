@@ -217,8 +217,8 @@ export interface AppMeta {
   keepWatermark?: boolean
   /**
    * Plus opt-in: include captured clip coordinates in MP4 metadata and
-   * chapter titles. Default off so a share cannot disclose location unless
-   * the user explicitly enables it.
+   * chapter titles, and filming dates in the file description. Default off
+   * so a public share cannot disclose location or when it was filmed.
    */
   includeLocationInExports?: boolean
   /** Opt-in: tag new clips with device location. */

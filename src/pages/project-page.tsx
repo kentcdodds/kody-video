@@ -379,7 +379,14 @@ export function ProjectPage(handle: Handle<ProjectPageProps>) {
     // recordings are landscape media in "portrait" projects — cropping
     // those would be a regression, not a feature).
     const orientation = effectiveOrientation() === 'landscape' ? 'landscape' : undefined
-    const signature = exportSignature(clips, watermarked, audio, orientation, includeLocation)
+    const signature = exportSignature(
+      clips,
+      watermarked,
+      audio,
+      orientation,
+      includeLocation,
+      project?.name ?? '',
+    )
     // Stop camera/mic immediately rather than waiting on record-screen
     // unmount. On iOS the combined mic+camera session can hold decoder
     // slots past the first paints, and WebKit reports that race as
@@ -476,6 +483,7 @@ export function ProjectPage(handle: Handle<ProjectPageProps>) {
           audioContext,
           watermark: watermarked,
           includeLocation,
+          projectName: project?.name ?? '',
           orientation,
           background:
             audio && audio.tracks.length > 0

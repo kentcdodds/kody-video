@@ -247,7 +247,9 @@ export function ExportSheet(handle: Handle<ExportSheetProps>) {
                     </p>
                   ) : null}
                   <p className="export-location-note">
-                    Location is off by default. Chapter markers stay in the video either way.
+                    Location is off by default. Exports still credit kody.video and note the clip
+                    count — never where or when you filmed, unless you turn this on. Chapter
+                    markers stay in the video either way.
                   </p>
                 </div>
               ) : null}

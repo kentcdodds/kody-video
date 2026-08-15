@@ -141,9 +141,11 @@ see the README) — plain `http://<lan-ip>` fails in most browsers.
   clips with no clicks at joints, smooth frame rate
 - [ ] Watermark (before purchase): small Kody mark + domain bottom-right at
   50% opacity; gone after purchase
-- [ ] MP4 chapters at clip boundaries in VLC/mpv; tagged clips export as
-  chapters only by default, while enabling export location adds coordinates
-  to chapter titles and a ©xyz geotag
+- [ ] MP4 chapters at clip boundaries in VLC/mpv; file info shows the project
+  title, a clip-count comment, and a Kody Video / kody.video encoder credit.
+  Tagged clips export as chapters only by default (no coordinates or filming
+  date), while enabling export location adds coordinates to chapter titles, a
+  ©xyz geotag, and a ©day date
 - [ ] Share opens the system share sheet (fresh tap, no silent failure)
 - [ ] Export failure path offers "Save clips instead"
 

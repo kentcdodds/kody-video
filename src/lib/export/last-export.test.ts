@@ -39,4 +39,11 @@ describe('exportSignature', () => {
       exportSignature(clips, false, null, 'portrait', false),
     )
   })
+
+  it('signs the project title so a rename cannot reuse the old file metadata', () => {
+    const clips = [fakeClip('clip_a')]
+    expect(exportSignature(clips, false, null, 'portrait', false, 'Beach day')).not.toBe(
+      exportSignature(clips, false, null, 'portrait', false, 'Road trip'),
+    )
+  })
 })

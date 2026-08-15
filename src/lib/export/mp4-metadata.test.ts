@@ -8,6 +8,7 @@ import {
 import { describe, expect, it } from 'vitest'
 import { commands } from 'vitest/browser'
 import { formatIso6709, injectMp4Metadata, type Mp4Chapter } from './mp4-metadata'
+import { KODY_VIDEO_ENCODER, KODY_VIDEO_SITE } from './mp4-export-metadata'
 
 const AVC_DESC = new Uint8Array([
   0x01, 0x42, 0x00, 0x1e, 0xff, 0xe1, 0x00, 0x08, 0x67, 0x42, 0x00, 0x1e, 0xda, 0x02, 0xd0,
@@ -99,6 +100,13 @@ function findBox(bytes: Uint8Array, type: number, start = 0, end = bytes.byteLen
   return listBoxes(bytes, start, end).find((b) => b.type === type) ?? null
 }
 
+function readUdtaString(bytes: Uint8Array, box: Box): string {
+  const payload = bytes.subarray(box.offset + box.headerSize, box.offset + box.size)
+  const textLen = readU16(payload, 0)
+  expect(readU16(payload, 2)).toBe(0x15c7)
+  return new TextDecoder().decode(payload.subarray(4, 4 + textLen))
+}
+
 function toBase64(buffer: ArrayBuffer): string {
   const bytes = new Uint8Array(buffer)
   let binary = ''
@@ -169,12 +177,35 @@ describe('injectMp4Metadata', () => {
 
     const xyz = findBox(out, fourCC('\xa9xyz'), udta!.offset + udta!.headerSize, udta!.offset + udta!.size)
     expect(xyz).not.toBeNull()
-    const xyzPayload = out.subarray(xyz!.offset + xyz!.headerSize, xyz!.offset + xyz!.size)
-    const textLen = readU16(xyzPayload, 0)
-    expect(readU16(xyzPayload, 2)).toBe(0x15c7)
-    const iso = new TextDecoder().decode(xyzPayload.subarray(4, 4 + textLen))
-    expect(iso).toBe(formatIso6709(37.7749, -122.4194))
-    expect(iso).toBe('+37.7749-122.4194/')
+    expect(readUdtaString(out, xyz!)).toBe(formatIso6709(37.7749, -122.4194))
+    expect(readUdtaString(out, xyz!)).toBe('+37.7749-122.4194/')
+  })
+
+  it('appends title, description, comment, encoder, and date without requiring chapters', async () => {
+    const out = new Uint8Array(
+      injectMp4Metadata(await buildTinyMp4(), {
+        chapters: [],
+        title: 'Beach day',
+        description: `3 clips · 24s\nMade with Kody Video — ${KODY_VIDEO_SITE}`,
+        comment: '3 clips · 24s · kody.video',
+        encoder: KODY_VIDEO_ENCODER,
+        date: '2026-08-08',
+      }),
+    )
+    const moov = findBox(out, fourCC('moov'))
+    const udta = findBox(out, fourCC('udta'), moov!.offset + moov!.headerSize, moov!.offset + moov!.size)
+    expect(udta).not.toBeNull()
+    const start = udta!.offset + udta!.headerSize
+    const end = udta!.offset + udta!.size
+    expect(readUdtaString(out, findBox(out, fourCC('\xa9nam'), start, end)!)).toBe('Beach day')
+    expect(readUdtaString(out, findBox(out, fourCC('\xa9cmt'), start, end)!)).toBe(
+      '3 clips · 24s · kody.video',
+    )
+    expect(readUdtaString(out, findBox(out, fourCC('\xa9too'), start, end)!)).toBe(KODY_VIDEO_ENCODER)
+    expect(readUdtaString(out, findBox(out, fourCC('\xa9day'), start, end)!)).toBe('2026-08-08')
+    expect(readUdtaString(out, findBox(out, fourCC('\xa9des'), start, end)!)).toContain(KODY_VIDEO_SITE)
+    expect(findBox(out, fourCC('\xa9xyz'), start, end)).toBeNull()
+    expect(findBox(out, fourCC('chpl'), start, end)).toBeNull()
   })
 
   it('is validated by ffmpeg when an MP4-capable binary is available', async () => {
@@ -186,6 +217,9 @@ describe('injectMp4Metadata', () => {
         { startMs: 2000, title: 'Later' },
       ],
       location,
+      title: 'Beach day',
+      comment: '2 clips · 4s · kody.video',
+      encoder: KODY_VIDEO_ENCODER,
     })
 
     // ffmpeg runs on the Vitest server (Node), not in the browser — see
@@ -198,6 +232,8 @@ describe('injectMp4Metadata', () => {
     expect(stderr).toMatch(/Chapters/i)
     expect(stderr).toContain(title)
     expect(stderr).toMatch(/\+37\.7749-122\.4194\//)
+    expect(stderr).toContain('kody.video')
+    expect(stderr).toContain('Beach day')
   })
 })
 

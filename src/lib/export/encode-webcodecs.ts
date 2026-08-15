@@ -59,6 +59,7 @@ import {
   type ExportResult,
 } from './shared'
 import {
+  buildExportDescriptiveMetadata,
   clipsSpanMultipleDays,
   formatChapterTitle,
   locationForExport,
@@ -135,6 +136,7 @@ export async function exportWithWebCodecs(
   orientation?: ProjectOrientation,
   includeLocation = false,
   signal?: AbortSignal,
+  projectName = '',
 ): Promise<ExportResult> {
   if (!supportsWebCodecsExport()) {
     throw new Error('WebCodecs is not available')
@@ -539,6 +541,11 @@ export async function exportWithWebCodecs(
       chapters,
       clipsInPlan,
       includeLocation,
+      {
+        projectName,
+        filmDurationMs: plan.totalMs,
+        hasMusic: Boolean(background && background.tracks.length > 0),
+      },
     )
     blob = metadata.blob
     locationIncluded = metadata.locationIncluded
@@ -560,9 +567,9 @@ export async function exportWithWebCodecs(
 }
 
 /** Metadata injection needs the whole file in memory (once) — worth it for
- * chapters/geotags on normal exports, but never worth risking a very long
- * export over: oversized files skip it, and any failure returns the
- * perfectly playable un-injected file. */
+ * chapters, descriptive tags, and geotags on normal exports, but never
+ * worth risking a very long export over: oversized files skip it, and any
+ * failure returns the perfectly playable un-injected file. */
 const METADATA_INJECT_LIMIT_BYTES = 256 * 1024 * 1024
 
 async function injectMetadataBestEffort(
@@ -571,16 +578,25 @@ async function injectMetadataBestEffort(
   chapters: Mp4Chapter[],
   clipsInPlan: ClipRecord[],
   includeLocation: boolean,
+  descriptive: { projectName: string; filmDurationMs: number; hasMusic: boolean },
 ): Promise<{ blob: Blob; locationIncluded: boolean }> {
   if (blob.size > METADATA_INJECT_LIMIT_BYTES) {
     return { blob, locationIncluded: false }
   }
   try {
     const location = locationForExport(clipsInPlan, includeLocation)
+    const tags = buildExportDescriptiveMetadata({
+      projectName: descriptive.projectName,
+      clips: clipsInPlan,
+      filmDurationMs: descriptive.filmDurationMs,
+      hasMusic: descriptive.hasMusic,
+      includeLocation,
+    })
     const source = await blob.arrayBuffer()
     const injected = injectMp4Metadata(source, {
       chapters,
       location,
+      ...tags,
     })
     return {
       blob: new Blob([injected], { type: mimeType }),

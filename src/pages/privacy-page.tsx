@@ -14,7 +14,7 @@ export function PrivacyPage() {
 
       <div className="about-body">
         <h1>Privacy</h1>
-        <p className="legal-updated">Last updated: July 2026</p>
+        <p className="legal-updated">Last updated: August 2026</p>
 
         <section className="about-section">
           <h2>Everything stays on your device</h2>
@@ -66,8 +66,10 @@ export function PrivacyPage() {
             opt in with a button, which asks the browser for permission. When it&rsquo;s on, each
             new clip stores device coordinates locally. Exported videos omit location by default;
             Plus users can explicitly include it in MP4 metadata and chapter titles from the export
-            sheet. You can turn location tagging off anytime; existing clips keep whatever they
-            already captured, and deleting a clip deletes its location data with it.
+            sheet. Leaving that export option off is treated as a public share: the file will not
+            include coordinates, filming dates, or other capture-context that could identify you.
+            You can turn location tagging off anytime; existing clips keep whatever they already
+            captured, and deleting a clip deletes its location data with it.
           </p>
         </section>
 
@@ -84,6 +86,10 @@ export function PrivacyPage() {
           <h2>Exports &amp; sharing</h2>
           <p>
             Exported or shared files leave the device only when you share or save them yourself.
+            MP4 exports always credit Kody Video (<a href="https://kody.video">kody.video</a>) and
+            note how many clips (and photos, and whether there is music) made the film. That
+            credit is not personal information. Location, filming dates, and chapter coordinates
+            stay out of the file unless you turn on the Plus option to include clip locations.
           </p>
         </section>
 
