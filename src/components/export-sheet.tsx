@@ -247,7 +247,7 @@ export function ExportSheet(handle: Handle<ExportSheetProps>) {
                     </p>
                   ) : null}
                   <p className="export-location-note">
-                    Location is off by default. Exports still credit kody.video and note the clip
+                    Location is off by default. MP4 exports credit kody.video and note the clip
                     count — never where you filmed, unless you turn this on. Share and Save stamp
                     the file date from the last clip so Photos apps can sort. Chapter markers stay
                     in the video either way.
