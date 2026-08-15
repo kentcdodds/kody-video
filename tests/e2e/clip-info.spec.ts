@@ -82,6 +82,13 @@ test.describe('clip info sheet', () => {
     await strip.getByRole('button', { name: 'Cancel' }).click()
     await expect(strip).toBeHidden()
     await expect(tiles).toHaveCount(1)
+
+    await openClipInfo(page)
+    await page.getByRole('button', { name: 'Split clip' }).click()
+    await expect(strip).toBeVisible()
+    await page.keyboard.press('Escape')
+    await expect(strip).toBeHidden()
+    await expect(tiles).toHaveCount(1)
   })
 
   test('permanently trim deletes unused media from the file', async ({ page }) => {

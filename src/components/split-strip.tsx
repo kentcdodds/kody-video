@@ -31,13 +31,14 @@ export function SplitStrip(handle: Handle<SplitStripProps>) {
   }
 
   const applySplitMs = (next: number) => {
+    if (saving) return
     splitMs = clampSplitMs(props.clip, next)
     props.onSeek(splitMs)
     void handle.update()
   }
 
   const startHandleDrag = (event: PointerEvent) => {
-    if (event.button !== 0) return
+    if (event.button !== 0 || saving) return
     event.preventDefault()
     event.stopPropagation()
     const dragHandle = event.currentTarget as HTMLElement
@@ -73,7 +74,7 @@ export function SplitStrip(handle: Handle<SplitStripProps>) {
   }
 
   const startTrackScrub = (event: PointerEvent) => {
-    if (event.button !== 0) return
+    if (event.button !== 0 || saving) return
     if ((event.target as HTMLElement | null)?.closest('.split-handle')) return
     event.preventDefault()
     const strip = event.currentTarget as HTMLElement
@@ -177,6 +178,7 @@ export function SplitStrip(handle: Handle<SplitStripProps>) {
             type="button"
             className={`split-handle${dragging ? ' active' : ''}`}
             style={{ left: `${splitPct}%` }}
+            disabled={saving}
             role="slider"
             aria-label="Split point"
             aria-valuemin={bounds.min}
@@ -186,12 +188,19 @@ export function SplitStrip(handle: Handle<SplitStripProps>) {
             mix={[
               on('pointerdown', (event) => startHandleDrag(event)),
               on('keydown', (event) => {
+                if (saving) return
                 if (event.key === 'ArrowLeft') {
                   event.preventDefault()
                   applySplitMs(splitMs - NUDGE_MS)
                 } else if (event.key === 'ArrowRight') {
                   event.preventDefault()
                   applySplitMs(splitMs + NUDGE_MS)
+                } else if (event.key === 'Home') {
+                  event.preventDefault()
+                  applySplitMs(bounds.min)
+                } else if (event.key === 'End') {
+                  event.preventDefault()
+                  applySplitMs(bounds.max)
                 }
               }),
             ]}

@@ -56,6 +56,10 @@ describe('clampSplitMs', () => {
   it('falls back to the midpoint when the value is not finite', () => {
     expect(clampSplitMs(video(200, 1800), Number.NaN)).toBe(1000)
   })
+
+  it('falls back to the midpoint when no legal cut range exists', () => {
+    expect(clampSplitMs(video(0, MIN_SLICE_MS * 2 - 1), 50)).toBe((MIN_SLICE_MS * 2 - 1) / 2)
+  })
 })
 
 describe('resolveSplitMs', () => {

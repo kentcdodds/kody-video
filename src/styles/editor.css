@@ -443,7 +443,8 @@
   z-index: 2;
 }
 
-.trim-handle {
+.trim-handle,
+.split-handle {
   position: absolute;
   top: -4px;
   bottom: -4px;
@@ -473,7 +474,8 @@
   background: color-mix(in srgb, var(--ink-strong) 70%, transparent);
 }
 
-.trim-handle.active {
+.trim-handle.active,
+.split-handle.active {
   transform: translateX(-50%) scale(1.06);
 }
 
@@ -555,24 +557,6 @@
   z-index: 2;
 }
 
-.split-handle {
-  position: absolute;
-  top: -4px;
-  bottom: -4px;
-  width: 22px;
-  min-height: var(--tap);
-  margin: 0;
-  padding: 0;
-  transform: translateX(-50%);
-  border-radius: 8px;
-  background: var(--accent);
-  border: 2px solid color-mix(in srgb, var(--bg-elevated) 70%, #fff);
-  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.35);
-  z-index: 3;
-  cursor: ew-resize;
-  touch-action: none;
-}
-
 .split-handle::before,
 .split-handle::after {
   content: '';
@@ -591,10 +575,6 @@
 
 .split-handle::after {
   bottom: 8px;
-}
-
-.split-handle.active {
-  transform: translateX(-50%) scale(1.06);
 }
 
 .trim-strip-actions {

@@ -525,10 +525,15 @@ export function EditorScreen(handle: Handle<EditorScreenProps>) {
               onDone={async (splitMs) => {
                 const { second } = await splitSelectedClip(selected.id, splitMs)
                 selectedClipId = second.id
-                await props.refresh()
                 previewApi.current?.pause()
                 setSplitting(false)
-                props.showToast('Clip split')
+                try {
+                  await props.refresh()
+                  props.showToast('Clip split')
+                } catch (err) {
+                  reportError(err, 'refresh-after-split')
+                  props.showToast('Clip split, but the timeline could not refresh')
+                }
               }}
             />
           ) : editingTrack && props.audio ? (
