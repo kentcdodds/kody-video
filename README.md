@@ -122,18 +122,19 @@ src/
 
 MP4 exports carry **chapter markers** at every clip boundary (Nero `chpl`,
 injected post-mux by `lib/export/mp4-metadata.ts`), titled with each clip's
-recording time, plus QuickTime text tags: the project title (`©nam`), a short
-composition note (`©cmt` / `©des` — clip and photo counts, duration, music),
-and an encoder credit (`©too`) pointing at [kody.video](https://kody.video).
-Kody Video Plus users can opt into **location tagging** on the record screen;
-clips then store device coordinates in IndexedDB alongside the clip, never
-inside the MediaRecorder blob. Exports omit those coordinates — and filming
-dates — by default, so a public share does not disclose where or when it was
-made. A separate Plus-only export toggle adds coordinates to chapter titles, a
-`©xyz` geotag derived by averaging the majority cluster of clip locations
-(within 5 km), falling back to the first located clip, and a `©day` filming
-date. WebM exports skip this injection (the WebM subset of Matroska excludes
-chapters). Clips recorded before this feature simply lack the data and degrade
+time of day (no calendar date), plus QuickTime text tags: the project title
+(`©nam`), a short composition note (`©cmt` / `©des` — clip and photo counts,
+duration, music), and an encoder credit (`©too`) pointing at
+[kody.video](https://kody.video). Kody Video Plus users can opt into
+**location tagging** on the record screen; clips then store device coordinates
+in IndexedDB alongside the clip, never inside the MediaRecorder blob. Exports
+omit those coordinates — and filming dates — by default, so a public share
+does not disclose where or when it was made. A separate Plus-only export
+toggle adds calendar dates and coordinates to chapter titles, a `©xyz` geotag
+derived by averaging the majority cluster of clip locations (within 5 km),
+falling back to the first located clip, and a `©day` filming date. WebM
+exports skip this injection (the WebM subset of Matroska excludes chapters).
+Clips recorded before this feature simply lack the data and degrade
 gracefully.
 
 ### Export pipeline
