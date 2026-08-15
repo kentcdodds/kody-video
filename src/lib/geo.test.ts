@@ -16,6 +16,12 @@ describe('haversineMeters', () => {
   })
 })
 
+describe('medianPoint', () => {
+  it('rejects an empty list', () => {
+    expect(() => medianPoint([])).toThrow(RangeError)
+  })
+})
+
 describe('deriveProjectLocation', () => {
   it('returns null when there are no clips', () => {
     expect(deriveProjectLocation([])).toBeNull()

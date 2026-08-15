@@ -68,6 +68,9 @@ export function deriveProjectLocation(
 export function medianPoint(
   points: { lat: number; lng: number }[],
 ): { lat: number; lng: number } {
+  if (points.length === 0) {
+    throw new RangeError('Expected at least one point')
+  }
   return {
     lat: medianNumber(points.map((p) => p.lat)),
     lng: medianNumber(points.map((p) => p.lng)),
