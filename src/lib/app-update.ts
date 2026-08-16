@@ -216,7 +216,7 @@ async function activateWaitingWorker(options: {
   // Best-effort: tell workbox-window too. It no-ops when its own
   // registration.waiting is stale; we still postMessage on `worker` below.
   if (applyUpdate && worker) {
-    void applyUpdate(true).catch(() => undefined)
+    void Promise.resolve(applyUpdate(true)).catch(() => undefined)
   }
 
   if (worker && !options.forcePurge) {
