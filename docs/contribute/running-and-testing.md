@@ -40,3 +40,7 @@ npx playwright install chromium
 The e2e suite runs with a fake camera/mic, so it does not need real hardware.
 See [manual-camera-testing.md](./manual-camera-testing.md) for driving the
 camera/record/export flow manually in a headless environment.
+
+## CLA checker
+
+`node tools/ci/check-cla.mjs --self-test` verifies the inbound CLA allowlist and signer rules.
