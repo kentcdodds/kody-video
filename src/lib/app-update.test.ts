@@ -288,6 +288,40 @@ describe('applyWaitingUpdate', () => {
     ])
   })
 
+  it('does not purge when the toast is tapped and no worker is waiting', async () => {
+    const navigate = vi.fn()
+    const purge = vi.fn()
+    resetAppUpdateForTests({
+      fetchDeployed: async () => ({ commit: 'same-sha' }),
+      runningSha: 'same-sha',
+      navigate,
+      purge,
+    })
+    registerUpdateHandles(mockRegistration(), vi.fn())
+    await expect(applyWaitingUpdate()).resolves.toBe('unavailable')
+    expect(purge).not.toHaveBeenCalled()
+    expect(navigate).not.toHaveBeenCalled()
+    expect(getUpdateDiagnostics().events.map((event) => event.phase)).toEqual([
+      'apply-start',
+      'no-worker',
+    ])
+  })
+
+  it('purges a stale shell even when no worker is waiting', async () => {
+    const navigate = vi.fn()
+    const purge = vi.fn().mockResolvedValue(undefined)
+    resetAppUpdateForTests({
+      fetchDeployed: async () => ({ commit: 'deployed-sha' }),
+      runningSha: 'running-sha',
+      navigate,
+      purge,
+    })
+    registerUpdateHandles(mockRegistration(), vi.fn())
+    await expect(applyWaitingUpdate()).resolves.toBe('updated')
+    expect(purge).toHaveBeenCalledTimes(1)
+    expect(navigate).toHaveBeenCalledTimes(1)
+  })
+
   it('purges caches when the waiting worker never claims', async () => {
     const waiting = mockWaitingWorker()
     const navigate = vi.fn()

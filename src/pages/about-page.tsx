@@ -54,13 +54,15 @@ function updateDiagnosticsReport(
 ): string | null {
   const diag = getUpdateDiagnostics()
   const stale = isRunningStale(deployedCommit ? { commit: deployedCommit } : null)
-  if (!stale && diag.events.length === 0) return null
-  if (!deployedKnown && diag.events.length === 0) return null
+  const activeWorker = diag.waiting || diag.installing
+  if (!stale && diag.events.length === 0 && !activeWorker) return null
+  if (!deployedKnown && diag.events.length === 0 && !activeWorker) return null
   return [
     `Running: ${shortSha(COMMIT_SHA)}`,
     `Deployed: ${shortSha(deployedCommit)}`,
     `Controller: ${diag.hasController ? 'yes' : 'no'}`,
     `Waiting worker: ${diag.waiting ? 'yes' : 'no'}`,
+    `Installing worker: ${diag.installing ? 'yes' : 'no'}`,
     ...diag.events.map(formatDiagEvent),
   ].join('\n')
 }

@@ -44,12 +44,16 @@ export function App(handle: Handle) {
   const applyUpdate = () => {
     needRefresh = false
     void handle.update()
-    void applyWaitingUpdate().then((result) => {
-      if (result === 'unavailable') {
+    void applyWaitingUpdate()
+      .then((result) => {
+        if (result !== 'unavailable') return
         needRefresh = true
         void handle.update()
-      }
-    })
+      })
+      .catch(() => {
+        needRefresh = true
+        void handle.update()
+      })
   }
 
   return () => (

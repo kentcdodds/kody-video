@@ -22,6 +22,7 @@ let notifyNeedRefresh: (() => void) | null = null
 const DEFAULT_RESUME_MIN_INTERVAL_MS = 30_000
 const DEFAULT_CLAIM_TIMEOUT_MS = 2_500
 const DEPLOYED_CACHE_MS = 10_000
+const FETCH_TIMEOUT_MS = 4_000
 const DIAG_KEY = 'kody:update-diag'
 const DIAG_MAX_EVENTS = 12
 /** Query mark so iOS standalone cannot recycle the in-memory document. */
@@ -157,9 +158,11 @@ export function probeForUpdates(): void {
   lastQuietProbeAt = Date.now()
   void Promise.all([
     reg.update().catch(() => undefined),
-    fetchDeployedVersion().then((deployed) => {
-      if (isRunningStale(deployed)) notifyNeedRefresh?.()
-    }),
+    fetchDeployedVersion()
+      .then((deployed) => {
+        if (isRunningStale(deployed)) notifyNeedRefresh?.()
+      })
+      .catch(() => undefined),
   ]).finally(() => {
     quietProbeInFlight = false
   })
@@ -207,13 +210,15 @@ async function activateWaitingWorker(options: {
   const waiting = reg?.waiting ?? null
   const installing = reg?.installing ?? null
   const worker = waiting ?? installing
-  const deployed = await fetchDeployedVersion()
+  // Do not block SKIP_WAITING on /version.json — a hung probe used to
+  // leave the toast looking dead. Claim first; the stamp is only needed
+  // to decide whether a no-worker tap should purge.
+  const deployedPromise = fetchDeployedVersion()
 
   recordDiag({
     phase: 'apply-start',
     reason: options.reason,
     running: testHooks.runningSha ?? COMMIT_SHA,
-    deployed: deployed?.commit ?? null,
     waiting: Boolean(waiting),
     installing: Boolean(installing),
     hasController: Boolean(navigator.serviceWorker?.controller),
@@ -239,6 +244,16 @@ async function activateWaitingWorker(options: {
       hardNavigate()
       return 'updated'
     }
+  }
+
+  const deployed = await deployedPromise
+  if (!worker && !options.forcePurge && !isRunningStale(deployed)) {
+    recordDiag({
+      phase: 'no-worker',
+      reason: options.reason,
+      deployed: deployed?.commit ?? null,
+    })
+    return 'unavailable'
   }
 
   try {
@@ -290,7 +305,9 @@ async function purgeWorkersAndCaches(): Promise<void> {
   await Promise.all(keys.map((key) => caches.delete(key)))
   const urls = new Set([location.pathname || '/', '/'])
   await Promise.allSettled(
-    [...urls].map((url) => fetch(url, { cache: 'reload', credentials: 'same-origin' })),
+    [...urls].map((url) =>
+      fetchWithTimeout(url, { cache: 'reload', credentials: 'same-origin' }, FETCH_TIMEOUT_MS),
+    ),
   )
 }
 
@@ -328,12 +345,13 @@ export function fetchDeployedVersion(): Promise<DeployedVersion | null> {
     return Promise.resolve(deployedCache.value)
   }
   if (deployedInFlight) return deployedInFlight
-  deployedInFlight = (async () => {
+  const request = (async () => {
     try {
-      const res = await fetch('/version.json', {
-        cache: 'no-store',
-        headers: { accept: 'application/json' },
-      })
+      const res = await fetchWithTimeout(
+        '/version.json',
+        { cache: 'no-store', headers: { accept: 'application/json' } },
+        FETCH_TIMEOUT_MS,
+      )
       if (!res.ok) return null
       const data = (await res.json()) as { commit?: unknown }
       if (typeof data.commit !== 'string' || data.commit.length === 0) return null
@@ -342,11 +360,30 @@ export function fetchDeployedVersion(): Promise<DeployedVersion | null> {
       return value
     } catch {
       return null
-    } finally {
-      deployedInFlight = null
     }
   })()
-  return deployedInFlight
+  deployedInFlight = request
+  void request.finally(() => {
+    if (deployedInFlight === request) deployedInFlight = null
+  })
+  return request
+}
+
+/** setTimeout-based so a hung fetch cannot stall apply on older WebKit. */
+function fetchWithTimeout(url: string, init: RequestInit, ms: number): Promise<Response> {
+  return new Promise((resolve, reject) => {
+    const timer = window.setTimeout(() => reject(new Error(`Timed out fetching ${url}`)), ms)
+    void fetch(url, init).then(
+      (res) => {
+        window.clearTimeout(timer)
+        resolve(res)
+      },
+      (err: unknown) => {
+        window.clearTimeout(timer)
+        reject(err)
+      },
+    )
+  })
 }
 
 function recordDiag(event: Omit<UpdateDiagEvent, 'at'>): void {
