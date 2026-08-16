@@ -2,8 +2,15 @@ import type { Handle } from 'remix/ui'
 import { on } from 'remix/ui'
 import { IconBack } from '../components/icons'
 import { BrandMark } from '../components/brand-mark'
-import { checkForUpdates } from '../lib/app-update'
-import { buildDateLabel, commitUrl, shortVersion } from '../lib/build-info'
+import {
+  checkForUpdates,
+  fetchDeployedVersion,
+  getUpdateDiagnostics,
+  isRunningStale,
+  reconcileUpdateCheckResult,
+  type UpdateDiagEvent,
+} from '../lib/app-update'
+import { buildDateLabel, COMMIT_SHA, commitUrl, shortVersion } from '../lib/build-info'
 import { reportError } from '../lib/error-reporting'
 import { clearExportCache, estimateExportCacheBytes } from '../lib/export/export-cache'
 import { listRearCameras } from '../lib/media'
@@ -27,6 +34,38 @@ function reportProblemUrl(): string {
   ].join('\n')
   const params = new URLSearchParams({ labels: 'bug', body })
   return `https://github.com/kentcdodds/kody-video/issues/new?${params}`
+}
+
+function shortSha(sha: string | null): string {
+  if (!sha) return 'unknown'
+  return sha === 'dev' ? 'dev' : sha.slice(0, 7)
+}
+
+function formatDiagEvent(event: UpdateDiagEvent): string {
+  const time = new Date(event.at).toLocaleTimeString()
+  const bits = [time, event.phase]
+  if (event.reason) bits.push(event.reason)
+  if (event.claimed !== undefined) bits.push(event.claimed ? 'claimed' : 'no-claim')
+  return bits.join(' · ')
+}
+
+function updateDiagnosticsReport(
+  deployedCommit: string | null,
+  deployedKnown: boolean,
+): string | null {
+  const diag = getUpdateDiagnostics()
+  const stale = isRunningStale(deployedCommit ? { commit: deployedCommit } : null)
+  const activeWorker = diag.waiting || diag.installing
+  if (!stale && diag.events.length === 0 && !activeWorker) return null
+  if (!deployedKnown && diag.events.length === 0 && !activeWorker) return null
+  return [
+    `Running: ${shortSha(COMMIT_SHA)}`,
+    `Deployed: ${shortSha(deployedCommit)}`,
+    `Controller: ${diag.hasController ? 'yes' : 'no'}`,
+    `Waiting worker: ${diag.waiting ? 'yes' : 'no'}`,
+    `Installing worker: ${diag.installing ? 'yes' : 'no'}`,
+    ...diag.events.map(formatDiagEvent),
+  ].join('\n')
 }
 
 interface AboutData {
@@ -63,6 +102,8 @@ export function AboutPage(handle: Handle) {
   let importing = false
   let importProgress: string | null = null
   let importError: string | null = null
+  let deployedCommit: string | null = null
+  let deployedKnown = false
 
   const refresh = async () => {
     data = await loadAboutData()
@@ -70,6 +111,12 @@ export function AboutPage(handle: Handle) {
     void handle.update()
   }
   void refresh()
+  void fetchDeployedVersion().then((deployed) => {
+    if (handle.signal.aborted) return
+    deployedCommit = deployed?.commit ?? null
+    deployedKnown = true
+    void handle.update()
+  })
 
   /**
    * On-device camera diagnostic: what the browser exposes varies wildly by
@@ -170,7 +217,11 @@ export function AboutPage(handle: Handle) {
     void handle.update()
     void checkForUpdates()
       .then((result) => {
-        switch (result) {
+        const resolved = reconcileUpdateCheckResult(
+          result,
+          deployedCommit ? { commit: deployedCommit } : null,
+        )
+        switch (resolved) {
           case 'updated':
             // checkForUpdates already applied it; the page is about to reload.
             updateStatus = 'updating'
@@ -185,7 +236,7 @@ export function AboutPage(handle: Handle) {
             updateStatus = 'unavailable'
             return
           default: {
-            const exhaustive: never = result
+            const exhaustive: never = resolved
             throw new Error(`Unhandled update result: ${String(exhaustive)}`)
           }
         }
@@ -200,6 +251,7 @@ export function AboutPage(handle: Handle) {
     const { storage, exportCacheBytes } = data
     const version = <code>{shortVersion()}</code>
     const versionUrl = commitUrl()
+    const diagReport = updateDiagnosticsReport(deployedCommit, deployedKnown)
     return (
       <div className="screen about-screen">
         <div className="about-top">
@@ -433,6 +485,17 @@ export function AboutPage(handle: Handle) {
               <p role="status" aria-live="polite">
                 {UPDATE_STATUS_LABEL[updateStatus]}
               </p>
+            ) : null}
+            {deployedKnown && isRunningStale(deployedCommit ? { commit: deployedCommit } : null) ? (
+              <p role="status" aria-live="polite">
+                This screen is still on an older build than the server. Tap Check for updates.
+              </p>
+            ) : null}
+            {diagReport ? (
+              <details className="about-update-diag">
+                <summary>Update details</summary>
+                <pre className="camera-report">{diagReport}</pre>
+              </details>
             ) : null}
           </section>
 

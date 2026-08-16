@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { normalizeSdp, receiveBackupOnChannel, sendBackupOnChannel } from './sync-peer'
 import { encodeSyncHeader, STUN_ICE_SERVERS } from './sync-protocol'
 
@@ -101,11 +101,17 @@ describe('sync DataChannel transfer', () => {
     const payload = new Uint8Array(1200)
     for (let i = 0; i < payload.length; i += 1) payload[i] = i % 199
     const signal = new AbortController().signal
-    const received = receiveBackupOnChannel(pair.receiver, signal)
+    let gotAllBytes = false
+    const received = receiveBackupOnChannel(pair.receiver, signal, (got, total) => {
+      if (got === total) gotAllBytes = true
+    })
     pair.sender.send(
       encodeSyncHeader({ v: 1, byteLength: payload.byteLength, filename: 'no-eof.kodyvideo' }),
     )
     pair.sender.send(payload.buffer)
+    // Close only after the payload is on the receiver. Immediate close can
+    // beat the last message on a loaded CI runner and fail this as a flake.
+    await vi.waitFor(() => expect(gotAllBytes).toBe(true))
     pair.sender.close()
     const result = await received
     expect(result.filename).toBe('no-eof.kodyvideo')

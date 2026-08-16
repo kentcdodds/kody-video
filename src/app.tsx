@@ -3,7 +3,7 @@ import { on } from 'remix/ui'
 import { registerSW } from 'virtual:pwa-register'
 import { BackupDropOverlay } from './components/backup-drop-overlay'
 import { lazyPage } from './components/lazy-page'
-import { registerUpdateHandles } from './lib/app-update'
+import { applyWaitingUpdate, registerUpdateHandles } from './lib/app-update'
 import { Router } from './router'
 import { HomePage } from './pages/home-page'
 
@@ -23,22 +23,37 @@ export function App(handle: Handle) {
       needRefresh = true
       void handle.update()
     },
+    // vite-plugin-pwa reloads on `controlling` unless we take this hook.
+    // A blind location.reload() there (and the old 1.5s fallback) is what
+    // left installed PWAs on the previous shell after tapping Update.
+    onNeedReload() {
+      // Reload is owned by applyWaitingUpdate.
+    },
     onRegisteredSW(_url, registration) {
-      registerUpdateHandles(registration, (reload) => updateServiceWorker(reload))
+      registerUpdateHandles(
+        registration,
+        (reload) => updateServiceWorker(reload),
+        () => {
+          needRefresh = true
+          void handle.update()
+        },
+      )
     },
   })
 
   const applyUpdate = () => {
     needRefresh = false
     void handle.update()
-    void updateServiceWorker(true).catch(() => undefined)
-    // clientsClaim + controllerchange normally reload the page. Workers
-    // deployed before clientsClaim never fire controllerchange, so tapping
-    // Update "did nothing" — the forced reload is what rescues those
-    // sessions (the new worker IS active by then; a reload runs under it).
-    window.setTimeout(() => {
-      window.location.reload()
-    }, 1500)
+    void applyWaitingUpdate()
+      .then((result) => {
+        if (result === 'updated') return
+        needRefresh = true
+        void handle.update()
+      })
+      .catch(() => {
+        needRefresh = true
+        void handle.update()
+      })
   }
 
   return () => (
