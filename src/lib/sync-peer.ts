@@ -264,7 +264,8 @@ function sendOnChannel(channel: RTCDataChannel, data: string | ArrayBuffer): voi
     throw new SyncTransferError('The connection dropped mid-send. Try again with both screens open.')
   }
   try {
-    channel.send(data)
+    if (typeof data === 'string') channel.send(data)
+    else channel.send(data)
   } catch {
     throw new SyncTransferError('The connection dropped mid-send. Try again with both screens open.')
   }
