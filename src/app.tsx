@@ -12,6 +12,7 @@ const UnlockedPage = lazyPage(() => import('./pages/unlocked-page'), 'UnlockedPa
 const AboutPage = lazyPage(() => import('./pages/about-page'), 'AboutPage')
 const PrivacyPage = lazyPage(() => import('./pages/privacy-page'), 'PrivacyPage')
 const TermsPage = lazyPage(() => import('./pages/terms-page'), 'TermsPage')
+const ReceivePage = lazyPage(() => import('./pages/receive-page'), 'ReceivePage')
 
 export function App(handle: Handle) {
   let needRefresh = false
@@ -52,6 +53,8 @@ export function App(handle: Handle) {
           '/about': () => <AboutPage />,
           '/privacy': () => <PrivacyPage />,
           '/terms': () => <TermsPage />,
+          '/receive': () => <ReceivePage />,
+          '/receive/:code': (params) => <ReceivePage code={params.code ?? ''} />,
         }}
       />
       <BackupDropOverlay />

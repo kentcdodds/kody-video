@@ -289,8 +289,10 @@ export function AboutPage(handle: Handle) {
               storage until you export and share them yourself. The app&rsquo;s only own network
               traffic: Stripe checkout and its purchase verification if you buy the watermark
               removal, anonymous crash reports (error and stack trace only — never your media) when
-              something breaks, cookieless page-view counts via Fathom Analytics, and the tour
-              video streaming from this app&rsquo;s own domain if you tap play on it.
+              something breaks, cookieless page-view counts via Fathom Analytics, the tour video
+              streaming from this app&rsquo;s own domain if you tap play on it, and — only if you
+              tap Send to device — a short-lived matchmaking room so two browsers can find each
+              other. Clips still never upload.
             </p>
           </section>
 
@@ -346,7 +348,10 @@ export function AboutPage(handle: Handle) {
             <p>
               Every project can be saved as a single <code>.kodyvideo</code> file (⋯ →{' '}
               <strong>Save backup</strong> on the home screen) — a safety net, and the way to move
-              a project between devices. Restore one here, or drop the file anywhere in the app:
+              a project between devices. Plus can also <strong>Send to device</strong> over the
+              local network (the other device opens{' '}
+              <a href="/receive">kody.video/receive</a>). Restore a backup here, or drop the file
+              anywhere in the app:
             </p>
             <label className={`btn btn-ghost about-import${importing ? ' is-disabled' : ''}`}>
               Import a backup

@@ -29,6 +29,9 @@ export default defineConfig({
         '--use-fake-ui-for-media-stream',
         '--use-fake-device-for-media-stream',
         '--autoplay-policy=no-user-gesture-required',
+        // Headless CI has no mDNS: without this, WebRTC host candidates are
+        // *.local names the other context cannot resolve (send-to-device).
+        '--disable-features=WebRtcHideLocalIpsWithMdns',
       ],
     },
   },

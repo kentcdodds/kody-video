@@ -10,6 +10,7 @@ Kody Video is a free and open source progressive web app. Projects stay private 
 - [About](https://kody.video/about): Product overview and credits
 - [Privacy](https://kody.video/privacy): Privacy policy
 - [Terms](https://kody.video/terms): Terms of use
+- [Receive](https://kody.video/receive): Accept a project sent from another device
 
 ## For agents
 

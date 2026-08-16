@@ -286,6 +286,8 @@ test.describe('home & app shell', () => {
     await expect(page.getByRole('heading', { name: 'Privacy', exact: true })).toBeVisible()
     await page.goto('/terms')
     await expect(page.getByRole('heading', { name: 'Terms', exact: true })).toBeVisible()
+    await page.goto('/receive')
+    await expect(page.getByRole('heading', { name: 'Receive a project' })).toBeVisible()
   })
 })
 

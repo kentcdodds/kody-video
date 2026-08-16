@@ -89,6 +89,10 @@ For a phone on the same network, use your machine’s LAN URL over HTTPS, or tun
   move a project between devices or browser origins (storage is per-origin);
   ⋯ → Save backup on a slot, import from the About page or by dropping a
   `.kodyvideo` file anywhere in the app
+- **Send to another device** (Plus): a pairing code + QR introduces two
+  browsers; the `.kodyvideo` travels over a WebRTC DataChannel (STUN only —
+  same Wi‑Fi usually). Clips never land on our servers. Receiving is free
+  at `/receive`. If the devices cannot connect, Save backup still works
 - Installable PWA (manifest + Workbox service worker for the app shell)
 - **No accounts, no uploads, no analytics**
 
@@ -110,6 +114,7 @@ src/
   lib/recorder.ts           Hold-to-record MediaRecorder wrapper (hardware-codec aware)
   lib/media.ts              getUserMedia/permissions/share/download helpers
   lib/thumbs.ts             Filmstrip thumbnail generation (stored per clip)
+  lib/sync-*.ts             Plus send-to-device (WebRTC + /api/sync matchmaker)
   lib/sheet-modal.ts        Bottom-sheet modality (focus trap, Esc, sheet stack)
   lib/export/               Export engines (see below)
   components/record-screen  Camera surface (capture, zoom, timer, dock)
@@ -241,15 +246,16 @@ API is missing.
 
 The free plan includes one project, and exports carry a small Kody Video mark
 in the corner. Kody Video Plus — a one-time $0.99 Stripe Payment Link —
-removes the watermark, unlocks six project slots, background music, and
-landscape projects: the export sheet (or a locked home slot, the locked "Add
-music" button in the editor, or rotating an empty project sideways on the
-free plan) links to checkout, Stripe redirects back to
-`/unlocked?session_id=…`, and a single Cloudflare Pages Function
-(`functions/api/verify-purchase.ts`) verifies the session server-side before
-the entitlement is stored in IndexedDB. 100%-off promotion codes (friends /
-the developer) flow through the exact same verification. Restore on another
-device: "Already paid?" on the export sheet or a locked slot's upsell.
+removes the watermark, unlocks six project slots, background music,
+landscape projects, and sending a project to another device: the export
+sheet (or a locked home slot, the locked "Add music" button in the editor,
+or rotating an empty project sideways on the free plan) links to checkout,
+Stripe redirects back to `/unlocked?session_id=…`, and a single Cloudflare
+Pages Function (`functions/api/verify-purchase.ts`) verifies the session
+server-side before the entitlement is stored in IndexedDB. 100%-off
+promotion codes (friends / the developer) flow through the exact same
+verification. Restore on another device: "Already paid?" on the export
+sheet or a locked slot's upsell.
 
 Projects are also created lazily — "New project" opens the camera at
 `/project/new` and nothing is persisted until the first clip is recorded, so
@@ -258,8 +264,13 @@ holds after creation: a project exited while still in its default state (no
 clips, default name, no music) is silently deleted when the home screen
 loads, since keeping it would change nothing the user can see.
 
-Deployment requirement: set `STRIPE_SECRET_KEY` (a restricted key with
-Checkout Sessions read access is enough) on the Cloudflare Pages project.
+Deployment requirements on the Cloudflare Pages project:
+
+- `STRIPE_SECRET_KEY` (a restricted key with Checkout Sessions read access
+  is enough)
+- KV namespace binding `SYNC_ROOMS` for Plus send-to-device matchmaking
+  (room codes + WebRTC descriptions only; never media). Without it, Send
+  shows a configuration error and Save backup still works.
 
 ## Rewrite showcases
 
@@ -304,12 +315,14 @@ under `/api/` so no service worker or cached shell can interfere:
 - No clip upload endpoints exist in this app.
 - Share/export uses user-gesture download or the Web Share API only.
 - Network calls besides Stripe checkout (opened in the browser): the
-  purchase-verification function above (never sees media), and anonymous
+  purchase-verification function above (never sees media); anonymous
   Sentry crash reports (error + stack trace only — breadcrumbs and request
   metadata are stripped in the SDK config; no PII, no media; only from
-  production hostnames — dev and tests never report). Export and import
-  failures the UI surfaces as friendly messages are also captured, tagged
-  with the failing step, so real-device bugs surface.
+  production hostnames — dev and tests never report); and, only when you
+  tap Send to device, a short-lived `/api/sync` matchmaking room (code +
+  WebRTC descriptions, never clips). Export and import failures the UI
+  surfaces as friendly messages are also captured, tagged with the failing
+  step, so real-device bugs surface.
 - The home-screen tour video (shown to first-time users) streams from
   `media.kody.video` (an R2 bucket behind the app's own zone — no third-party
   player, no tracking) and only when the user taps play on it.

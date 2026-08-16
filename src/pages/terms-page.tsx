@@ -36,8 +36,9 @@ export function TermsPage() {
           <h2>Kody Video Plus</h2>
           <p>
             Kody Video Plus is a one-time $0.99 purchase that unlocks watermark-free exports,
-            optional location tagging, and up to six project slots (the free plan includes one
-            project) for the browser profile where it&rsquo;s verified. You can restore the
+            optional location tagging, sending a project to another device, and up to six project
+            slots (the free plan includes one project) for the browser profile where it&rsquo;s
+            verified. You can restore the
             purchase on another device via the Stripe receipt link. Payments are handled by Stripe.
             For refunds or purchase trouble, email{' '}
             <a href="mailto:team@kody.video">team@kody.video</a>.

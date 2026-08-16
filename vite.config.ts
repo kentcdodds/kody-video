@@ -2,6 +2,7 @@ import { copyFile } from 'node:fs/promises'
 import { defineConfig } from 'vite'
 import { VitePWA } from 'vite-plugin-pwa'
 import { sentryVitePlugin } from '@sentry/vite-plugin'
+import { syncApiPlugin } from './scripts/vite-sync-api-plugin'
 
 // Cloudflare Pages exposes the commit; local builds tag as 'dev'.
 const commitSha = process.env.CF_PAGES_COMMIT_SHA ?? 'dev'
@@ -25,6 +26,7 @@ export default defineConfig({
     jsxImportSource: 'remix/ui',
   },
   plugins: [
+    syncApiPlugin(),
     ...(sentryUpload
       ? [
           sentryVitePlugin({

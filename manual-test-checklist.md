@@ -58,7 +58,9 @@ npm test           # unit tests
   uses the styled confirm (no browser dialog) and frees stored clips; backup
   downloads a `.kodyvideo` file and import (About → Import a backup, or drop
   the file anywhere in the app) restores it; import at the plan limit is
-  refused with a clear message; slot order is stable
+  refused with a clear message; slot order is stable; Plus Send to device
+  copies a project to another browser over WebRTC; free Send opens the
+  upsell; `/receive` renders
 - **Storage**: the footer storage gauge opens a "X of Y used" popover on
   tap; ≥80% shows the amber banner, ≥92%
   turns critical; the banner offers one-tap "Clear cached exports"; the boot
@@ -75,7 +77,7 @@ npm test           # unit tests
   permanently, hidden in standalone and non-iOS browsers
 - **Meta**: `viewport-fit=cover`, `apple-mobile-web-app-status-bar-style`
   black-translucent, theme colors, og/twitter card tags; onboarding shows
-  once and dismisses for good; /about, /privacy, /terms render
+  once and dismisses for good; /about, /privacy, /terms, /receive render
 
 Specialized probes (run each individually, e.g.
 `node scripts/probe-fast-export.mjs`) additionally cover: the fast

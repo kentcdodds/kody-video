@@ -7,6 +7,7 @@ interface HomeOptionsSheetProps {
   onOpen: () => void
   onRename: () => void
   onBackup: () => void
+  onSend: () => void
   onDelete: () => void
   onClose: () => void
 }
@@ -14,7 +15,7 @@ interface HomeOptionsSheetProps {
 /** Bottom sheet with Open / Rename / Backup / Delete for a filled project slot. */
 export function HomeOptionsSheet(handle: Handle<HomeOptionsSheetProps>) {
   return () => {
-    const { projectName, onOpen, onRename, onBackup, onDelete, onClose } = handle.props
+    const { projectName, onOpen, onRename, onBackup, onSend, onDelete, onClose } = handle.props
     return (
       <>
         <div className="sheet-backdrop" mix={on('click', () => onClose())} />
@@ -37,6 +38,9 @@ export function HomeOptionsSheet(handle: Handle<HomeOptionsSheetProps>) {
             </button>
             <button type="button" className="home-option-btn" mix={on('click', () => onRename())}>
               Rename
+            </button>
+            <button type="button" className="home-option-btn" mix={on('click', () => onSend())}>
+              Send to device
             </button>
             <button type="button" className="home-option-btn" mix={on('click', () => onBackup())}>
               Save backup

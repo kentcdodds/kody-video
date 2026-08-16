@@ -17,3 +17,5 @@
 /about        /app    200
 /privacy      /app    200
 /terms        /app    200
+/receive      /app    200
+/receive/*    /app    200
