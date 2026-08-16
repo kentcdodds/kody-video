@@ -688,6 +688,17 @@
   pointer-events: none;
 }
 
+.about-update-diag {
+  margin-top: 10px;
+  color: var(--ink-muted);
+  font-size: 0.85rem;
+}
+
+.about-update-diag summary {
+  cursor: pointer;
+  font-weight: 600;
+}
+
 .camera-report {
   margin: 10px 0 0;
   padding: 10px 12px;

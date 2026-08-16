@@ -1,0 +1,16 @@
+# Service worker + version must revalidate. A cached sw.js is how a phone
+# can sit on a retired shell while About says it is already up to date.
+/sw.js
+  Cache-Control: public, max-age=0, must-revalidate
+
+/workbox-*.js
+  Cache-Control: public, max-age=0, must-revalidate
+
+/version.json
+  Cache-Control: no-store
+
+/index.html
+  Cache-Control: public, max-age=0, must-revalidate
+
+/app.html
+  Cache-Control: public, max-age=0, must-revalidate

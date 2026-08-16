@@ -2,11 +2,13 @@
 import './lib/array-at-polyfill'
 import { createRoot } from 'remix/ui'
 import { App } from './app'
+import { stripUpdateNavigationMark } from './lib/app-update'
 import { initErrorReporting, reportComponentError } from './lib/error-reporting'
 import { sweepExportCache } from './lib/export/export-cache'
 import { onNavigate } from './router'
 import './lib/install-prompt'
 
+stripUpdateNavigationMark()
 initErrorReporting()
 // Export temp files and zip scratch can be gigabytes; reclaim anything no
 // longer referenced. No export can be running at boot, so this is safe.

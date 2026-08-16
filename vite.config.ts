@@ -1,4 +1,4 @@
-import { copyFile } from 'node:fs/promises'
+import { copyFile, writeFile } from 'node:fs/promises'
 import { defineConfig } from 'vite'
 import { VitePWA } from 'vite-plugin-pwa'
 import { sentryVitePlugin } from '@sentry/vite-plugin'
@@ -172,7 +172,14 @@ export default defineConfig({
         // Not part of the app shell: the social card is for link scrapers
         // and the icon master is only the source for generated icons.
         // Source maps are served on demand for debugging — do not precache.
-        globIgnores: ['**/og-image.png', '**/art/kody-video-icon.png', '**/*.map'],
+        globIgnores: [
+          '**/og-image.png',
+          '**/art/kody-video-icon.png',
+          '**/*.map',
+          // Network-only: About / resume probes compare this to the running
+          // bundle SHA. Precaching it would make a stale shell look current.
+          '**/version.json',
+        ],
         navigateFallback: '/index.html',
         // Never SPA-fallback these: opening the social card in a tab with an
         // active service worker was "redirecting" to the app, and the API
@@ -183,6 +190,7 @@ export default defineConfig({
           /^\/robots\.txt$/,
           /^\/sitemap\.xml$/,
           /^\/llms\.txt$/,
+          /^\/version\.json$/,
           /^\/assets\//,
           /\.map$/,
         ],
@@ -195,12 +203,17 @@ export default defineConfig({
     {
       // _redirects rewrites deep links to /app (see public/_redirects):
       // Cloudflare Pages 308-normalizes rewrites that target /index.html,
-      // so the shell needs a second name. Written after the service worker
-      // generation so it stays out of the precache (navigateFallback keeps
-      // using /index.html).
+      // so the shell needs a second name. version.json is the network-only
+      // commit stamp About / resume probes compare to the running bundle.
+      // Written after the service worker generation so both stay out of the
+      // precache (navigateFallback keeps using /index.html).
       name: 'spa-shell-copy',
       closeBundle: async () => {
         await copyFile('dist/index.html', 'dist/app.html')
+        await writeFile(
+          'dist/version.json',
+          `${JSON.stringify({ commit: commitSha, builtAt: new Date().toISOString() })}\n`,
+        )
       },
     },
   ],
