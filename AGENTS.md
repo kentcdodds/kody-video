@@ -16,3 +16,4 @@ Contributor and cloud-agent docs live in `docs/contribute/`:
 - [`environment.md`](docs/contribute/environment.md) — required Node version (`>=24.3.0`) and dependency/install caveats.
 - [`running-and-testing.md`](docs/contribute/running-and-testing.md) — dev server, lint, unit, and e2e/smoke test commands.
 - [`manual-camera-testing.md`](docs/contribute/manual-camera-testing.md) — driving the camera/record/export flow in a headless VM.
+- [`inbound-contributions.md`](docs/contribute/inbound-contributions.md) — inbound CLA for outside pull requests.

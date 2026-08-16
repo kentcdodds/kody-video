@@ -335,6 +335,12 @@ under `/api/` so no service worker or cached shell can interfere:
 | `node scripts/probe-touch-timeline.mjs` | Touch timeline gestures (scroll, long-press lift) |
 | `node scripts/probe-webkit.mjs`      | WebKit engine sanity + feature matrix (iOS proxy, not a substitute for a real device) |
 
+## Contributing
+
+Outside pull requests to this repository need a signed inbound
+[Contributor License Agreement](./docs/contribute/inbound-contributions.md).
+See [`CONTRIBUTING.md`](./CONTRIBUTING.md).
+
 ## License
 
 Kody Video is licensed under the
