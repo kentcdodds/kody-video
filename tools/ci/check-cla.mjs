@@ -42,9 +42,11 @@ export function parseClaSignersFile(raw) {
 	return parsed
 }
 
+function compactStringArray(values) {
+	return `[${values.map((value) => JSON.stringify(value)).join(', ')}]`
+}
+
 export function serializeClaSignersFile(file) {
-	const compactStringArray = (values) =>
-		`[${values.map((value) => JSON.stringify(value)).join(', ')}]`
 	const placeholderGithub = '__CLA_ALLOWLIST_GITHUB__'
 	const placeholderEmail = '__CLA_ALLOWLIST_EMAIL__'
 	const indented = JSON.stringify(
