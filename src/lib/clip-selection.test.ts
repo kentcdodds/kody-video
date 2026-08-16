@@ -2,13 +2,13 @@ import { describe, expect, it } from 'vitest'
 import { clipIdAfterDelete } from './clip-selection'
 
 describe('clipIdAfterDelete', () => {
-  it('selects the next clip when one remains after the deleted one', () => {
-    expect(clipIdAfterDelete(['a', 'b', 'c'], 'b')).toBe('c')
-    expect(clipIdAfterDelete(['a', 'b', 'c'], 'a')).toBe('b')
+  it('selects the previous clip when one remains before the deleted one', () => {
+    expect(clipIdAfterDelete(['a', 'b', 'c'], 'b')).toBe('a')
+    expect(clipIdAfterDelete(['a', 'b', 'c'], 'c')).toBe('b')
   })
 
-  it('selects the previous clip when the last clip is deleted', () => {
-    expect(clipIdAfterDelete(['a', 'b', 'c'], 'c')).toBe('b')
+  it('selects the next clip when the first clip is deleted', () => {
+    expect(clipIdAfterDelete(['a', 'b', 'c'], 'a')).toBe('b')
   })
 
   it('returns null when the only clip is deleted', () => {

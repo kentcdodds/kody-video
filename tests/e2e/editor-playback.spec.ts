@@ -47,20 +47,20 @@ test.describe('editor', () => {
     await expect(tiles).toHaveCount(2)
   })
 
-  test('delete selects the next clip, or the previous when it was last', async ({ page }) => {
+  test('delete selects the previous clip, or the next when it was first', async ({ page }) => {
     await openEditorWithClips(page, 3)
     const tiles = page.locator('.clip-thumb')
-    const secondId = await tiles.nth(1).getAttribute('data-clip-id')
-    await tiles.nth(0).click()
-    await page.getByRole('button', { name: 'Delete clip' }).click()
-    await expect(tiles).toHaveCount(2)
-    await expect(tiles.nth(0)).toHaveAttribute('data-clip-id', secondId!)
-    await expect(tiles.nth(0)).toHaveClass(/selected/)
-
+    const firstId = await tiles.nth(0).getAttribute('data-clip-id')
+    const thirdId = await tiles.nth(2).getAttribute('data-clip-id')
     await tiles.nth(1).click()
     await page.getByRole('button', { name: 'Delete clip' }).click()
+    await expect(tiles).toHaveCount(2)
+    await expect(tiles.nth(0)).toHaveAttribute('data-clip-id', firstId!)
+    await expect(tiles.nth(0)).toHaveClass(/selected/)
+
+    await page.getByRole('button', { name: 'Delete clip' }).click()
     await expect(tiles).toHaveCount(1)
-    await expect(tiles.nth(0)).toHaveAttribute('data-clip-id', secondId!)
+    await expect(tiles.nth(0)).toHaveAttribute('data-clip-id', thirdId!)
     await expect(tiles.nth(0)).toHaveClass(/selected/)
   })
 
