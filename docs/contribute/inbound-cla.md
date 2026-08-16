@@ -36,7 +36,7 @@ How it works:
 
 - **Scope.** This git repository only.
 - **Who signs.** Every GitHub identity that authors a commit on the pull
-  request, unless that identity is `kentcdodds`, `kody-bot`, a `*[bot]`
+  request, unless that identity is `kentcdodds`, `kody-bot`, `cursoragent`, a `*[bot]`
   or `app/*` account, or an email listed as Licensor-owned in
   [`.github/cla-signers.json`](../../.github/cla-signers.json).
 - **Which form.** [Individual CLA](../legal/individual-cla.md) by default.
