@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { normalizeSdp, receiveBackupOnChannel, sendBackupOnChannel } from './sync-peer'
-import { STUN_ICE_SERVERS } from './sync-protocol'
+import { encodeSyncHeader, STUN_ICE_SERVERS } from './sync-protocol'
 
 async function waitForIce(pc: RTCPeerConnection): Promise<void> {
   if (pc.iceGatheringState === 'complete') return
@@ -93,6 +93,45 @@ describe('sync DataChannel transfer', () => {
     expect(result.blob.size).toBe(backup.size)
     const bytes = new Uint8Array(await result.blob.arrayBuffer())
     expect(bytes).toEqual(payload)
+    pair.close()
+  })
+
+  it('completes receive when the peer closes after all bytes without EOF', async () => {
+    const pair = await connectedPair()
+    const payload = new Uint8Array(1200)
+    for (let i = 0; i < payload.length; i += 1) payload[i] = i % 199
+    const signal = new AbortController().signal
+    const received = receiveBackupOnChannel(pair.receiver, signal)
+    pair.sender.send(
+      encodeSyncHeader({ v: 1, byteLength: payload.byteLength, filename: 'no-eof.kodyvideo' }),
+    )
+    pair.sender.send(payload.buffer)
+    pair.sender.close()
+    const result = await received
+    expect(result.filename).toBe('no-eof.kodyvideo')
+    expect(new Uint8Array(await result.blob.arrayBuffer())).toEqual(payload)
+    pair.close()
+  })
+
+  it('rejects receive when the peer closes before all bytes arrive', async () => {
+    const pair = await connectedPair()
+    const signal = new AbortController().signal
+    const received = receiveBackupOnChannel(pair.receiver, signal)
+    pair.sender.send(encodeSyncHeader({ v: 1, byteLength: 10_000, filename: 'cut.kodyvideo' }))
+    pair.sender.send(new Uint8Array(200).buffer)
+    pair.sender.close()
+    await expect(received).rejects.toThrow(/closed before the project finished/)
+    pair.close()
+  })
+
+  it('rejects send when the channel closes mid-transfer', async () => {
+    const pair = await connectedPair()
+    const backup = new Blob([new Uint8Array(80_000)], { type: 'application/octet-stream' })
+    const signal = new AbortController().signal
+    const sending = sendBackupOnChannel(pair.sender, backup, 'cut.kodyvideo', signal, (sent) => {
+      if (sent > 0) pair.sender.close()
+    })
+    await expect(sending).rejects.toThrow(/dropped mid-send/)
     pair.close()
   })
 })

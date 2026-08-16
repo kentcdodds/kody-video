@@ -222,23 +222,60 @@ export async function openReceiverChannel(
 }
 
 async function waitForBufferedAmountLow(channel: RTCDataChannel, signal: AbortSignal): Promise<void> {
-  if (channel.bufferedAmount <= BUFFER_LOW) return
+  if (channel.readyState !== 'open') {
+    throw new SyncTransferError('The connection dropped mid-send. Try again with both screens open.')
+  }
+  if (channel.bufferedAmount <= channel.bufferedAmountLowThreshold) return
   await new Promise<void>((resolve, reject) => {
     const finish = () => {
       channel.removeEventListener('bufferedamountlow', onLow)
+      channel.removeEventListener('close', onDead)
+      channel.removeEventListener('error', onDead)
       signal.removeEventListener('abort', onAbort)
     }
     const onLow = () => {
       finish()
       resolve()
     }
+    const onDead = () => {
+      finish()
+      reject(
+        new SyncTransferError('The connection dropped mid-send. Try again with both screens open.'),
+      )
+    }
     const onAbort = () => {
       finish()
       reject(abortError())
     }
     channel.addEventListener('bufferedamountlow', onLow)
+    channel.addEventListener('close', onDead)
+    channel.addEventListener('error', onDead)
     signal.addEventListener('abort', onAbort, { once: true })
+    if (channel.readyState !== 'open') {
+      onDead()
+      return
+    }
+    if (channel.bufferedAmount <= channel.bufferedAmountLowThreshold) onLow()
   })
+}
+
+function sendOnChannel(channel: RTCDataChannel, data: string | ArrayBuffer): void {
+  if (channel.readyState !== 'open') {
+    throw new SyncTransferError('The connection dropped mid-send. Try again with both screens open.')
+  }
+  try {
+    channel.send(data)
+  } catch {
+    throw new SyncTransferError('The connection dropped mid-send. Try again with both screens open.')
+  }
+}
+
+async function waitForChannelDrain(channel: RTCDataChannel, signal: AbortSignal): Promise<void> {
+  channel.bufferedAmountLowThreshold = 0
+  while (channel.bufferedAmount > 0) {
+    throwIfAborted(signal)
+    await waitForBufferedAmountLow(channel, signal)
+  }
 }
 
 export async function sendBackupOnChannel(
@@ -250,21 +287,19 @@ export async function sendBackupOnChannel(
 ): Promise<void> {
   throwIfAborted(signal)
   const header: SyncBackupHeader = { v: 1, byteLength: backup.size, filename }
-  channel.send(encodeSyncHeader(header))
+  sendOnChannel(channel, encodeSyncHeader(header))
   let offset = 0
   while (offset < backup.size) {
     throwIfAborted(signal)
-    if (channel.readyState !== 'open') {
-      throw new SyncTransferError('The connection dropped mid-send. Try again with both screens open.')
-    }
     await waitForBufferedAmountLow(channel, signal)
     const end = Math.min(offset + SYNC_CHUNK_BYTES, backup.size)
     const chunk = await backup.slice(offset, end).arrayBuffer()
-    channel.send(chunk)
+    sendOnChannel(channel, chunk)
     offset = end
     onProgress?.(offset, backup.size)
   }
-  channel.send(SYNC_EOF)
+  sendOnChannel(channel, SYNC_EOF)
+  await waitForChannelDrain(channel, signal)
 }
 
 export async function receiveBackupOnChannel(
@@ -291,10 +326,19 @@ export async function receiveBackupOnChannel(
       reject(error)
     }
     const onAbort = () => fail(abortError())
+    const succeed = () => {
+      finish()
+      resolve({
+        blob: new Blob(parts, { type: 'application/octet-stream' }),
+        filename,
+      })
+    }
     const onClose = () => {
-      if (!sawHeader || received < expected) {
-        fail(new SyncTransferError('The connection closed before the project finished arriving.'))
+      if (sawHeader && received === expected) {
+        succeed()
+        return
       }
+      fail(new SyncTransferError('The connection closed before the project finished arriving.'))
     }
     const onError = () => fail(new SyncTransferError('The connection failed while receiving.'))
     const onMessage = (event: MessageEvent) => {
@@ -305,11 +349,7 @@ export async function receiveBackupOnChannel(
             if (!sawHeader || received !== expected) {
               throw new SyncTransferError('The project arrived incomplete.')
             }
-            finish()
-            resolve({
-              blob: new Blob(parts, { type: 'application/octet-stream' }),
-              filename,
-            })
+            succeed()
             return
           }
           if (sawHeader) throw new SyncTransferError('Unexpected text on the project channel.')

@@ -112,13 +112,14 @@ export function SendSheet(handle: Handle<SendSheetProps>) {
 
   return () => {
     const { projectName, onClose, onBackupInstead } = handle.props
-    const busy = phase !== 'done' && phase !== 'failed'
+    const inFlight = () => phase !== 'done' && phase !== 'failed'
     return (
       <>
         <div
           className="sheet-backdrop"
           mix={on('click', () => {
-            if (!busy) onClose()
+            if (inFlight()) return
+            onClose()
           })}
         />
         <div
@@ -129,7 +130,7 @@ export function SendSheet(handle: Handle<SendSheetProps>) {
           mix={ref((node, signal) =>
             attachSheetModal(node as HTMLElement, signal, {
               onDismiss: () => handle.props.onClose(),
-              busy: () => busy,
+              busy: inFlight,
             }),
           )}
         >
