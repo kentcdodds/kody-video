@@ -124,6 +124,23 @@ describe('sync DataChannel transfer', () => {
     pair.close()
   })
 
+  it('treats a receiver hang-up after EOF as a successful send', async () => {
+    const pair = await connectedPair()
+    const payload = new Uint8Array(40_000)
+    for (let i = 0; i < payload.length; i += 1) payload[i] = i % 251
+    const backup = new Blob([payload], { type: 'application/octet-stream' })
+    const signal = new AbortController().signal
+    const received = receiveBackupOnChannel(pair.receiver, signal).then((result) => {
+      pair.receiver.close()
+      return result
+    })
+    await sendBackupOnChannel(pair.sender, backup, 'hangup.kodyvideo', signal)
+    const result = await received
+    expect(result.filename).toBe('hangup.kodyvideo')
+    expect(result.blob.size).toBe(backup.size)
+    pair.close()
+  })
+
   it('rejects send when the channel closes mid-transfer', async () => {
     const pair = await connectedPair()
     const backup = new Blob([new Uint8Array(80_000)], { type: 'application/octet-stream' })

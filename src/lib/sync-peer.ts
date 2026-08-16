@@ -273,9 +273,15 @@ function sendOnChannel(channel: RTCDataChannel, data: string | ArrayBuffer): voi
 
 async function waitForChannelDrain(channel: RTCDataChannel, signal: AbortSignal): Promise<void> {
   channel.bufferedAmountLowThreshold = 0
-  while (channel.bufferedAmount > 0) {
+  while (channel.bufferedAmount > 0 && channel.readyState === 'open') {
     throwIfAborted(signal)
-    await waitForBufferedAmountLow(channel, signal)
+    try {
+      await waitForBufferedAmountLow(channel, signal)
+    } catch (error) {
+      if (error instanceof DOMException && error.name === 'AbortError') throw error
+      // Receiver closes as soon as EOF lands. That is success, not a drop.
+      return
+    }
   }
 }
 
