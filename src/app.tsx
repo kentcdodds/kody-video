@@ -46,7 +46,7 @@ export function App(handle: Handle) {
     void handle.update()
     void applyWaitingUpdate()
       .then((result) => {
-        if (result !== 'unavailable') return
+        if (result === 'updated') return
         needRefresh = true
         void handle.update()
       })

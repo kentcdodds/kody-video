@@ -288,6 +288,27 @@ describe('applyWaitingUpdate', () => {
     ])
   })
 
+  it('does not purge while a worker is still installing', async () => {
+    const installing = mockWaitingWorker()
+    const navigate = vi.fn()
+    const purge = vi.fn()
+    resetAppUpdateForTests({
+      fetchDeployed: async () => null,
+      navigate,
+      purge,
+      claimTimeoutMs: 20,
+    })
+    registerUpdateHandles(mockRegistration({ installing }), vi.fn())
+    await expect(applyWaitingUpdate()).resolves.toBe('downloading')
+    expect(installing.postMessage).not.toHaveBeenCalled()
+    expect(purge).not.toHaveBeenCalled()
+    expect(navigate).not.toHaveBeenCalled()
+    expect(getUpdateDiagnostics().events.map((event) => event.phase)).toEqual([
+      'apply-start',
+      'installing',
+    ])
+  })
+
   it('does not purge when the toast is tapped and no worker is waiting', async () => {
     const navigate = vi.fn()
     const purge = vi.fn()

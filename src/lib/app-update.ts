@@ -209,10 +209,9 @@ async function activateWaitingWorker(options: {
   const reg = registration
   const waiting = reg?.waiting ?? null
   const installing = reg?.installing ?? null
-  const worker = waiting ?? installing
-  // Do not block SKIP_WAITING on /version.json — a hung probe used to
-  // leave the toast looking dead. Claim first; the stamp is only needed
-  // to decide whether a no-worker tap should purge.
+  // Only a waiting worker can skipWaiting. An installing worker is still
+  // downloading — posting SKIP_WAITING and then purging on a 2.5s miss
+  // wipes the working shell (Bugbot). Leave it alone and report downloading.
   const deployedPromise = fetchDeployedVersion()
 
   recordDiag({
@@ -225,13 +224,13 @@ async function activateWaitingWorker(options: {
   })
 
   // Best-effort: tell workbox-window too. It no-ops when its own
-  // registration.waiting is stale; we still postMessage on `worker` below.
-  if (applyUpdate && worker) {
+  // registration.waiting is stale; we still postMessage on `waiting` below.
+  if (applyUpdate && waiting) {
     void Promise.resolve(applyUpdate(true)).catch(() => undefined)
   }
 
-  if (worker && !options.forcePurge) {
-    const claimed = await skipWaitingAndAwaitClaim(worker)
+  if (waiting && !options.forcePurge) {
+    const claimed = await skipWaitingAndAwaitClaim(waiting)
     recordDiag({
       phase: 'claim',
       reason: options.reason,
@@ -247,7 +246,15 @@ async function activateWaitingWorker(options: {
   }
 
   const deployed = await deployedPromise
-  if (!worker && !options.forcePurge && !isRunningStale(deployed)) {
+  if (!waiting && installing && !options.forcePurge) {
+    recordDiag({
+      phase: 'installing',
+      reason: options.reason,
+      deployed: deployed?.commit ?? null,
+    })
+    return 'downloading'
+  }
+  if (!waiting && !options.forcePurge && !isRunningStale(deployed)) {
     recordDiag({
       phase: 'no-worker',
       reason: options.reason,
