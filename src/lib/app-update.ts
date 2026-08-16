@@ -70,6 +70,12 @@ export function registerUpdateHandles(
   // don't fire again from the first focus/pageshow burst after load.
   lastQuietProbeAt = Date.now()
   attachResumeUpdateChecks()
+  // registerSW({ immediate: true }) already called registration.update().
+  // Still compare /version.json on boot: a failed apply can leave this
+  // tab on a retired bundle while the worker looks "current".
+  void fetchDeployedVersion().then((deployed) => {
+    if (isRunningStale(deployed)) notifyNeedRefresh?.()
+  })
 }
 
 export type UpdateCheckResult = 'updated' | 'current' | 'downloading' | 'unavailable'

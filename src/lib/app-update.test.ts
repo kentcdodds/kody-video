@@ -168,6 +168,16 @@ describe('app-update resume checks', () => {
     expect(apply).not.toHaveBeenCalled()
   })
 
+  it('raises the toast on register when this tab is already a retired shell', async () => {
+    const notify = vi.fn()
+    resetAppUpdateForTests({
+      fetchDeployed: async () => ({ commit: 'deployed-sha' }),
+      runningSha: 'running-sha',
+    })
+    registerUpdateHandles(mockRegistration(), vi.fn(), notify)
+    await vi.waitFor(() => expect(notify).toHaveBeenCalledTimes(1))
+  })
+
   it('raises the toast when version.json does not match the running bundle', async () => {
     const notify = vi.fn()
     resetAppUpdateForTests({
@@ -175,6 +185,8 @@ describe('app-update resume checks', () => {
       runningSha: 'running-sha',
     })
     registerUpdateHandles(mockRegistration(), vi.fn(), notify)
+    await vi.waitFor(() => expect(notify).toHaveBeenCalledTimes(1))
+    notify.mockClear()
     probeForUpdates()
     await vi.waitFor(() => expect(notify).toHaveBeenCalledTimes(1))
   })
