@@ -47,6 +47,23 @@ test.describe('editor', () => {
     await expect(tiles).toHaveCount(2)
   })
 
+  test('delete selects the next clip, or the previous when it was last', async ({ page }) => {
+    await openEditorWithClips(page, 3)
+    const tiles = page.locator('.clip-thumb')
+    const secondId = await tiles.nth(1).getAttribute('data-clip-id')
+    await tiles.nth(0).click()
+    await page.getByRole('button', { name: 'Delete clip' }).click()
+    await expect(tiles).toHaveCount(2)
+    await expect(tiles.nth(0)).toHaveAttribute('data-clip-id', secondId!)
+    await expect(tiles.nth(0)).toHaveClass(/selected/)
+
+    await tiles.nth(1).click()
+    await page.getByRole('button', { name: 'Delete clip' }).click()
+    await expect(tiles).toHaveCount(1)
+    await expect(tiles.nth(0)).toHaveAttribute('data-clip-id', secondId!)
+    await expect(tiles.nth(0)).toHaveClass(/selected/)
+  })
+
   test('trim opens the strip; dragging a handle and Done persists', async ({ page }) => {
     await openEditorWithClips(page, 1)
     const durBefore = (await page.locator('.clip-thumb .clip-dur').first().textContent()) ?? ''

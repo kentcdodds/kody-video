@@ -16,6 +16,7 @@ import {
 } from '../lib/project-actions'
 import { downloadClipFile } from '../lib/media'
 import { resolveSplitMs } from '../lib/clip-edit'
+import { clipIdAfterDelete } from '../lib/clip-selection'
 import {
   effectiveDurationMs,
   formatDuration,
@@ -230,11 +231,16 @@ export function EditorScreen(handle: Handle<EditorScreenProps>) {
   }
 
   const handleDelete = () => {
-    const id = resolveSelectedId()
+    const clips = visibleClips(props.clips)
+    const id = resolveSelectedId(clips)
     if (!id) return
+    const nextSelectedId = clipIdAfterDelete(
+      clips.map((clip) => clip.id),
+      id,
+    )
     void (async () => {
       await removeClip(id)
-      selectedClipId = null
+      selectedClipId = nextSelectedId
       trimming = false
       splitting = false
       void handle.update()
