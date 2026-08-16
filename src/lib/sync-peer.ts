@@ -174,6 +174,11 @@ function newPeer(signal: AbortSignal): RTCPeerConnection {
   return pc
 }
 
+/** Chrome rejects `a=max-message-size` (and similar) unless lines are CRLF. */
+export function normalizeSdp(sdp: string): string {
+  return `${sdp.replace(/\r\n/g, '\n').replace(/\n/g, '\r\n').trim()}\r\n`
+}
+
 export async function openSenderChannel(
   signaling: SyncSignaling,
   signal: AbortSignal,
@@ -188,9 +193,9 @@ export async function openSenderChannel(
   await waitForIceGathering(pc, signal)
   const local = pc.localDescription?.sdp
   if (!local) throw new SyncTransferError('Could not build a connection offer.')
-  await signaling.publishOffer(local)
+  await signaling.publishOffer(normalizeSdp(local))
   const answer = await signaling.waitForAnswer(signal)
-  await pc.setRemoteDescription({ type: 'answer', sdp: answer })
+  await pc.setRemoteDescription({ type: 'answer', sdp: normalizeSdp(answer) })
   await waitForOpen(channel, pc, signal)
   return { pc, channel }
 }
@@ -203,13 +208,13 @@ export async function openReceiverChannel(
   const pc = newPeer(signal)
   const incoming = waitForDataChannel(pc, signal)
   const offer = await signaling.waitForOffer(signal)
-  await pc.setRemoteDescription({ type: 'offer', sdp: offer })
+  await pc.setRemoteDescription({ type: 'offer', sdp: normalizeSdp(offer) })
   const answer = await pc.createAnswer()
   await pc.setLocalDescription(answer)
   await waitForIceGathering(pc, signal)
   const local = pc.localDescription?.sdp
   if (!local) throw new SyncTransferError('Could not build a connection answer.')
-  await signaling.publishAnswer(local)
+  await signaling.publishAnswer(normalizeSdp(local))
   const channel = await incoming
   channel.binaryType = 'arraybuffer'
   await waitForOpen(channel, pc, signal)

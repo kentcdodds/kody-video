@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { receiveBackupOnChannel, sendBackupOnChannel } from './sync-peer'
+import { normalizeSdp, receiveBackupOnChannel, sendBackupOnChannel } from './sync-peer'
 import { STUN_ICE_SERVERS } from './sync-protocol'
 
 async function waitForIce(pc: RTCPeerConnection): Promise<void> {
@@ -71,6 +71,13 @@ async function connectedPair(): Promise<{
     },
   }
 }
+
+describe('SDP line endings', () => {
+  it('rewrites LF-only SDP so Chrome will parse data-channel lines', () => {
+    const sdp = 'v=0\na=max-message-size:262144\n'
+    expect(normalizeSdp(sdp)).toBe('v=0\r\na=max-message-size:262144\r\n')
+  })
+})
 
 describe('sync DataChannel transfer', () => {
   it('moves backup bytes peer-to-peer', async () => {
