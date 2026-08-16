@@ -7,6 +7,7 @@ import {
   fetchDeployedVersion,
   getUpdateDiagnostics,
   isRunningStale,
+  reconcileUpdateCheckResult,
   type UpdateDiagEvent,
 } from '../lib/app-update'
 import { buildDateLabel, COMMIT_SHA, commitUrl, shortVersion } from '../lib/build-info'
@@ -216,7 +217,11 @@ export function AboutPage(handle: Handle) {
     void handle.update()
     void checkForUpdates()
       .then((result) => {
-        switch (result) {
+        const resolved = reconcileUpdateCheckResult(
+          result,
+          deployedCommit ? { commit: deployedCommit } : null,
+        )
+        switch (resolved) {
           case 'updated':
             // checkForUpdates already applied it; the page is about to reload.
             updateStatus = 'updating'
@@ -231,7 +236,7 @@ export function AboutPage(handle: Handle) {
             updateStatus = 'unavailable'
             return
           default: {
-            const exhaustive: never = result
+            const exhaustive: never = resolved
             throw new Error(`Unhandled update result: ${String(exhaustive)}`)
           }
         }

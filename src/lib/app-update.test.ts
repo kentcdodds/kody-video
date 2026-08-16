@@ -5,6 +5,7 @@ import {
   getUpdateDiagnostics,
   isRunningStale,
   probeForUpdates,
+  reconcileUpdateCheckResult,
   registerUpdateHandles,
   resetAppUpdateForTests,
   stripUpdateNavigationMark,
@@ -254,6 +255,73 @@ describe('checkForUpdates (manual)', () => {
     await expect(checkForUpdates()).resolves.toBe('updated')
     expect(purge).toHaveBeenCalledTimes(1)
     expect(navigate).toHaveBeenCalledTimes(1)
+  })
+
+  it('purges a stale shell when registration.update() throws and no worker is waiting', async () => {
+    const navigate = vi.fn()
+    const purge = vi.fn().mockResolvedValue(undefined)
+    resetAppUpdateForTests({
+      fetchDeployed: async () => ({ commit: 'deployed-sha' }),
+      runningSha: 'running-sha',
+      navigate,
+      purge,
+    })
+    registerUpdateHandles(
+      mockRegistration({ update: vi.fn().mockRejectedValue(new Error('offline')) }),
+      vi.fn(),
+    )
+    await expect(checkForUpdates()).resolves.toBe('updated')
+    expect(purge).toHaveBeenCalledTimes(1)
+    expect(navigate).toHaveBeenCalledTimes(1)
+  })
+
+  it('returns unavailable when update() throws, no worker is present, and version.json is unknown', async () => {
+    const purge = vi.fn()
+    resetAppUpdateForTests({
+      fetchDeployed: async () => null,
+      navigate: vi.fn(),
+      purge,
+    })
+    registerUpdateHandles(
+      mockRegistration({ update: vi.fn().mockRejectedValue(new Error('offline')) }),
+      vi.fn(),
+    )
+    await expect(checkForUpdates()).resolves.toBe('unavailable')
+    expect(purge).not.toHaveBeenCalled()
+  })
+
+  it('returns downloading when update() throws and a worker is still installing', async () => {
+    const purge = vi.fn()
+    resetAppUpdateForTests({
+      fetchDeployed: async () => null,
+      navigate: vi.fn(),
+      purge,
+    })
+    const installing = mockWaitingWorker()
+    registerUpdateHandles(
+      mockRegistration({
+        installing,
+        update: vi.fn().mockRejectedValue(new Error('offline')),
+      }),
+      vi.fn(),
+    )
+    await expect(checkForUpdates()).resolves.toBe('downloading')
+    expect(purge).not.toHaveBeenCalled()
+  })
+})
+
+describe('reconcileUpdateCheckResult', () => {
+  afterEach(() => {
+    resetAppUpdateForTests()
+  })
+
+  it('does not let a current result override a known-stale deployed SHA', () => {
+    resetAppUpdateForTests({ runningSha: 'running-sha' })
+    expect(reconcileUpdateCheckResult('current', { commit: 'deployed-sha' })).toBe(
+      'unavailable',
+    )
+    expect(reconcileUpdateCheckResult('current', { commit: 'running-sha' })).toBe('current')
+    expect(reconcileUpdateCheckResult('updated', { commit: 'deployed-sha' })).toBe('updated')
   })
 })
 

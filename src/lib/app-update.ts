@@ -98,9 +98,17 @@ export async function checkForUpdates(): Promise<UpdateCheckResult> {
   try {
     await reg.update()
   } catch {
-    if (reg.waiting || reg.installing) {
+    // update() failing (offline, SW script 404) is not "you're current".
+    // Still honor a waiting worker, and still force-purge a known-stale
+    // shell — About already compared SHAs and the user asked to apply.
+    if (reg.waiting) {
       return activateWaitingWorker({ reason: 'manual-offline-waiting' })
     }
+    const deployed = await deployedPromise
+    if (isRunningStale(deployed)) {
+      return activateWaitingWorker({ reason: 'manual-stale-shell', forcePurge: true })
+    }
+    if (reg.installing) return 'downloading'
     return 'unavailable'
   }
   // update() can resolve before a found worker shows up on `installing` —
@@ -344,6 +352,19 @@ export function isRunningStale(deployed: DeployedVersion | null | undefined): bo
   const running = testHooks.runningSha ?? COMMIT_SHA
   if (running === 'dev') return false
   return deployed.commit !== running
+}
+
+/**
+ * About may already know the deployed SHA from an earlier /version.json
+ * fetch. A later check can miss that file (cache window expired, brief
+ * offline) and report `current` — don't let that contradict the stale banner.
+ */
+export function reconcileUpdateCheckResult(
+  result: UpdateCheckResult,
+  knownDeployed: DeployedVersion | null | undefined,
+): UpdateCheckResult {
+  if (result === 'current' && isRunningStale(knownDeployed)) return 'unavailable'
+  return result
 }
 
 export function fetchDeployedVersion(): Promise<DeployedVersion | null> {
