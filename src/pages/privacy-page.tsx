@@ -44,8 +44,22 @@ export function PrivacyPage() {
             When the app itself breaks, an error report (the error message, a stack trace, browser
             and OS names, and which step failed — e.g. &ldquo;export&rdquo;) is sent to Sentry so
             bugs get found and fixed. Crash reports never contain your clips, audio, location, or
-            any account identifier, and no IP-based user profile is kept. Page-view counts and
-            crash reports are the only data the app sends anywhere on its own.
+            any account identifier, and no IP-based user profile is kept. Page-view counts, crash
+            reports, and (only if you tap Send to device) a short-lived matchmaking room are the
+            only data the app sends anywhere on its own.
+          </p>
+        </section>
+
+        <section className="about-section">
+          <h2>Send to another device</h2>
+          <p>
+            Kody Video Plus can send a project to another phone or computer that has the app open.
+            A Cloudflare matchmaker introduces the two browsers (a short code plus the WebRTC
+            connection description, which includes network addresses). Your clips never go to our
+            servers — they travel device-to-device, encrypted. Rooms expire in minutes and are not
+            stored as a library. If the devices cannot connect (different networks, strict Wi‑Fi),
+            use Save backup and import instead. Receiving a project is free and is the same as
+            importing a backup.
           </p>
         </section>
 

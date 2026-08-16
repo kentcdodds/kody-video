@@ -5,6 +5,7 @@ import { BlobImage } from '../components/blob-image'
 import { BrandMark } from '../components/brand-mark'
 import { ConfirmSheet } from '../components/confirm-sheet'
 import { HomeOptionsSheet } from '../components/home-options-sheet'
+import { SendSheet } from '../components/send-sheet'
 import {
   IconClose,
   IconDownload,
@@ -75,6 +76,7 @@ export function HomePage(handle: Handle) {
   let showInstallHint = shouldShowIosInstallHint()
   let upselling = false
   let restoring = false
+  let sending: ProjectSummary | null = null
   let installPopoverOpen = false
   const showcase = showcaseForHostname(location.hostname)
   let showShowcaseBanner = showcase !== null && !isShowcaseBannerDismissed()
@@ -510,7 +512,10 @@ export function HomePage(handle: Handle) {
           </section>
 
           <p className="home-privacy">
-            <span>Clips stay on this phone until you share.</span>
+            <span>
+              Clips stay on this phone until you share.{' '}
+              <a href="/receive">Receive a project</a>
+            </span>
             {storage ? <StorageMeter storage={storage} /> : null}
           </p>
         </div>
@@ -538,6 +543,16 @@ export function HomePage(handle: Handle) {
               menuProject = null
               void handle.update()
               backupProject(project)
+            }}
+            onSend={() => {
+              const project = menuProject!
+              menuProject = null
+              if (!plus) {
+                upselling = true
+              } else {
+                sending = project
+              }
+              void handle.update()
             }}
             onDelete={() => {
               deleting = menuProject
@@ -574,6 +589,24 @@ export function HomePage(handle: Handle) {
             onConfirm={async () => {
               await deleteProject(deleting!.id)
               refresh()
+            }}
+          />
+        ) : null}
+
+        {sending ? (
+          <SendSheet
+            key={sending.id}
+            projectId={sending.id}
+            projectName={sending.name}
+            onClose={() => {
+              sending = null
+              void handle.update()
+            }}
+            onBackupInstead={() => {
+              const project = sending!
+              sending = null
+              void handle.update()
+              backupProject(project)
             }}
           />
         ) : null}

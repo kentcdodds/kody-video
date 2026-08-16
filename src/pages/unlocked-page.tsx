@@ -39,9 +39,9 @@ export function UnlockedPage(handle: Handle) {
             <h1>Kody Video Plus unlocked! 🎉</h1>
             <p className="muted">
               Thank you for supporting Kody Video. Every export from this device is now
-              watermark-free, all six project slots are open, and optional location tagging is
-              available. Keep your Stripe receipt email — its link restores the purchase on another
-              device.
+              watermark-free, all six project slots are open, optional location tagging is
+              available, and you can send a project to another device. Keep your Stripe receipt
+              email — its link restores the purchase on another device.
             </p>
           </>
         ) : (

@@ -32,8 +32,8 @@ export function UpsellSheet(handle: Handle<UpsellSheetProps>) {
           <p className="sheet-copy">
             The free plan includes 1 project. Plus is a one-time $0.99 purchase that unlocks{' '}
             {MAX_PROJECTS} project slots, background music, landscape projects, optional location
-            tagging, and removes the watermark from exports — forever, on this device and any
-            device you restore it on.
+            tagging, sending a project to another device, and removes the watermark from exports —
+            forever, on this device and any device you restore it on.
           </p>
           <div className="sheet-actions">
             <button type="button" className="btn btn-ghost" mix={on('click', () => onClose())}>
