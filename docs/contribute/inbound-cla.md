@@ -42,8 +42,9 @@ How it works:
 - **Which form.** [Individual CLA](../legal/individual-cla.md) by default.
   [Entity CLA](../legal/entity-cla.md) when an organization owns the work.
 - **How they sign.** Read the CLA, then comment:
-  `I have read the CLA and I hereby sign the CLA`. A maintainer records the
-  GitHub username in `.github/cla-signers.json` on `main`.
+  `I have read the CLA and I hereby sign the CLA`. The `CLA` workflow,
+  running from `main` on that comment, records the commenter's GitHub
+  username in `.github/cla-signers.json` on `main` and re-runs the check.
 - **Enforcement.** The `CLA` workflow reads signers from `main` (never
   from the pull request head) and fails closed. No trivial-contribution
   exception.
@@ -52,7 +53,7 @@ How it works:
 
 - The Licensor stays one party for FSL, the Apache conversion, relicensing,
   and enforcement.
-- Outside pull requests take one extra maintainer step (record the signer on
-  `main`).
+- Individual signatures do not need a maintainer to edit the signers file.
+  The recorder is a first-party `issue_comment` job that writes `main` only.
 - Revisit if the Licensor becomes a company, if counsel revises the CLA
   text, or if contribution volume justifies hosted click-to-sign.

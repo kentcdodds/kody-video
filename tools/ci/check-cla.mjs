@@ -1,6 +1,9 @@
-import { readFile } from 'node:fs/promises'
-import { pathToFileURL } from 'node:url'
+import { readFile, writeFile } from 'node:fs/promises'
 import path from 'node:path'
+import { pathToFileURL } from 'node:url'
+
+export const individualClaSigningPhrase =
+	'I have read the CLA and I hereby sign the CLA'
 
 const githubBotLoginPattern = /\[bot\]$/i
 
@@ -23,11 +26,7 @@ function identityLabel(identity) {
 
 export function parseClaSignersFile(raw) {
 	const parsed = JSON.parse(raw)
-	if (
-		typeof parsed !== 'object' ||
-		parsed === null ||
-		parsed.version !== 1
-	) {
+	if (typeof parsed !== 'object' || parsed === null || parsed.version !== 1) {
 		throw new Error('CLA signers file must be version 1 JSON')
 	}
 	if (
@@ -41,6 +40,75 @@ export function parseClaSignersFile(raw) {
 		throw new Error('CLA signers file is missing allowlist or signers')
 	}
 	return parsed
+}
+
+function compactStringArray(values) {
+	return `[${values.map((value) => JSON.stringify(value)).join(', ')}]`
+}
+
+export function serializeClaSignersFile(file) {
+	const placeholderGithub = '__CLA_ALLOWLIST_GITHUB__'
+	const placeholderEmail = '__CLA_ALLOWLIST_EMAIL__'
+	const indented = JSON.stringify(
+		{
+			...file,
+			allowlist: { github: placeholderGithub, email: placeholderEmail },
+		},
+		null,
+		'\t',
+	)
+		.replace(
+			JSON.stringify(placeholderGithub),
+			compactStringArray(file.allowlist.github),
+		)
+		.replace(
+			JSON.stringify(placeholderEmail),
+			compactStringArray(file.allowlist.email),
+		)
+	return `${indented}\n`
+}
+
+export function isIndividualClaSigningComment(body) {
+	return body.trim() === individualClaSigningPhrase
+}
+
+export function applyIndividualClaSigningComment(input) {
+	if (!isIndividualClaSigningComment(input.comment)) {
+		return {
+			file: input.file,
+			status: 'ignored',
+			reason: 'not_signing_comment',
+		}
+	}
+
+	const login = input.github.trim()
+	if (!login) {
+		return { file: input.file, status: 'ignored', reason: 'missing_login' }
+	}
+
+	if (
+		input.file.signers.some(
+			(signer) => normalize(signer.github) === normalize(login),
+		)
+	) {
+		return { file: input.file, status: 'already_signed', github: login }
+	}
+
+	return {
+		file: {
+			...input.file,
+			signers: [
+				...input.file.signers,
+				{
+					github: login,
+					signedAt: input.signedAt,
+					cla: 'individual',
+				},
+			],
+		},
+		status: 'recorded',
+		github: login,
+	}
 }
 
 export function isAllowlistedIdentity(identity, signersFile) {
@@ -60,7 +128,7 @@ export function isAllowlistedIdentity(identity, signersFile) {
 	const email = identity.email ? normalize(identity.email) : null
 	return Boolean(
 		email &&
-			signersFile.allowlist.email.some((entry) => normalize(entry) === email),
+		signersFile.allowlist.email.some((entry) => normalize(entry) === email),
 	)
 }
 
@@ -104,29 +172,38 @@ export function formatClaFailure(result) {
 		'Unsigned contributions cannot merge.',
 		'Read docs/legal/individual-cla.md (or the Entity CLA if an organization owns the work).',
 		'Comment on the pull request: I have read the CLA and I hereby sign the CLA',
-		'A maintainer then records your GitHub username on main. See the inbound contributions doc.',
+		'The CLA workflow records that GitHub username on main. See the inbound contributions doc.',
 		'',
 		'Missing signatures:',
 		...result.missing.map((entry) => `- ${entry.reason}`),
 	].join('\n')
 }
 
-function runSelfTest() {
-	const file = {
+function fixtureSignersFile() {
+	return {
 		version: 1,
 		document: 'docs/legal/individual-cla.md',
 		allowlist: {
-			github: ['kentcdodds', 'kody-bot'],
+			github: ['kentcdodds', 'kody-bot', 'cursoragent'],
 			email: ['me@kentcdodds.com', 'me+github@kentcdodds.com'],
 		},
 		signers: [
-			{ github: 'VojtaHolik', signedAt: '2026-08-16', cla: 'individual' },
+			{ github: 'ExampleSigner', signedAt: '2026-08-16', cla: 'individual' },
 		],
 	}
+}
+
+function runSelfTest() {
+	const file = fixtureSignersFile()
 	const passing = checkClaIdentities(
 		[
 			{ githubLogin: 'kentcdodds', name: 'Kent', email: null },
 			{ githubLogin: 'kody-bot', name: 'Kody', email: null },
+			{
+				githubLogin: 'cursoragent',
+				name: 'Cursor Agent',
+				email: 'cursoragent@cursor.com',
+			},
 			{ githubLogin: 'cursor[bot]', name: 'cursor[bot]', email: null },
 			{ githubLogin: 'app/imgbot', name: 'ImgBot', email: null },
 			{
@@ -135,9 +212,9 @@ function runSelfTest() {
 				email: 'me+github@kentcdodds.com',
 			},
 			{
-				githubLogin: 'vojtaholik',
-				name: 'Vojta Holik',
-				email: 'vojta@egghead.io',
+				githubLogin: 'examplesigner',
+				name: 'Example Signer',
+				email: 'signer@example.com',
 			},
 		],
 		file,
@@ -145,6 +222,7 @@ function runSelfTest() {
 	if (!passing.ok) {
 		throw new Error('expected allowlisted and signed identities to pass')
 	}
+
 	const failing = checkClaIdentities(
 		[
 			{ githubLogin: 'kentcdodds', name: 'Kent', email: null },
@@ -172,19 +250,88 @@ function runSelfTest() {
 	) {
 		throw new Error(`unexpected failure reasons: ${reasons.join('; ')}`)
 	}
+
+	const empty = { ...file, signers: [] }
+	const recorded = applyIndividualClaSigningComment({
+		file: empty,
+		github: 'ExampleSigner',
+		signedAt: '2026-08-16',
+		comment: individualClaSigningPhrase,
+	})
+	if (recorded.status !== 'recorded') {
+		throw new Error('expected the signing comment to record a signer')
+	}
+	const again = applyIndividualClaSigningComment({
+		file: recorded.file,
+		github: 'examplesigner',
+		signedAt: '2026-08-17',
+		comment: individualClaSigningPhrase,
+	})
+	if (again.status !== 'already_signed') {
+		throw new Error('expected a second signing comment to be idempotent')
+	}
 	console.log('CLA self-test passed')
 }
 
-async function runCli(args) {
-	if (args.includes('--self-test')) {
-		runSelfTest()
-		return
+function readFlag(args, flag) {
+	const index = args.indexOf(flag)
+	if (index === -1) {
+		return null
 	}
-	const signersFlag = args.indexOf('--signers')
-	const identitiesFlag = args.indexOf('--identities-json')
-	const signersPath = signersFlag === -1 ? null : args[signersFlag + 1]
-	const identitiesPath =
-		identitiesFlag === -1 ? null : args[identitiesFlag + 1]
+	const value = args[index + 1]
+	if (!value || value.startsWith('--')) {
+		return null
+	}
+	return value
+}
+
+async function runRecordCli(args) {
+	const signersPath = readFlag(args, '--signers')
+	const github = readFlag(args, '--record-signer')
+	const signedAt = readFlag(args, '--signed-at')
+	const commentPath = readFlag(args, '--comment-file')
+	if (!signersPath || !github || !signedAt || !commentPath) {
+		throw new Error(
+			'Usage: node tools/ci/check-cla.mjs --signers <file> --record-signer <login> --signed-at <YYYY-MM-DD> --comment-file <file>',
+		)
+	}
+
+	const current = parseClaSignersFile(await readFile(signersPath, 'utf8'))
+	const recorded = applyIndividualClaSigningComment({
+		file: current,
+		github,
+		signedAt,
+		comment: await readFile(commentPath, 'utf8'),
+	})
+
+	switch (recorded.status) {
+		case 'ignored':
+			console.log('skipped=true')
+			console.log('added=false')
+			break
+		case 'already_signed':
+			console.log('skipped=false')
+			console.log('added=false')
+			console.log(`github=${recorded.github}`)
+			break
+		case 'recorded':
+			await writeFile(
+				signersPath,
+				serializeClaSignersFile(recorded.file),
+				'utf8',
+			)
+			console.log('skipped=false')
+			console.log('added=true')
+			console.log(`github=${recorded.github}`)
+			break
+		default:
+			throw new Error(`Unhandled CLA record status: ${recorded.status}`)
+	}
+}
+
+async function runCheckCli(args) {
+	const signersPath = readFlag(args, '--signers')
+	const identitiesPath = readFlag(args, '--identities-json')
 	if (!signersPath || !identitiesPath) {
 		throw new Error(
 			'Usage: node tools/ci/check-cla.mjs --signers <file> --identities-json <file>',
@@ -200,6 +347,18 @@ async function runCli(args) {
 		console.error(formatClaFailure(result))
 		process.exitCode = 1
 	}
+}
+
+async function runCli(args) {
+	if (args.includes('--self-test')) {
+		runSelfTest()
+		return
+	}
+	if (args.includes('--record-signer')) {
+		await runRecordCli(args)
+		return
+	}
+	await runCheckCli(args)
 }
 
 const entryPoint = process.argv[1]
