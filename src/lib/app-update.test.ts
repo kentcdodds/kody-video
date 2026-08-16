@@ -308,6 +308,28 @@ describe('checkForUpdates (manual)', () => {
     await expect(checkForUpdates()).resolves.toBe('downloading')
     expect(purge).not.toHaveBeenCalled()
   })
+
+  it('does not purge a stale shell while a worker is still installing after update() throws', async () => {
+    const navigate = vi.fn()
+    const purge = vi.fn()
+    resetAppUpdateForTests({
+      fetchDeployed: async () => ({ commit: 'deployed-sha' }),
+      runningSha: 'running-sha',
+      navigate,
+      purge,
+    })
+    const installing = mockWaitingWorker()
+    registerUpdateHandles(
+      mockRegistration({
+        installing,
+        update: vi.fn().mockRejectedValue(new Error('offline')),
+      }),
+      vi.fn(),
+    )
+    await expect(checkForUpdates()).resolves.toBe('downloading')
+    expect(purge).not.toHaveBeenCalled()
+    expect(navigate).not.toHaveBeenCalled()
+  })
 })
 
 describe('reconcileUpdateCheckResult', () => {

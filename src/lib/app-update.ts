@@ -99,16 +99,18 @@ export async function checkForUpdates(): Promise<UpdateCheckResult> {
     await reg.update()
   } catch {
     // update() failing (offline, SW script 404) is not "you're current".
-    // Still honor a waiting worker, and still force-purge a known-stale
-    // shell — About already compared SHAs and the user asked to apply.
+    // Honor a waiting worker first. An installing worker is still
+    // downloading — do not force-purge under it (that tears down the
+    // working offline shell). Only purge a known-stale shell when no
+    // worker is in flight.
     if (reg.waiting) {
       return activateWaitingWorker({ reason: 'manual-offline-waiting' })
     }
+    if (reg.installing) return 'downloading'
     const deployed = await deployedPromise
     if (isRunningStale(deployed)) {
       return activateWaitingWorker({ reason: 'manual-stale-shell', forcePurge: true })
     }
-    if (reg.installing) return 'downloading'
     return 'unavailable'
   }
   // update() can resolve before a found worker shows up on `installing` —
