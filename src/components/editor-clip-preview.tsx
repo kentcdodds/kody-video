@@ -89,12 +89,14 @@ export function EditorClipPreview(handle: Handle<EditorClipPreviewProps>) {
     }
     return () => (
       <div className="editor-clip-preview-wrap">
-        <BlobImage
-          blob={props.clip.blob}
-          className="editor-clip-preview editor-clip-preview-image"
-          alt="Selected photo"
-          mix={ref(bindImage)}
-        />
+        <div className="film-frame">
+          <BlobImage
+            blob={props.clip.blob}
+            className="editor-clip-preview editor-clip-preview-image"
+            alt="Selected photo"
+            mix={ref(bindImage)}
+          />
+        </div>
         {props.onInfoClick ? <PreviewInfoButton onClick={props.onInfoClick} /> : null}
       </div>
     )
@@ -520,6 +522,7 @@ export function EditorClipPreview(handle: Handle<EditorClipPreviewProps>) {
             ]}
           />
         ) : null}
+        <div className="film-frame">
         <BlobVideo
           key={remountKey}
           blob={clip.blob}
@@ -571,6 +574,7 @@ export function EditorClipPreview(handle: Handle<EditorClipPreviewProps>) {
             on('click', togglePlayback),
           ]}
         />
+        </div>
         <button
           type="button"
           className="editor-preview-affordance"

@@ -688,11 +688,17 @@ export function ProjectPage(handle: Handle<ProjectPageProps>) {
     const captureTimeMs = lastCaptureTimeMs(clips) ?? undefined
     const orientation = effectiveOrientation()
     const unlocked = orientationUnlocked()
+    // Phones lock a film shape; show that shape (cover-cropped) so the
+    // camera, editor, and playback match export. Desktop never locks a
+    // portrait film, so it keeps filling the pane. Landscape projects
+    // always frame 16:9 (the Plus lock).
+    const filmFramed =
+      !unlocked && (orientation === 'landscape' || isCoarsePointerDevice())
     syncShellOrientation(orientation, unlocked)
 
     return (
       <div
-        className={`screen project-screen${orientation === 'landscape' ? ' orientation-landscape' : ''}`}
+        className={`screen project-screen${orientation === 'landscape' ? ' orientation-landscape' : ''}${filmFramed ? ' is-film-framed' : ''}`}
       >
         {/* While exporting, the screens unmount entirely: the camera is
             released (no dead preview burning battery behind the overlay) and
