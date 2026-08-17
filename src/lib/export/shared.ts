@@ -322,17 +322,59 @@ export function drawCoverFrom(
   ctx.drawImage(source, (width - dw) / 2, (height - dh) / 2, dw, dh)
 }
 
+/** Letterbox `source` onto the destination so the whole frame is visible. */
+export function drawContainFrom(
+  ctx: CanvasRenderingContext2D,
+  source: CanvasImageSource,
+  sourceWidth: number,
+  sourceHeight: number,
+  width: number,
+  height: number,
+): void {
+  const vw = sourceWidth || width
+  const vh = sourceHeight || height
+  const scale = Math.min(width / vw, height / vh)
+  const dw = vw * scale
+  const dh = vh * scale
+  ctx.fillStyle = '#000'
+  ctx.fillRect(0, 0, width, height)
+  ctx.drawImage(source, (width - dw) / 2, (height - dh) / 2, dw, dh)
+}
+
+/** Cover-crop or letterbox `source` onto the destination. */
+export function drawFitFrom(
+  ctx: CanvasRenderingContext2D,
+  source: CanvasImageSource,
+  sourceWidth: number,
+  sourceHeight: number,
+  width: number,
+  height: number,
+  fit: 'cover' | 'contain',
+): void {
+  switch (fit) {
+    case 'contain':
+      drawContainFrom(ctx, source, sourceWidth, sourceHeight, width, height)
+      return
+    case 'cover':
+      drawCoverFrom(ctx, source, sourceWidth, sourceHeight, width, height)
+      return
+    default: {
+      const _exhaustive: never = fit
+      throw new Error(`Unhandled clip fit: ${_exhaustive}`)
+    }
+  }
+}
+
 /**
  * Pick output dimensions from the first clip's real pixel size: preserve its
  * aspect ratio, cap the long edge at 1920 (1080p), never upscale, keep dims even.
  *
  * When the project carries an explicit `orientation`, the output must match
  * it regardless of what the first clip happens to be: a mismatched source
- * has its dimensions swapped (the same cover-fit draw that letterboxes
- * nothing then center-crops every frame into the rotated canvas). A square
- * source is deliberately left square — it already satisfies either
- * orientation, and inventing a non-square target would crop pixels for no
- * reason.
+ * has its dimensions swapped. Each clip then cover-crops or letterboxes
+ * into that canvas. A square source is deliberately left square — it
+ * already satisfies either orientation, and inventing a non-square target
+ * would crop pixels for no reason.
  */
 export function pickOutputSize(
   sourceWidth: number,

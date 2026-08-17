@@ -13,6 +13,8 @@ import {
   decodeClipAudio,
   isAutoplayBlockedError,
   isWebKitAudioDecoderNotFoundError,
+  drawContainFrom,
+  drawCoverFrom,
   pickOutputSize,
   playExportVideo,
   prepareExportVideoElement,
@@ -22,6 +24,50 @@ import {
   unlockExportMediaPlayback,
   waitForPreviewCanvas,
 } from './shared'
+
+describe('drawContainFrom', () => {
+  it('letterboxes a landscape source onto a portrait canvas', () => {
+    const canvas = document.createElement('canvas')
+    canvas.width = 90
+    canvas.height = 160
+    const ctx = canvas.getContext('2d')
+    if (!ctx) throw new Error('canvas 2d missing')
+    const source = document.createElement('canvas')
+    source.width = 160
+    source.height = 90
+    const sourceCtx = source.getContext('2d')
+    if (!sourceCtx) throw new Error('source canvas 2d missing')
+    sourceCtx.fillStyle = '#fff'
+    sourceCtx.fillRect(0, 0, 160, 90)
+
+    drawContainFrom(ctx, source, 160, 90, 90, 160)
+    const top = ctx.getImageData(45, 2, 1, 1).data
+    const mid = ctx.getImageData(45, 80, 1, 1).data
+    expect(top[0]).toBe(0)
+    expect(mid[0]).toBe(255)
+  })
+})
+
+describe('drawCoverFrom', () => {
+  it('crops a landscape source onto a portrait canvas', () => {
+    const canvas = document.createElement('canvas')
+    canvas.width = 90
+    canvas.height = 160
+    const ctx = canvas.getContext('2d')
+    if (!ctx) throw new Error('canvas 2d missing')
+    const source = document.createElement('canvas')
+    source.width = 160
+    source.height = 90
+    const sourceCtx = source.getContext('2d')
+    if (!sourceCtx) throw new Error('source canvas 2d missing')
+    sourceCtx.fillStyle = '#fff'
+    sourceCtx.fillRect(0, 0, 160, 90)
+
+    drawCoverFrom(ctx, source, 160, 90, 90, 160)
+    const mid = ctx.getImageData(45, 80, 1, 1).data
+    expect(mid[0]).toBe(255)
+  })
+})
 
 describe('pickOutputSize', () => {
   it('follows the source aspect, capped at 1920 on the long edge', () => {

@@ -41,7 +41,6 @@ import {
   IconFlip,
   IconLens,
   IconLocation,
-  IconLock,
   IconMic,
   IconOrientation,
   IconPlay,
@@ -83,7 +82,7 @@ interface RecordScreenProps {
   orientationUnlocked: boolean
   /** Kody Video Plus unlocked (landscape projects are a Plus perk). */
   plus: boolean
-  /** Open the Plus upsell sheet (landscape takes on the free plan). */
+  /** Open the Plus upsell sheet (location tagging and other Plus perks). */
   onUpsell: () => void
   onOpenEditor: () => void
   onOpenExport: () => void
@@ -345,12 +344,6 @@ export function RecordScreen(handle: Handle<RecordScreenProps>) {
       ) {
         return
       }
-      // Touch-primary devices with getDisplayMedia (ChromeOS tablets): a
-      // screen take is a first clip like any other — same landscape gate.
-      if (landscapeTakeGated()) {
-        props.onUpsell()
-        return
-      }
       screenBusy = true
       try {
         const session = await startScreenRecording()
@@ -371,13 +364,6 @@ export function RecordScreen(handle: Handle<RecordScreenProps>) {
     })()
   }
 
-  /** Free plan, empty project, device held sideways: the landscape
-   * interface is on screen as a preview, but the take that would lock the
-   * project landscape is a Plus perk — recording waits for an upgrade (or
-   * for the device to turn back upright). */
-  const landscapeTakeGated = () =>
-    props.orientationUnlocked && props.orientation === 'landscape' && !props.plus
-
   const beginRecord = async (
     nextPointerId: number | null,
     nextRecordingMode: RecordingMode,
@@ -389,10 +375,6 @@ export function RecordScreen(handle: Handle<RecordScreenProps>) {
       props.interactionLocked ||
       countdown !== null
     ) {
-      return false
-    }
-    if (landscapeTakeGated()) {
-      props.onUpsell()
       return false
     }
     if (screenSession) {
@@ -587,10 +569,6 @@ export function RecordScreen(handle: Handle<RecordScreenProps>) {
   const startSelfTimer = () => {
     if (recording || props.interactionLocked || countdown !== null) return
     if (screenSession) return
-    if (landscapeTakeGated()) {
-      props.onUpsell()
-      return
-    }
     if (!camera.getStream() || !camera.isReady) {
       props.showToast('Camera not ready')
       return
@@ -1056,32 +1034,30 @@ export function RecordScreen(handle: Handle<RecordScreenProps>) {
             </div>
           ) : null}
 
-          {/* The gate pill replaces the hold hint — "hold anywhere" would
-              contradict a blocked take. */}
           {!recording &&
           !screenRecording &&
           countdown === null &&
-          camera.isReady &&
-          !landscapeTakeGated() ? (
+          camera.isReady ? (
             <div className={`hold-hint${clips.length > 0 ? ' hold-hint-subtle' : ''}`}>
               <strong>Hold anywhere</strong>
               <span>release to stop</span>
             </div>
           ) : null}
 
-          {/* Locked projects are stuck with their first take's orientation;
-              when the device is held the other way, say so. Visibility is
-              CSS-driven (each hint shows only on the mismatching viewport,
-              and the portrait one only where rotating means anything —
-              coarse pointers). */}
+          {/* Locked films keep a compact hold hint when the device is
+              turned the other way. Visibility is CSS-driven (each hint
+              shows only on the mismatching viewport, and the portrait
+              one only where rotating means anything — coarse pointers). */}
           {!props.orientationUnlocked &&
           props.orientation === 'landscape' &&
           !recording &&
           !screenRecording ? (
             <div className="orientation-hint" role="status">
-              <IconOrientation size={28} landscape />
-              <strong>Turn your device sideways</strong>
-              <span>this is a landscape project</span>
+              <IconOrientation size={16} landscape />
+              <span>
+                <strong>Hold sideways</strong>
+                <span>or crop this take</span>
+              </span>
             </div>
           ) : null}
           {!props.orientationUnlocked &&
@@ -1089,28 +1065,12 @@ export function RecordScreen(handle: Handle<RecordScreenProps>) {
           !recording &&
           !screenRecording ? (
             <div className="orientation-hint orientation-hint-portrait" role="status">
-              <IconOrientation size={28} />
-              <strong>Turn your device upright</strong>
-              <span>this is a portrait project</span>
+              <IconOrientation size={16} />
+              <span>
+                <strong>Hold upright</strong>
+                <span>or crop this take</span>
+              </span>
             </div>
-          ) : null}
-
-          {/* The rotate-to-choose upsell: the free user is LOOKING at the
-              landscape interface — recording in it is the Plus perk. */}
-          {landscapeTakeGated() && !recording && !screenRecording && countdown === null ? (
-            <button
-              type="button"
-              className="orientation-gate-pill"
-              mix={[
-                // The stage records on pointerdown — the pill must not
-                // double as a (gated) hold-to-record press.
-                on('pointerdown', (event) => event.stopPropagation()),
-                on('click', () => props.onUpsell()),
-              ]}
-            >
-              <IconLock size={14} />
-              Landscape projects are a Plus perk — unlock to record
-            </button>
           ) : null}
 
           <div

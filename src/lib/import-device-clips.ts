@@ -1,3 +1,4 @@
+import { lockOrientationFromFirstClip } from './orientation-lock'
 import { addClip, clearUndo } from './storage'
 import {
   DEFAULT_IMAGE_DURATION_MS,
@@ -303,6 +304,7 @@ export async function importDeviceClips(
       const probed = await probeDeviceClip(file)
       projectId ??= await options.ensureProjectId()
       const clip = await addClip(addClipInputFor(projectId, probed, afterClipId))
+      await lockOrientationFromFirstClip(projectId, clip)
       added.push(clip)
       afterClipId = clip.id
       options.onAdded?.(clip)

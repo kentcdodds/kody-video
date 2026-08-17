@@ -2,9 +2,12 @@ export type ProjectId = string
 export type ClipId = string
 
 /** The film's shape: portrait (the default, phone-style) or landscape.
- * Landscape is a Kody Video Plus perk. Chosen by how the device is held
- * when the first clip is recorded (phones/tablets), not by a setting. */
+ * Landscape is a Kody Video Plus perk. Defaults to the first clip's
+ * orientation; the user can change it later as a project setting. */
 export type ProjectOrientation = 'portrait' | 'landscape'
+
+/** How a mismatched clip is fitted into the film. Absent = crop. */
+export type ClipFit = 'crop' | 'letterbox'
 
 export interface Project {
   id: ProjectId
@@ -16,11 +19,8 @@ export interface Project {
    * rename, and never set for caller-chosen names, so a deliberate name
    * (even one shaped like "Project 2") is never mistaken for the default. */
   nameIsDefault?: boolean
-  /** The film's orientation, locked in by the first clip recorded on a
-   * touch device (how the device was held). Absent = portrait: projects
-   * made before this existed, desktop projects, and portrait locks all
-   * store nothing. A project with no clips is UNLOCKED — its interface
-   * follows the device until the first take decides. */
+  /** The film's export orientation. Absent = portrait. The first clip
+   * sets this when the project is still empty; the user can change it. */
   orientation?: ProjectOrientation
 }
 
@@ -47,6 +47,8 @@ export interface ClipMeta {
   createdAt: number
   width?: number
   height?: number
+  /** Fit into a mismatched film. Absent = crop (the default). */
+  fit?: ClipFit
   thumbWidth?: number
   thumbHeight?: number
   /** Opt-in geolocation captured at recording time (absent on older clips

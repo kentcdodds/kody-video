@@ -258,6 +258,27 @@ export function IconLens(handle: Handle<IconProps>) {
   )
 }
 
+/** Crop: a frame with inward corners, like a crop overlay. */
+export function IconCrop(handle: Handle<IconProps>) {
+  return () => (
+    <svg {...baseProps(handle.props.size ?? 22)}>
+      <path d="M6 3v15h15" />
+      <path d="M3 6h15v15" />
+    </svg>
+  )
+}
+
+/** Letterbox: a wide frame with bars above and below. */
+export function IconLetterbox(handle: Handle<IconProps>) {
+  return () => (
+    <svg {...baseProps(handle.props.size ?? 22)}>
+      <rect x="3" y="6" width="18" height="12" rx="2" />
+      <path d="M6 9h12" />
+      <path d="M6 15h12" />
+    </svg>
+  )
+}
+
 /** Project orientation: the frame the film is shaped for, portrait or
  * landscape, with a rotate arrow suggesting the switch. */
 export function IconOrientation(handle: Handle<IconProps & { landscape?: boolean }>) {

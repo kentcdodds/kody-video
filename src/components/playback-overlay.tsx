@@ -23,6 +23,7 @@ import {
   type ClipRecord,
   type ProjectAudioRecord,
 } from '../lib/types'
+import { clipCanvasFit } from '../lib/clip-fit'
 import { BlobImage } from './blob-image'
 import { IconPlay } from './icons'
 import { isInteractiveTarget } from '../lib/keyboard'
@@ -713,7 +714,7 @@ export function PlaybackOverlay(handle: Handle<PlaybackOverlayProps>) {
           />
         ) : null}
 
-        <div className="film-frame">
+        <div className={`film-frame${clipCanvasFit(segment.clip) === 'contain' ? ' is-letterbox' : ''}`}>
         {isPhoto ? (
           <BlobImage
             key={`${segment.clip.id}:${index}`}

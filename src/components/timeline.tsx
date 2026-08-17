@@ -1,5 +1,6 @@
 import type { Handle } from 'remix/ui'
 import { on, ref } from 'remix/ui'
+import { clipFitBadge } from '../lib/clip-fit'
 import { reorderClips } from '../lib/storage'
 import {
   clipMusicVolume,
@@ -10,8 +11,9 @@ import {
   type ClipId,
   type ClipRecord,
   type ProjectId,
+  type ProjectOrientation,
 } from '../lib/types'
-import { IconPhoto } from './icons'
+import { IconCrop, IconLetterbox, IconPhoto } from './icons'
 import { TimelineThumbImage } from './timeline-thumb-image'
 
 const PX_PER_SECOND = 26
@@ -41,6 +43,8 @@ interface TimelineProps {
   pendingGhostAfterId?: ClipId | null
   /** Show per-clip music-volume badges (project has a background track). */
   showAudioBadges?: boolean
+  /** Film shape — used for the crop / letterbox badge. */
+  filmOrientation: ProjectOrientation
   refresh: () => void
 }
 
@@ -397,6 +401,7 @@ export function Timeline(handle: Handle<TimelineProps>) {
           const isDragging = draggingId === clip.id
           const showDropBefore = draggingId !== null && gapIndex === index
           const isPhoto = isImageClip(clip)
+          const fitBadge = clipFitBadge(clip, props.filmOrientation)
           const showGhostsAfter =
             pendingGhostCount > 0 &&
             draggingId === null &&
@@ -411,6 +416,12 @@ export function Timeline(handle: Handle<TimelineProps>) {
                 role="option"
                 aria-selected={selected}
                 aria-label={`${isPhoto ? 'Photo' : 'Clip'} ${index + 1}, ${formatDuration(effectiveDurationMs(clip))}${
+                  fitBadge === 'crop'
+                    ? ', cropped'
+                    : fitBadge === 'letterbox'
+                      ? ', letterboxed'
+                      : ''
+                }${
                   // Presence checks stay on the raw fields (override vs
                   // default); displayed values go through the clamped
                   // accessors playback uses.
@@ -460,6 +471,19 @@ export function Timeline(handle: Handle<TimelineProps>) {
                   )}
                 </div>
                 <span className="clip-dur">{formatDuration(effectiveDurationMs(clip))}</span>
+                {fitBadge ? (
+                  <span
+                    className="clip-fit-badge"
+                    aria-hidden="true"
+                    title={fitBadge === 'letterbox' ? 'Letterboxed' : 'Cropped'}
+                  >
+                    {fitBadge === 'letterbox' ? (
+                      <IconLetterbox size={12} />
+                    ) : (
+                      <IconCrop size={12} />
+                    )}
+                  </span>
+                ) : null}
                 {isPhoto ? (
                   <span className="clip-photo-badge" aria-hidden="true">
                     <IconPhoto size={12} />

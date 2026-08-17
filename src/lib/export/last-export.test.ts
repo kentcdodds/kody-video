@@ -46,4 +46,12 @@ describe('exportSignature', () => {
       exportSignature(clips, false, null, 'portrait', false, 'Road trip'),
     )
   })
+
+  it('signs letterbox so a fit change cannot reuse a cropped export', () => {
+    const cropped = [fakeClip('clip_a')]
+    const letterboxed = [{ ...fakeClip('clip_a'), fit: 'letterbox' as const }]
+    expect(exportSignature(letterboxed, false, null, 'portrait')).not.toBe(
+      exportSignature(cropped, false, null, 'portrait'),
+    )
+  })
 })

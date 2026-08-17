@@ -49,8 +49,8 @@ export interface ExportOptions {
   /** Background-music playlist mixed under the clips at their per-clip
    * volumes; tracks play one after the other until the film ends. */
   background?: BackgroundAudio | null
-  /** Force the output into the project's orientation. Absent = follow the
-   * first clip's aspect (how every project exported before the setting). */
+  /** Force the output into the project's orientation. Portrait and
+   * landscape both pin the canvas; absent still follows the first clip. */
   orientation?: ProjectOrientation
   /**
    * Fired once when the export enters the realtime canvas + MediaRecorder

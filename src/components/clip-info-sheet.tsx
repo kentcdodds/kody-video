@@ -2,15 +2,24 @@ import type { Handle } from 'remix/ui'
 import { on, ref } from 'remix/ui'
 import { canSplitClip, clipHasUnusedMedia } from '../lib/clip-edit'
 import { buildClipFacts } from '../lib/clip-facts'
+import { clipFit, clipMismatchesFilm } from '../lib/clip-fit'
 import { attachSheetModal } from '../lib/sheet-modal'
-import { effectiveDurationMs, isImageClip, type ClipRecord } from '../lib/types'
-import { IconDownload, IconSplit, IconTrim } from './icons'
+import {
+  effectiveDurationMs,
+  isImageClip,
+  type ClipFit,
+  type ClipRecord,
+  type ProjectOrientation,
+} from '../lib/types'
+import { IconCrop, IconDownload, IconLetterbox, IconSplit, IconTrim } from './icons'
 
 interface ClipInfoSheetProps {
   clip: ClipRecord
   clips: ClipRecord[]
   index: number
   projectName: string
+  filmOrientation: ProjectOrientation
+  onSetFit: (fit: ClipFit) => Promise<void>
   onPermanentlyTrim: () => Promise<void>
   onStartSplit: () => void
   onDownload: () => Promise<void>
@@ -84,6 +93,33 @@ export function ClipInfoSheet(handle: Handle<ClipInfoSheetProps>) {
               </div>
             ))}
           </dl>
+
+          {clipMismatchesFilm(clip, handle.props.filmOrientation) ? (
+            <div className="clip-info-fit" role="group" aria-label="Fit in film">
+              <p className="clip-info-fit-label">This clip does not match the film</p>
+              <div className="clip-info-fit-toggles">
+                {(['crop', 'letterbox'] as const).map((choice) => {
+                  const active = clipFit(clip) === choice
+                  return (
+                    <button
+                      type="button"
+                      key={choice}
+                      className={`btn btn-ghost clip-info-fit-btn${active ? ' is-active' : ''}`}
+                      aria-pressed={active}
+                      disabled={working}
+                      mix={on('click', () => {
+                        if (active || working) return
+                        void handle.props.onSetFit(choice)
+                      })}
+                    >
+                      {choice === 'crop' ? <IconCrop size={16} /> : <IconLetterbox size={16} />}
+                      {choice === 'crop' ? 'Crop' : 'Letterbox'}
+                    </button>
+                  )
+                })}
+              </div>
+            </div>
+          ) : null}
 
           {error ? <p className="sheet-message is-error">{error}</p> : null}
 

@@ -44,6 +44,34 @@
   font-size: 0.78rem;
 }
 
+.editor-film-orientation {
+  display: inline-flex;
+  margin-top: 4px;
+  padding: 2px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--ink) 8%, transparent);
+  border: 1px solid var(--line);
+}
+
+.editor-film-orientation button {
+  appearance: none;
+  border: 0;
+  background: transparent;
+  color: var(--ink-muted);
+  font: inherit;
+  font-size: 0.68rem;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  padding: 3px 8px;
+  border-radius: 999px;
+  line-height: 1.2;
+}
+
+.editor-film-orientation button.is-active {
+  color: var(--ink);
+  background: color-mix(in srgb, var(--stage-bg) 88%, var(--ink));
+}
+
 .editor-stage {
   flex: 1 1 auto;
   min-height: 0;
@@ -332,6 +360,21 @@
   padding: 2px 5px;
   border-radius: 999px;
   font-variant-numeric: tabular-nums;
+  pointer-events: none;
+}
+
+/* Mismatched clips show crop or letterbox in the top-left. */
+.clip-thumb .clip-fit-badge {
+  position: absolute;
+  left: 4px;
+  top: 4px;
+  display: grid;
+  place-items: center;
+  width: 18px;
+  height: 18px;
+  border-radius: 6px;
+  color: #fff;
+  background: rgba(0, 0, 0, 0.55);
   pointer-events: none;
 }
 
@@ -1086,6 +1129,32 @@
   text-align: right;
   font-variant-numeric: tabular-nums;
   font-size: 0.9rem;
+}
+
+.clip-info-fit {
+  margin-top: 14px;
+}
+
+.clip-info-fit-label {
+  margin: 0 0 8px;
+  font-size: 0.82rem;
+  color: var(--ink-muted);
+}
+
+.clip-info-fit-toggles {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+
+.clip-info-fit-btn {
+  justify-content: center;
+  gap: 8px;
+}
+
+.clip-info-fit-btn.is-active {
+  border-color: var(--accent);
+  color: var(--ink);
 }
 
 .clip-info-actions {
