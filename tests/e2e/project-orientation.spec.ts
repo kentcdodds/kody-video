@@ -69,6 +69,39 @@ test.describe('project orientation', () => {
       .toBe(true)
   })
 
+  test('a portrait project uses the side chrome when the viewport is landscape', async ({
+    page,
+  }) => {
+    const projectId = await seedProject(page, { clips: 1 })
+    await page.goto(`/project/${projectId}`)
+    await waitForCameraReady(page)
+
+    // Film stays portrait, so the document shell attribute stays narrow —
+    // CSS still widens the frame on a landscape viewport.
+    await expect.poll(() => shellLayout(page)).toBe('narrow')
+
+    const viewport = page.viewportSize()!
+    await page.setViewportSize({ width: viewport.height, height: viewport.width })
+    await expect.poll(() => shellLayout(page)).toBe('narrow')
+
+    const dock = await page.locator('.record-dock').boundingBox()
+    const shell = await page.locator('.project-screen').boundingBox()
+    expect(dock).not.toBeNull()
+    expect(shell).not.toBeNull()
+    expect(dock!.height).toBeGreaterThan(dock!.width)
+    expect(dock!.x + dock!.width).toBeGreaterThan(shell!.x + shell!.width - 8)
+
+    await page.locator('[aria-label="Open editor"]').click()
+    await expect
+      .poll(async () => {
+        const stage = await page.locator('.editor-stage').boundingBox()
+        const panel = await page.locator('.editor-panel').boundingBox()
+        if (!stage || !panel) return false
+        return panel.x >= stage.x + stage.width - 2
+      })
+      .toBe(true)
+  })
+
   test('fine-pointer (desktop-like) recording never locks an orientation', async ({ page }) => {
     // Webcams and screen shares are landscape media without that being a
     // choice — desktop projects stay unlocked and keep the classic column.

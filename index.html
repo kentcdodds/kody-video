@@ -177,7 +177,9 @@
       /* Shell width by layout mode — must mirror global.css (the attribute
          is set by the pre-paint script below, so the frame never jumps when
          the full stylesheet arrives). 'adaptive' (home/static pages) widens
-         on landscape viewports; 'wide' (landscape projects) always. */
+         on landscape viewports; 'wide' (landscape projects) always;
+         'narrow' (portrait projects) widens when the viewport is landscape
+         so chrome can use the side gutters. */
       html[data-shell='wide'] #root,
       html[data-shell='wide'] .app-shell {
         width: 100%;
@@ -185,14 +187,17 @@
       }
       @media (orientation: landscape) {
         html[data-shell='adaptive'] #root,
-        html[data-shell='adaptive'] .app-shell {
+        html[data-shell='adaptive'] .app-shell,
+        html[data-shell='narrow'] #root,
+        html[data-shell='narrow'] .app-shell {
           width: 100%;
           max-width: none;
         }
       }
       @media (min-width: 720px) and (orientation: landscape) and (pointer: fine) {
         html[data-shell='adaptive'] #root,
-        html[data-shell='wide'] #root {
+        html[data-shell='wide'] #root,
+        html[data-shell='narrow'] #root {
           width: min(1200px, calc(100% - 48px));
         }
       }

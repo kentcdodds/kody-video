@@ -1167,7 +1167,9 @@ a {
      viewports, which includes desktop windows by default.
    - 'wide' (locked-landscape projects, set by the project page): always
      widens — the layout is stuck sideways wherever it opens.
-   - 'narrow' / absent (portrait projects): the classic column.
+   - 'narrow' / absent (portrait projects): the classic column on portrait
+     viewports; widens when the device is held sideways so chrome can use
+     the side gutters around a 9:16 film.
    Must sit after the base #root / .app-shell rules AND the min-width
    desktop block so it wins in both. */
 html[data-shell='wide'] #root,
@@ -1178,7 +1180,9 @@ html[data-shell='wide'] .app-shell {
 
 @media (orientation: landscape) {
   html[data-shell='adaptive'] #root,
-  html[data-shell='adaptive'] .app-shell {
+  html[data-shell='adaptive'] .app-shell,
+  html[data-shell='narrow'] #root,
+  html[data-shell='narrow'] .app-shell {
     width: 100%;
     max-width: none;
   }
@@ -1186,7 +1190,8 @@ html[data-shell='wide'] .app-shell {
 
 @media (min-width: 720px) and (orientation: landscape) and (pointer: fine) {
   html[data-shell='adaptive'] #root,
-  html[data-shell='wide'] #root {
+  html[data-shell='wide'] #root,
+  html[data-shell='narrow'] #root {
     width: min(1200px, calc(100% - 48px));
   }
 }

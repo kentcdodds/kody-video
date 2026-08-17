@@ -969,6 +969,28 @@ async function writeClipVolumes(
   return toMeta(updated)
 }
 
+/** Persist the file's display size (rotation-aware). Not a user edit —
+ * the project's updatedAt is deliberately untouched. */
+export async function updateClipSize(
+  clipId: ClipId,
+  width: number,
+  height: number,
+): Promise<void> {
+  if (!(width > 0) || !(height > 0)) return
+  const db = await getDb()
+  const tx = db.transaction('clips', 'readwrite')
+  const clip = await tx.store.get(clipId)
+  if (!clip) {
+    await tx.done
+    return
+  }
+  if (clip.width === width && clip.height === height) {
+    await tx.done
+    return
+  }
+  await completeTransaction([tx.store.put({ ...clip, width, height })], tx)
+}
+
 /** Persist a clip's measured audio peak (the normalization measurement).
  * Not a user edit — the project's updatedAt is deliberately untouched. */
 export async function updateClipAudioPeak(clipId: ClipId, peak: number): Promise<void> {

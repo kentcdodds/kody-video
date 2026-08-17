@@ -500,12 +500,13 @@
   }
 }
 
-/* The landscape interface: with the project (and viewport) sideways, the
-   dock leaves the bottom edge and becomes a right-hand rail — Go under the
-   thumb, tools stacked above it, native-camera style. The zoom cluster
-   drops to the freed bottom edge. */
+/* Landscape viewport chrome: the dock leaves the bottom edge and becomes
+   a right-hand rail — Go under the thumb, tools stacked above it,
+   native-camera style. Follows the *viewport*, not the film: a portrait
+   project held sideways still has empty side gutters to put chrome in.
+   The zoom cluster drops to the freed bottom edge. */
 @media (orientation: landscape) {
-  .orientation-landscape .record-dock {
+  .record-dock {
     top: 0;
     bottom: 0;
     left: auto;
@@ -533,11 +534,11 @@
     );
   }
 
-  .orientation-landscape .record-dock::-webkit-scrollbar {
+  .record-dock::-webkit-scrollbar {
     display: none;
   }
 
-  .orientation-landscape .record-tools {
+  .record-tools {
     flex-direction: column;
     gap: 10px;
     flex-shrink: 0;
@@ -545,7 +546,7 @@
   }
 
   /* Compact Go so the whole rail fits common landscape phone heights. */
-  .orientation-landscape .record-dock .go-button {
+  .record-dock .go-button {
     width: 68px;
     height: 68px;
     min-width: 68px;
@@ -556,12 +557,12 @@
 
   /* Keep the title/meta clear of the rail (which grows with the right
      inset); pad the back button away from the notch side. */
-  .orientation-landscape .record-top {
+  .record-top {
     right: calc(108px + env(safe-area-inset-right, 0px));
     padding-left: calc(12px + env(safe-area-inset-left, 0px));
   }
 
-  .orientation-landscape .record-zoom {
+  .record-zoom {
     bottom: calc(16px + var(--safe-bottom));
   }
 }

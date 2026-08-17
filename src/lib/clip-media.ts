@@ -85,6 +85,11 @@ async function measureSlicedDuration(blob: Blob, fallbackMs: number): Promise<nu
   return Math.round(fallbackMs)
 }
 
+export interface VideoDisplaySize {
+  width: number
+  height: number
+}
+
 async function probeSlicedSize(
   input: { getPrimaryVideoTrack: () => Promise<{ displayWidth: number; displayHeight: number; codedWidth: number; codedHeight: number } | null> },
 ): Promise<{ width?: number; height?: number }> {
@@ -94,4 +99,39 @@ async function probeSlicedSize(
   const height = track.displayHeight > 0 ? track.displayHeight : track.codedHeight
   if (!(width > 0) || !(height > 0)) return {}
   return { width, height }
+}
+
+/**
+ * Pixel size the file actually displays, including rotation / display
+ * matrices. Camera `getSettings()` often stays at the sensor size from
+ * when the session started, so a sideways take can be stored as 9:16
+ * even when the encoded frames are 16:9.
+ */
+export async function probeVideoDisplaySize(blob: Blob): Promise<VideoDisplaySize | null> {
+  try {
+    const { ALL_FORMATS, BlobSource, Input } = await import('mediabunny')
+    const input = new Input({ source: new BlobSource(blob), formats: ALL_FORMATS })
+    try {
+      const size = await probeSlicedSize(input)
+      if (size.width && size.height) return { width: size.width, height: size.height }
+    } finally {
+      input.dispose()
+    }
+  } catch {
+    // Unparseable container — let the element path judge it.
+  }
+  try {
+    const { loadClipVideo } = await import('./export/shared')
+    const loaded = await loadClipVideo(blob)
+    try {
+      const width = loaded.video.videoWidth
+      const height = loaded.video.videoHeight
+      if (width > 0 && height > 0) return { width, height }
+    } finally {
+      loaded.release()
+    }
+  } catch {
+    return null
+  }
+  return null
 }
