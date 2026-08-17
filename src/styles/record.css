@@ -440,40 +440,47 @@
   pointer-events: none;
 }
 
-/* Locked-project mismatch hints: a landscape project held upright (shown on
-   portrait viewports), and a portrait project held sideways (shown on
+/* Locked-film mismatch hints: a landscape film held upright (shown on
+   portrait viewports), and a portrait film held sideways (shown on
    landscape viewports, coarse pointers only — desktop windows aren't
-   "held"). Each is rendered only on its project kind. */
+   "held"). Compact top pill — obvious, not a centered modal. */
 .orientation-hint {
   position: absolute;
   left: 50%;
-  top: 50%;
-  transform: translate(-50%, -50%);
+  top: calc(48px + var(--safe-top, 0px));
+  transform: translateX(-50%);
   z-index: 2;
   display: none;
-  flex-direction: column;
+  flex-direction: row;
   align-items: center;
-  gap: 4px;
-  padding: 16px 22px;
-  border-radius: 18px;
+  gap: 8px;
+  padding: 7px 12px;
+  border-radius: 999px;
   color: #fff;
-  background: rgba(8, 12, 14, 0.66);
-  border: 1px solid rgba(255, 255, 255, 0.18);
+  background: rgba(8, 12, 14, 0.72);
+  border: 1px solid rgba(255, 255, 255, 0.22);
   backdrop-filter: blur(10px);
-  box-shadow: 0 8px 28px rgba(0, 0, 0, 0.35);
-  text-align: center;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.28);
+  text-align: left;
   pointer-events: none;
-  max-width: min(300px, 84vw);
+  max-width: min(360px, 88vw);
+}
+
+.orientation-hint > span {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
 }
 
 .orientation-hint strong {
   font-family: var(--font-display);
-  font-size: 1.15rem;
+  font-size: 0.82rem;
   line-height: 1.15;
 }
 
-.orientation-hint span {
-  font-size: 0.82rem;
+.orientation-hint > span span {
+  font-size: 0.72rem;
   opacity: 0.82;
 }
 
@@ -491,29 +498,6 @@
   .orientation-hint-portrait {
     display: flex;
   }
-}
-
-/* Rotate-to-choose upsell (free plan, empty project, device sideways): the
-   landscape interface is visible as a preview; this explains why recording
-   waits. Sits where the hold-hint would be. */
-.orientation-gate-pill {
-  position: absolute;
-  left: 50%;
-  bottom: 22%;
-  transform: translateX(-50%);
-  z-index: 2;
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  padding: 10px 16px;
-  border-radius: 999px;
-  color: #10171a;
-  background: var(--accent);
-  border: 1px solid color-mix(in srgb, var(--accent) 65%, #fff);
-  font-weight: 700;
-  font-size: 0.85rem;
-  box-shadow: 0 8px 28px rgba(0, 0, 0, 0.35);
-  max-width: min(420px, 88vw);
 }
 
 /* The landscape interface: with the project (and viewport) sideways, the

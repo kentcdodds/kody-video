@@ -10,10 +10,13 @@ import {
   removeClip,
   setAudioTrackSettings,
   setClipDuration,
+  setClipFit,
+  setFilmOrientation,
   splitSelectedClip,
   trimClip,
   undoLastDelete,
 } from '../lib/project-actions'
+import { PlusRequiredError } from '../lib/storage'
 import { downloadClipFile } from '../lib/media'
 import { resolveSplitMs } from '../lib/clip-edit'
 import { clipIdAfterDelete } from '../lib/clip-selection'
@@ -21,11 +24,13 @@ import {
   effectiveDurationMs,
   formatDuration,
   isImageClip,
+  projectOrientation,
   type ClipId,
   type ClipRecord,
   type Project,
   type ProjectAudioRecord,
   type ProjectId,
+  type ProjectOrientation,
 } from '../lib/types'
 import { AudioDetailStrip } from './audio-detail-strip'
 import { AudioStrip } from './audio-strip'
@@ -91,6 +96,24 @@ export function EditorScreen(handle: Handle<EditorScreenProps>) {
   let ghostAfterId: ClipId | null = null
   const fileInputRef: { current: HTMLInputElement | null } = { current: null }
   const previewApi: { current: EditorClipPreviewHandle | null } = { current: null }
+
+  const chooseFilmOrientation = async (orientation: ProjectOrientation) => {
+    if (orientation === 'landscape' && !props.plus) {
+      props.onUpsell()
+      return
+    }
+    try {
+      const projectId = await props.ensureProjectId()
+      await setFilmOrientation(projectId, orientation)
+      await props.refresh()
+    } catch (error) {
+      if (error instanceof PlusRequiredError) {
+        props.onUpsell()
+        return
+      }
+      throw error
+    }
+  }
 
   const visibleClips = (loaded: ClipRecord[]): ClipRecord[] => {
     let next = loaded
@@ -445,6 +468,27 @@ export function EditorScreen(handle: Handle<EditorScreenProps>) {
             <small>
               {clips.length} clip{clips.length === 1 ? '' : 's'} · {formatDuration(totalDurationMs)}
             </small>
+            <div className="editor-film-orientation" role="group" aria-label="Export orientation">
+              {(['portrait', 'landscape'] as const).map((choice) => {
+                const film = projectOrientation(project)
+                const active = film === choice
+                return (
+                  <button
+                    type="button"
+                    key={choice}
+                    className={active ? 'is-active' : undefined}
+                    aria-pressed={active}
+                    disabled={importing}
+                    mix={on('click', () => {
+                      if (active || importing) return
+                      void chooseFilmOrientation(choice)
+                    })}
+                  >
+                    {choice === 'portrait' ? 'Portrait' : 'Landscape'}
+                  </button>
+                )
+              })}
+            </div>
           </div>
           <button
             type="button"
@@ -575,6 +619,7 @@ export function EditorScreen(handle: Handle<EditorScreenProps>) {
               pendingGhostCount={pendingGhostCount}
               pendingGhostAfterId={ghostAfterId}
               showAudioBadges={props.audio !== null}
+              filmOrientation={projectOrientation(project)}
               refresh={props.refresh}
             />
           )}
@@ -713,6 +758,11 @@ export function EditorScreen(handle: Handle<EditorScreenProps>) {
             clips={clips}
             index={selectedIndex}
             projectName={project.name}
+            filmOrientation={projectOrientation(project)}
+            onSetFit={async (fit) => {
+              await setClipFit(selected.id, fit)
+              await props.refresh()
+            }}
             onPermanentlyTrim={async () => {
               const updated = await permanentlyTrimClip(selected.id)
               clipInfoOpen = false

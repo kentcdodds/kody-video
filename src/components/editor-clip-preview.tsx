@@ -15,6 +15,7 @@ import {
   trackMediaSec,
   trackMusicGain,
 } from '../lib/preview-music-bed'
+import { clipCanvasFit } from '../lib/clip-fit'
 import { BlobImage } from './blob-image'
 import { BlobVideo } from './blob-video'
 import { IconInfo, IconPause, IconPlay } from './icons'
@@ -89,7 +90,7 @@ export function EditorClipPreview(handle: Handle<EditorClipPreviewProps>) {
     }
     return () => (
       <div className="editor-clip-preview-wrap">
-        <div className="film-frame">
+        <div className={`film-frame${clipCanvasFit(props.clip) === 'contain' ? ' is-letterbox' : ''}`}>
           <BlobImage
             blob={props.clip.blob}
             className="editor-clip-preview editor-clip-preview-image"
@@ -522,7 +523,7 @@ export function EditorClipPreview(handle: Handle<EditorClipPreviewProps>) {
             ]}
           />
         ) : null}
-        <div className="film-frame">
+        <div className={`film-frame${clipCanvasFit(clip) === 'contain' ? ' is-letterbox' : ''}`}>
         <BlobVideo
           key={remountKey}
           blob={clip.blob}

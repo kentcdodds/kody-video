@@ -7,6 +7,7 @@ import {
   clampVolume,
   newId,
   type AppMeta,
+  type ClipFit,
   type ClipId,
   type ClipKind,
   type ClipMeta,
@@ -778,6 +779,19 @@ export async function updateClipTrim(
   const start = Math.max(0, Math.min(trimStartMs, clip.durationMs))
   const end = Math.max(start, Math.min(trimEndMs, clip.durationMs))
   const updated: ClipRecord = { ...clip, trimStartMs: start, trimEndMs: end }
+  await db.put('clips', updated)
+  await touchProject(clip.projectId)
+  return toMeta(updated)
+}
+
+/** Crop is the default, so it clears the stored override. */
+export async function updateClipFit(clipId: ClipId, fit: ClipFit): Promise<ClipMeta> {
+  const db = await getDb()
+  const clip = await db.get('clips', clipId)
+  if (!clip) throw new Error('Clip not found')
+  const updated: ClipRecord = { ...clip }
+  if (fit === 'letterbox') updated.fit = 'letterbox'
+  else delete updated.fit
   await db.put('clips', updated)
   await touchProject(clip.projectId)
   return toMeta(updated)

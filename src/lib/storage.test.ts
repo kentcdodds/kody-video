@@ -35,6 +35,7 @@ import {
   undoDeleteLastClip,
   updateClipAudioPeak,
   updateClipDuration,
+  updateClipFit,
   updateClipThumbs,
   updateClipVolumes,
   updateProjectAudioTrack,
@@ -346,6 +347,27 @@ describe('storage layer', () => {
     const portrait = await setProjectOrientation(project.id, 'portrait')
     expect(portrait.orientation).toBeUndefined()
     expect('orientation' in ((await listProjects())[0] ?? {})).toBe(false)
+  })
+
+  it('stores letterbox as a clip override and clears it for crop', async () => {
+    const project = await createProject('Fit')
+    const clip = await addClip({
+      projectId: project.id,
+      blob: fakeBlob('take'),
+      mimeType: 'video/webm',
+      durationMs: 900,
+      width: 1920,
+      height: 1080,
+    })
+    expect(clip.fit).toBeUndefined()
+
+    const letterboxed = await updateClipFit(clip.id, 'letterbox')
+    expect(letterboxed.fit).toBe('letterbox')
+    expect((await getClip(clip.id))?.fit).toBe('letterbox')
+
+    const cropped = await updateClipFit(clip.id, 'crop')
+    expect(cropped.fit).toBeUndefined()
+    expect('fit' in ((await getClip(clip.id)) ?? {})).toBe(false)
   })
 
   it('creates landscape projects when asked (Plus only)', async () => {

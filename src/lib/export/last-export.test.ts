@@ -24,6 +24,9 @@ describe('exportSignature', () => {
     expect(exportSignature(clips, true, null, undefined)).toBe(
       exportSignature(clips, true, null),
     )
+    expect(JSON.parse(exportSignature(clips, true, null, 'portrait')).orientation).toBe(
+      'portrait',
+    )
   })
 
   it('signs landscape differently so the cached export re-renders', () => {
@@ -44,6 +47,14 @@ describe('exportSignature', () => {
     const clips = [fakeClip('clip_a')]
     expect(exportSignature(clips, false, null, 'portrait', false, 'Beach day')).not.toBe(
       exportSignature(clips, false, null, 'portrait', false, 'Road trip'),
+    )
+  })
+
+  it('signs letterbox so a fit change cannot reuse a cropped export', () => {
+    const cropped = [fakeClip('clip_a')]
+    const letterboxed = [{ ...fakeClip('clip_a'), fit: 'letterbox' as const }]
+    expect(exportSignature(letterboxed, false, null, 'portrait')).not.toBe(
+      exportSignature(cropped, false, null, 'portrait'),
     )
   })
 })

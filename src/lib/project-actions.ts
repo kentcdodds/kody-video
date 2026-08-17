@@ -20,6 +20,7 @@ import {
   setProjectOrientation,
   undoDeleteLastClip,
   updateClipDuration,
+  updateClipFit,
   updateClipThumbs,
   updateClipTrim,
   updateClipVolumes,
@@ -27,7 +28,7 @@ import {
   type ClipVolumeSettings,
   type ProjectAudioTrackSettings,
 } from './storage'
-import { isCoarsePointerDevice, viewportIsLandscape } from './platform'
+import { lockOrientationFromFirstClip } from './orientation-lock'
 import { probeAudioFile } from './audio-import'
 import { estimateExportCacheBytes } from './export/export-cache'
 import { estimateStorageSpace, type StorageSpace } from './storage-space'
@@ -37,11 +38,13 @@ import {
   NEW_PROJECT_ID,
   effectiveDurationMs,
   isImageClip,
+  type ClipFit,
   type ClipId,
   type ClipRecord,
   type Project,
   type ProjectAudioRecord,
   type ProjectId,
+  type ProjectOrientation,
 } from './types'
 
 export interface ProjectSummary extends Project {
@@ -264,14 +267,6 @@ export async function appendRecording(
     capturedThumbs?: GeneratedThumbs | null
   },
 ): Promise<ClipRecord> {
-  // The FIRST recording locks the project's orientation to how the device
-  // is held — but only where holding it a way is a deliberate choice
-  // (phones/tablets). Desktop cameras and screen shares are landscape media
-  // regardless of intent, so desktop projects stay unlocked (their exports
-  // follow the clips, as always). Checked before the write so the lock
-  // below can never mistake this very clip for an existing one.
-  const project = await getProject(projectId)
-  const locksOrientation = project?.clipIds.length === 0 && isCoarsePointerDevice()
   const clip = await addClip({
     projectId,
     blob: input.blob,
@@ -285,16 +280,7 @@ export async function appendRecording(
     lng: input.lng,
     locationAccuracyM: input.locationAccuracyM,
   })
-  if (locksOrientation) {
-    // Best-effort, after the clip is safely stored: a lock failure (e.g.
-    // the landscape Plus gate racing an entitlement change — the record
-    // screen blocks free landscape takes before they start) must never
-    // lose a recorded take. An unlocked project just stays portrait.
-    await setProjectOrientation(
-      projectId,
-      viewportIsLandscape() ? 'landscape' : 'portrait',
-    ).catch(() => undefined)
-  }
+  await lockOrientationFromFirstClip(projectId, clip, { preferHeldOrientation: true })
   if (options?.capturedThumbs) {
     // Best-effort: on a (rare) persistence failure the loader backfill
     // still generates thumbs — one black flash beats missing artwork. The
@@ -472,6 +458,19 @@ export async function setClipVolumes(
   volumes: ClipVolumeSettings,
 ): Promise<void> {
   await updateClipVolumes(clipId, volumes)
+}
+
+/** Crop is the default; letterbox is the stored override. */
+export async function setClipFit(clipId: ClipId, fit: ClipFit): Promise<void> {
+  await updateClipFit(clipId, fit)
+}
+
+/** Change the film's export orientation. Landscape requires Plus. */
+export async function setFilmOrientation(
+  projectId: ProjectId,
+  orientation: ProjectOrientation,
+): Promise<void> {
+  await setProjectOrientation(projectId, orientation)
 }
 
 export {

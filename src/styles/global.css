@@ -187,6 +187,12 @@ a {
   object-fit: cover;
 }
 
+.film-frame.is-letterbox > .editor-clip-preview,
+.film-frame.is-letterbox > .playback-video,
+.film-frame.is-letterbox > .playback-image {
+  object-fit: contain;
+}
+
 .record-stage,
 .editor-clip-preview-wrap,
 .playback-overlay {

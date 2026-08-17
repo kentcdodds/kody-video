@@ -88,7 +88,7 @@ test.describe('rotate-to-choose orientation (touch)', () => {
     await rotate(page)
     await expect.poll(() => shellLayout(page)).toBe('wide')
     await expect(page.locator('.orientation-hint')).toBeVisible()
-    await expect(page.locator('.orientation-hint')).toContainText(/turn your device sideways/i)
+    await expect(page.locator('.orientation-hint')).toContainText(/hold sideways/i)
 
     // Survives a reload.
     await page.reload()
@@ -96,40 +96,23 @@ test.describe('rotate-to-choose orientation (touch)', () => {
     await expect.poll(() => shellLayout(page)).toBe('wide')
   })
 
-  test('free plan: rotating previews landscape but the take is gated behind Plus', async ({
+  test('free plan: rotating stays portrait and recording is allowed', async ({
     page,
   }) => {
     await openNewProject(page)
     await expect.poll(() => shellLayout(page)).toBe('narrow')
 
-    // Turn the phone: the layout shifts (the preview IS the pitch) and the
-    // upsell opens to explain the gate.
-    await rotate(page)
-    await expect.poll(() => shellLayout(page)).toBe('wide')
-    const upsell = page.locator('.sheet[aria-label="Kody Video Plus"]')
-    await expect(upsell).toBeVisible()
-    await expect(upsell).toContainText(/landscape projects/i)
-    await upsell.getByRole('button', { name: 'Not now' }).click()
-    await expect(upsell).toBeHidden()
-
-    // The standing gate pill explains why recording waits; pressing the
-    // stage re-opens the upsell instead of starting a take.
-    await expect(page.locator('.orientation-gate-pill')).toBeVisible()
-    const stage = await page.locator('.record-stage').boundingBox()
-    await page.mouse.move(stage!.x + stage!.width / 2, stage!.y + stage!.height / 2)
-    await page.mouse.down()
-    await page.waitForTimeout(800)
-    await page.mouse.up()
-    await expect(upsell).toBeVisible()
-    expect(await totalClipCount(page)).toBe(0)
-    await upsell.getByRole('button', { name: 'Not now' }).click()
-
-    // Turning back upright: everything works free, and the first take locks
-    // portrait (stored as nothing — the default).
+    // Turn the phone: the film stays portrait (landscape lock is Plus),
+    // recording is still allowed, and there is no gate or upsell.
     await rotate(page)
     await expect.poll(() => shellLayout(page)).toBe('narrow')
-    await expect(page.locator('.orientation-gate-pill')).toBeHidden()
+    await expect(page.locator('.sheet[aria-label="Kody Video Plus"]')).toBeHidden()
+    await expect(page.locator('.orientation-gate-pill')).toHaveCount(0)
+    await expect(page.locator('.project-screen.orientation-landscape')).toHaveCount(0)
+
     await recordClip(page)
+    expect(await totalClipCount(page)).toBe(1)
+    // Free plan cannot lock landscape, so the film stays portrait.
     expect(await storedOrientation(page)).toBeUndefined()
     await expect(page.locator('.project-screen')).toHaveClass(/is-film-framed/)
     const film = page.locator('.record-stage > .film-frame')
@@ -209,14 +192,28 @@ test.describe('export-cover preview (touch)', () => {
     await page.getByRole('button', { name: 'Open editor' }).click()
     await expect(page.locator('.editor-screen')).toBeVisible()
     await expect(page.locator('.project-screen')).toHaveClass(/is-film-framed/)
+    await expect(page.locator('.clip-fit-badge')).toBeVisible()
+    await expect(page.getByRole('option', { name: /cropped/i })).toBeVisible()
     const preview = page.locator('.editor-clip-preview')
     await expect
       .poll(() => preview.evaluate((el) => (el as HTMLVideoElement).videoWidth))
       .toBeGreaterThan(0)
+    await expect(page.locator('.film-frame.is-letterbox')).toHaveCount(0)
     const file = testInfo.outputPath('editor_landscape_clip_cropped.png')
     await page.screenshot({ path: file, fullPage: false })
     await page.screenshot({
       path: '/opt/cursor/artifacts/editor_landscape_clip_cropped.png',
+      fullPage: false,
+    })
+
+    await page.getByRole('button', { name: 'Clip info' }).click()
+    await expect(page.locator('.clip-info-sheet')).toBeVisible()
+    await page.getByRole('button', { name: 'Letterbox' }).click()
+    await page.getByRole('button', { name: 'Close' }).click()
+    await expect(page.locator('.film-frame.is-letterbox')).toBeVisible()
+    await expect(page.getByRole('option', { name: /letterboxed/i })).toBeVisible()
+    await page.screenshot({
+      path: '/opt/cursor/artifacts/editor_landscape_clip_letterboxed.png',
       fullPage: false,
     })
   })

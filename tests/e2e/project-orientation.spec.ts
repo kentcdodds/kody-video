@@ -35,7 +35,7 @@ test.describe('project orientation', () => {
 
     // Held upright (portrait viewport), the app asks for a turn.
     await expect(page.locator('.orientation-hint')).toBeVisible()
-    await expect(page.locator('.orientation-hint')).toContainText(/turn your device/i)
+    await expect(page.locator('.orientation-hint')).toContainText(/hold sideways/i)
 
     // A reload keeps the landscape interface — the lock is on the project.
     await page.reload()

@@ -1,3 +1,4 @@
+import { clipCanvasFit } from '../clip-fit'
 import { pickRecorderMimeType } from '../media'
 import { isIosBrowser } from '../platform'
 import { videoBitrateFor } from '../video-quality'
@@ -22,8 +23,7 @@ import {
   blitPreview,
   decodeBackgroundAudio,
   decodeClipAudio,
-  drawCover,
-  drawCoverFrom,
+  drawFitFrom,
   drawWatermark,
   loadClipImage,
   loadClipVideo,
@@ -369,6 +369,7 @@ export async function exportRealtime(
           getPreviewCanvas: encodingIntoPreview ? undefined : options.getPreviewCanvas,
           watermarkImage: options.watermarkImage ?? null,
           signal: options.signal,
+          fit: clipCanvasFit(segment.clip),
           onElapsedMs: (elapsed: number) => {
             if (plan.totalMs > 0) {
               options.onProgress?.(Math.min(1, (paintedTotalMs + elapsed) / plan.totalMs))
@@ -453,6 +454,7 @@ interface PaintSharedArgs {
   getPreviewCanvas?: () => HTMLCanvasElement | null
   watermarkImage: HTMLImageElement | null
   signal?: AbortSignal
+  fit: 'cover' | 'contain'
   onElapsedMs: (elapsedMs: number) => void
 }
 
@@ -490,6 +492,7 @@ async function paintImageSegment({
   getPreviewCanvas,
   watermarkImage,
   signal,
+  fit,
   onElapsedMs,
 }: PaintImageSegmentArgs): Promise<number> {
   const segmentSec = endSec - startSec
@@ -498,7 +501,7 @@ async function paintImageSegment({
   const bitmap = await loadClipImage(blob)
   try {
     const paintFrame = () => {
-      drawCoverFrom(ctx, bitmap, bitmap.width, bitmap.height, canvas.width, canvas.height)
+      drawFitFrom(ctx, bitmap, bitmap.width, bitmap.height, canvas.width, canvas.height, fit)
       if (watermarkImage) {
         drawWatermark(ctx, watermarkImage, canvas.width, canvas.height)
       }
@@ -553,6 +556,7 @@ async function paintSegment({
   getPreviewCanvas,
   watermarkImage,
   signal,
+  fit,
   onElapsedMs,
 }: PaintSegmentArgs): Promise<number> {
   const segmentSec = endSec - startSec
@@ -575,7 +579,15 @@ async function paintSegment({
     }
 
     const paintFrame = () => {
-      drawCover(ctx, video, canvas.width, canvas.height)
+      drawFitFrom(
+        ctx,
+        video,
+        video.videoWidth || canvas.width,
+        video.videoHeight || canvas.height,
+        canvas.width,
+        canvas.height,
+        fit,
+      )
       if (watermarkImage) {
         drawWatermark(ctx, watermarkImage, canvas.width, canvas.height)
       }

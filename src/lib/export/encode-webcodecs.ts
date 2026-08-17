@@ -17,6 +17,7 @@ import {
   type VideoCodec,
 } from 'mediabunny'
 import { isIosBrowser } from '../platform'
+import { clipCanvasFit } from '../clip-fit'
 import {
   clipMusicVolume,
   clipSoundVolume,
@@ -45,7 +46,7 @@ import {
   blitPreview,
   decodeBackgroundAudio,
   decodeClipAudio,
-  drawCoverFrom,
+  drawFitFrom,
   drawWatermark,
   loadClipImage,
   loadClipVideo,
@@ -455,6 +456,7 @@ export async function exportWithWebCodecs(
           getPreviewCanvas: encodingIntoPreview ? undefined : getPreviewCanvas,
           watermarkImage,
           signal,
+          fit: clipCanvasFit(segment.clip),
           onElapsedMs: (elapsed: number) => {
             if (plan.totalMs > 0) {
               onProgress?.(Math.min(1, (state.doneMs + elapsed) / plan.totalMs))
@@ -677,6 +679,7 @@ interface PumpSharedArgs {
   getPreviewCanvas?: () => HTMLCanvasElement | null
   watermarkImage?: HTMLImageElement | null
   signal?: AbortSignal
+  fit: 'cover' | 'contain'
   onElapsedMs: (elapsedMs: number) => void
 }
 
@@ -778,7 +781,7 @@ async function pumpSegmentVideoDecoded(
   const sink = new CanvasSink(track, {
     width: canvas.width,
     height: canvas.height,
-    fit: 'cover',
+    fit: args.fit,
     poolSize: 2,
   })
 
@@ -826,7 +829,7 @@ async function pumpSegmentImage({ blob, ...shared }: ImagePumpArgs): Promise<voi
   const bitmap = await loadClipImage(blob)
   try {
     const draw = (ctx: CanvasRenderingContext2D, width: number, height: number) =>
-      drawCoverFrom(ctx, bitmap, bitmap.width, bitmap.height, width, height)
+      drawFitFrom(ctx, bitmap, bitmap.width, bitmap.height, width, height, shared.fit)
     // The epsilon keeps float accumulation from emitting one tick past the
     // segment's end (the sink would clamp it onto the same timestamp).
     for (let tsSec = startSec, first = true; tsSec < endSec - 1e-6; tsSec += EXPORT_FRAME_INTERVAL_SEC) {
@@ -862,17 +865,14 @@ async function pumpSegmentVideo({
   const emitAt = (mediaTimeSec: number, options?: { force?: boolean }): Promise<void> =>
     emit(
       (ctx, width, height) => {
-        const vw = video.videoWidth || width
-        const vh = video.videoHeight || height
-        const scale = Math.max(width / vw, height / vh)
-        ctx.fillStyle = '#000'
-        ctx.fillRect(0, 0, width, height)
-        ctx.drawImage(
+        drawFitFrom(
+          ctx,
           video,
-          (width - vw * scale) / 2,
-          (height - vh * scale) / 2,
-          vw * scale,
-          vh * scale,
+          video.videoWidth || width,
+          video.videoHeight || height,
+          width,
+          height,
+          shared.fit,
         )
       },
       mediaTimeSec,

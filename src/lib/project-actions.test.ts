@@ -93,7 +93,7 @@ describe('appendRecording orientation lock', () => {
     expect((await getProject(project.id))?.orientation).toBeUndefined()
   })
 
-  it('never locks on fine-pointer (desktop) devices', async () => {
+  it('never locks on fine-pointer (desktop) devices without clip size', async () => {
     setPlatformOverridesForTests({ coarsePointer: false, viewportLandscape: true })
     const project = await createProject('Desk')
 
@@ -101,10 +101,24 @@ describe('appendRecording orientation lock', () => {
     expect((await getProject(project.id))?.orientation).toBeUndefined()
   })
 
+  it('locks desktop from the first clip\'s pixels when size is known', async () => {
+    await markWatermarkRemoved('cs_test_actions')
+    setPlatformOverridesForTests({ coarsePointer: false, viewportLandscape: false })
+    const project = await createProject('Desk wide')
+
+    await appendRecording(project.id, {
+      blob: fakeBlob('webcam'),
+      mimeType: 'video/webm',
+      durationMs: 900,
+      width: 1920,
+      height: 1080,
+    })
+    expect((await getProject(project.id))?.orientation).toBe('landscape')
+  })
+
   it('saves the take even when the landscape lock is entitlement-gated', async () => {
-    // Free plan: the record screen blocks landscape takes up front, but if
-    // one ever reaches the save path the clip must land and the project
-    // simply stays unlocked.
+    // Free plan: recording is allowed sideways; the take lands and the
+    // project stays portrait when the landscape lock is Plus-gated.
     setPlatformOverridesForTests({ coarsePointer: true, viewportLandscape: true })
     const project = await createProject('Free wide')
 

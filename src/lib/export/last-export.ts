@@ -7,6 +7,7 @@
  */
 
 import { getDb, getSettings } from '../storage'
+import { clipFit } from '../clip-fit'
 import {
   audioTrackLevel,
   clipMusicVolume,
@@ -38,17 +39,23 @@ export function exportSignature(
     includeLocation,
     // Title is written into the file; a rename must not reuse the old MP4.
     projectName,
-    // Only landscape signs (JSON drops undefined).
-    orientation: orientation === 'landscape' ? 'landscape' : undefined,
-    clips: clips.map((clip) => [
-      clip.id,
-      clip.trimStartMs,
-      clip.trimEndMs,
-      // Per-clip levels, resolved so an explicit value equal to the
-      // default signs identically to no value.
-      clipSoundVolume(clip),
-      clipMusicVolume(clip),
-    ]),
+    // Portrait signs explicitly so pre-pin caches (that followed the
+    // first clip's aspect) cannot be reused as a 9:16 film.
+    orientation: orientation === 'landscape' ? 'landscape' : 'portrait',
+    clips: clips.map((clip) => {
+      const row: Array<string | number> = [
+        clip.id,
+        clip.trimStartMs,
+        clip.trimEndMs,
+        // Per-clip levels, resolved so an explicit value equal to the
+        // default signs identically to no value.
+        clipSoundVolume(clip),
+        clipMusicVolume(clip),
+      ]
+      // Crop is the default; only letterbox changes the pixels.
+      if (clipFit(clip) === 'letterbox') row.push('letterbox')
+      return row
+    }),
     audio: audio
       ? {
           tracks: audio.tracks.map((track) => [
