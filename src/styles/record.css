@@ -15,6 +15,8 @@
 .record-stage {
   position: absolute;
   inset: 0;
+  display: grid;
+  place-items: center;
   background:
     radial-gradient(80% 60% at 50% 20%, var(--accent-soft), transparent 60%),
     var(--stage-bg);

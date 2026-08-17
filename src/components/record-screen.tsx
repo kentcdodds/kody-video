@@ -1013,13 +1013,15 @@ export function RecordScreen(handle: Handle<RecordScreenProps>) {
             on('contextmenu', (event) => event.preventDefault()),
           ]}
         >
-          <video
-            className={`camera-video${camera.facing === 'user' ? ' mirror' : ''}`}
-            muted
-            playsInline
-            autoPlay
-            mix={ref((node, signal) => bindCameraVideo(node as HTMLVideoElement, signal))}
-          />
+          <div className="film-frame">
+            <video
+              className={`camera-video${camera.facing === 'user' ? ' mirror' : ''}`}
+              muted
+              playsInline
+              autoPlay
+              mix={ref((node, signal) => bindCameraVideo(node as HTMLVideoElement, signal))}
+            />
+          </div>
 
           {/* aria-live sits on the LABEL, not the pill: the elapsed readout
               rewrites its text 10×/s, and a live region around it would make

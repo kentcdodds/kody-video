@@ -713,6 +713,7 @@ export function PlaybackOverlay(handle: Handle<PlaybackOverlayProps>) {
           />
         ) : null}
 
+        <div className="film-frame">
         {isPhoto ? (
           <BlobImage
             key={`${segment.clip.id}:${index}`}
@@ -749,6 +750,7 @@ export function PlaybackOverlay(handle: Handle<PlaybackOverlayProps>) {
             }),
           ]}
         />
+        </div>
 
         <div className="playback-tap-zones">
           <button

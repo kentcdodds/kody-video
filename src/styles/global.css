@@ -169,6 +169,82 @@ a {
   animation: none;
 }
 
+/* Export is cover-fit into the film's aspect. Preview hosts size a
+   `.film-frame` to that aspect (when `.is-film-framed`) and the media
+   cover-crops inside it — same crop the encoder will keep. */
+.film-frame {
+  position: relative;
+  overflow: hidden;
+  background: #000;
+}
+
+.film-frame > .camera-video,
+.film-frame > .editor-clip-preview,
+.film-frame > .playback-video,
+.film-frame > .playback-image {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.record-stage,
+.editor-clip-preview-wrap,
+.playback-overlay {
+  container-type: size;
+}
+
+.record-stage > .film-frame {
+  width: 100%;
+  height: 100%;
+  min-width: 0;
+  min-height: 0;
+}
+
+.editor-clip-preview-wrap {
+  display: grid;
+  place-items: center;
+}
+
+.editor-clip-preview-wrap > .film-frame {
+  width: 100%;
+  height: 100%;
+  min-width: 0;
+  min-height: 0;
+}
+
+.playback-overlay > .film-frame {
+  position: absolute;
+  inset: 0;
+}
+
+.project-screen.is-film-framed:not(.orientation-landscape) .record-stage > .film-frame,
+.project-screen.is-film-framed:not(.orientation-landscape) .editor-clip-preview-wrap > .film-frame,
+.project-screen.is-film-framed:not(.orientation-landscape) .playback-overlay > .film-frame {
+  width: min(100cqw, calc(100cqh * 9 / 16));
+  height: auto;
+  aspect-ratio: 9 / 16;
+  max-height: 100%;
+  inset: auto;
+}
+
+.project-screen.is-film-framed.orientation-landscape .record-stage > .film-frame,
+.project-screen.is-film-framed.orientation-landscape .editor-clip-preview-wrap > .film-frame,
+.project-screen.is-film-framed.orientation-landscape .playback-overlay > .film-frame {
+  width: min(100cqw, calc(100cqh * 16 / 9));
+  height: auto;
+  aspect-ratio: 16 / 9;
+  max-height: 100%;
+  inset: auto;
+}
+
+.project-screen.is-film-framed .playback-overlay > .film-frame {
+  /* The framed size rules set `inset: auto` at higher specificity than
+     `top/left: 50%` would win, so drop out of absolute fill and let the
+     overlay's flex centering place the film. */
+  position: relative;
+  inset: auto;
+}
+
 @keyframes rise-in {
   from {
     opacity: 0;
@@ -917,7 +993,7 @@ a {
 .playback-video {
   width: 100%;
   height: 100%;
-  object-fit: contain;
+  object-fit: cover;
   background: #000;
 }
 
@@ -930,7 +1006,7 @@ a {
 .playback-image {
   width: 100%;
   height: 100%;
-  object-fit: contain;
+  object-fit: cover;
   background: #000;
 }
 
