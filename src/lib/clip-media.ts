@@ -101,13 +101,10 @@ async function probeSlicedSize(
   return { width, height }
 }
 
-/**
- * Pixel size the file actually displays, including rotation / display
- * matrices. Camera `getSettings()` often stays at the sensor size from
- * when the session started, so a sideways take can be stored as 9:16
- * even when the encoded frames are 16:9.
- */
-export async function probeVideoDisplaySize(blob: Blob): Promise<VideoDisplaySize | null> {
+/** Container display size, including rotation / display matrices.
+ * Does not consult `<video>` — on phones videoWidth/videoHeight can
+ * follow the current hold and swap a landscape file to 9:16. */
+export async function probeVideoFileSize(blob: Blob): Promise<VideoDisplaySize | null> {
   try {
     const { ALL_FORMATS, BlobSource, Input } = await import('mediabunny')
     const input = new Input({ source: new BlobSource(blob), formats: ALL_FORMATS })
@@ -118,8 +115,12 @@ export async function probeVideoDisplaySize(blob: Blob): Promise<VideoDisplaySiz
       input.dispose()
     }
   } catch {
-    // Unparseable container — let the element path judge it.
+    // Unparseable container — caller may try the element path.
   }
+  return null
+}
+
+export async function probeVideoElementSize(blob: Blob): Promise<VideoDisplaySize | null> {
   try {
     const { loadClipVideo } = await import('./export/shared')
     const loaded = await loadClipVideo(blob)
@@ -134,4 +135,14 @@ export async function probeVideoDisplaySize(blob: Blob): Promise<VideoDisplaySiz
     return null
   }
   return null
+}
+
+/**
+ * Pixel size the file actually displays, including rotation / display
+ * matrices. Camera `getSettings()` often stays at the sensor size from
+ * when the session started, so a sideways take can be stored as 9:16
+ * even when the encoded frames are 16:9.
+ */
+export async function probeVideoDisplaySize(blob: Blob): Promise<VideoDisplaySize | null> {
+  return (await probeVideoFileSize(blob)) ?? (await probeVideoElementSize(blob))
 }

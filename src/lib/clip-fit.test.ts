@@ -4,7 +4,9 @@ import {
   clipFit,
   clipFitBadge,
   clipMismatchesFilm,
+  isOrientationSwap,
   orientationFromSize,
+  sizeMatchingHold,
 } from './clip-fit'
 
 describe('clipFit', () => {
@@ -30,6 +32,42 @@ describe('orientationFromSize', () => {
   it('reads landscape and portrait from pixels', () => {
     expect(orientationFromSize(1920, 1080)).toBe('landscape')
     expect(orientationFromSize(1080, 1920)).toBe('portrait')
+  })
+})
+
+describe('isOrientationSwap', () => {
+  it('is true only for a 90° width/height swap', () => {
+    expect(isOrientationSwap({ width: 1920, height: 1080 }, { width: 1080, height: 1920 })).toBe(
+      true,
+    )
+    expect(isOrientationSwap({ width: 1080, height: 1920 }, { width: 1920, height: 1080 })).toBe(
+      true,
+    )
+    expect(isOrientationSwap({ width: 1920, height: 1080 }, { width: 1920, height: 1080 })).toBe(
+      false,
+    )
+    expect(isOrientationSwap({ width: 1920, height: 1080 }, { width: 1280, height: 720 })).toBe(
+      false,
+    )
+    expect(isOrientationSwap({ width: 800, height: 800 }, { width: 800, height: 800 })).toBe(false)
+    expect(isOrientationSwap({}, { width: 1920, height: 1080 })).toBe(false)
+  })
+})
+
+describe('sizeMatchingHold', () => {
+  it('leaves a matching or unknown track alone', () => {
+    expect(sizeMatchingHold(1080, 1920, 'portrait')).toEqual({ width: 1080, height: 1920 })
+    expect(sizeMatchingHold(1920, 1080, 'landscape')).toEqual({ width: 1920, height: 1080 })
+    expect(sizeMatchingHold(1080, 1920, null)).toEqual({ width: 1080, height: 1920 })
+    expect(sizeMatchingHold(undefined, undefined, 'landscape')).toEqual({
+      width: undefined,
+      height: undefined,
+    })
+  })
+
+  it('swaps a session-start sensor that disagrees with the hold', () => {
+    expect(sizeMatchingHold(1080, 1920, 'landscape')).toEqual({ width: 1920, height: 1080 })
+    expect(sizeMatchingHold(1920, 1080, 'portrait')).toEqual({ width: 1080, height: 1920 })
   })
 })
 

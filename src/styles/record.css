@@ -524,8 +524,8 @@
        unaffected — the stage pointer-captures its holds. */
     pointer-events: auto;
     touch-action: pan-y;
-    gap: 12px;
-    padding: calc(12px + var(--safe-top)) calc(14px + env(safe-area-inset-right, 0px)) calc(12px + var(--safe-bottom)) 22px;
+    gap: 16px;
+    padding: calc(12px + var(--safe-top)) calc(18px + env(safe-area-inset-right, 0px)) calc(12px + var(--safe-bottom)) 18px;
     background: linear-gradient(
       90deg,
       transparent 0%,
@@ -540,31 +540,136 @@
 
   .record-tools {
     flex-direction: column;
-    gap: 10px;
+    gap: 14px;
     flex-shrink: 0;
     margin-top: auto;
   }
 
-  /* Compact Go so the whole rail fits common landscape phone heights. */
   .record-dock .go-button {
-    width: 68px;
-    height: 68px;
-    min-width: 68px;
-    font-size: 1.3rem;
-    border-width: 3px;
+    width: 84px;
+    height: 84px;
+    min-width: 84px;
+    font-size: 1.55rem;
+    border-width: 4px;
     margin-bottom: auto;
   }
 
   /* Keep the title/meta clear of the rail (which grows with the right
      inset); pad the back button away from the notch side. */
   .record-top {
-    right: calc(108px + env(safe-area-inset-right, 0px));
+    right: calc(128px + env(safe-area-inset-right, 0px));
     padding-left: calc(12px + env(safe-area-inset-left, 0px));
   }
 
+  /* Left gutter: zoom sits beside the film instead of on it. */
   .record-zoom {
-    bottom: calc(16px + var(--safe-bottom));
+    left: calc(12px + env(safe-area-inset-left, 0px));
+    right: auto;
+    bottom: auto;
+    top: 50%;
+    transform: translateY(-50%);
+    flex-direction: column;
+    border-radius: 22px;
   }
+
+  .record-zoom .lens-chip {
+    border-right: 0;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.18);
+    border-radius: 18px 18px 0 0;
+    padding-right: 4px;
+    padding-bottom: 8px;
+  }
+}
+
+/* Short landscape viewports: shrink Go so the rail still fits. */
+@media (orientation: landscape) and (max-height: 420px) {
+  .record-dock .go-button {
+    width: 68px;
+    height: 68px;
+    min-width: 68px;
+    font-size: 1.3rem;
+    border-width: 3px;
+  }
+
+  .record-tools {
+    gap: 10px;
+  }
+}
+
+@media (max-height: 420px) {
+  .project-screen.viewport-landscape .record-dock .go-button {
+    width: 68px;
+    height: 68px;
+    min-width: 68px;
+    font-size: 1.3rem;
+    border-width: 3px;
+  }
+
+  .project-screen.viewport-landscape .record-tools {
+    gap: 10px;
+  }
+}
+
+/* Same rail when JS sees landscape — some Android PWAs keep
+   orientation: portrait after a physical rotate. */
+.project-screen.viewport-landscape .record-dock {
+  top: 0;
+  bottom: 0;
+  left: auto;
+  right: 0;
+  flex-direction: column;
+  justify-content: flex-start;
+  overflow-y: auto;
+  scrollbar-width: none;
+  pointer-events: auto;
+  touch-action: pan-y;
+  gap: 16px;
+  padding: calc(12px + var(--safe-top)) calc(18px + env(safe-area-inset-right, 0px)) calc(12px + var(--safe-bottom)) 18px;
+  background: linear-gradient(
+    90deg,
+    transparent 0%,
+    rgba(0, 0, 0, 0.28) 35%,
+    rgba(0, 0, 0, 0.68) 100%
+  );
+}
+
+.project-screen.viewport-landscape .record-tools {
+  flex-direction: column;
+  gap: 14px;
+  flex-shrink: 0;
+  margin-top: auto;
+}
+
+.project-screen.viewport-landscape .record-dock .go-button {
+  width: 84px;
+  height: 84px;
+  min-width: 84px;
+  font-size: 1.55rem;
+  border-width: 4px;
+  margin-bottom: auto;
+}
+
+.project-screen.viewport-landscape .record-top {
+  right: calc(128px + env(safe-area-inset-right, 0px));
+  padding-left: calc(12px + env(safe-area-inset-left, 0px));
+}
+
+.project-screen.viewport-landscape .record-zoom {
+  left: calc(12px + env(safe-area-inset-left, 0px));
+  right: auto;
+  bottom: auto;
+  top: 50%;
+  transform: translateY(-50%);
+  flex-direction: column;
+  border-radius: 22px;
+}
+
+.project-screen.viewport-landscape .record-zoom .lens-chip {
+  border-right: 0;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.18);
+  border-radius: 18px 18px 0 0;
+  padding-right: 4px;
+  padding-bottom: 8px;
 }
 
 /* Microphone chooser sheet (shown when the device has more than one mic). */

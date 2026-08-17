@@ -2,7 +2,12 @@ import { beforeEach, describe, expect, it } from 'vitest'
 import { permanentlyTrimClip, splitSelectedClip } from './project-actions'
 import { __resetDbForTests, addClip, createProject, getClip, getClipsForProject, updateClipTrim } from './storage'
 import { makeLabeledClipBlob, makeTestClipBlob } from './testing/make-test-clip'
-import { outputMimeForClipMedia, probeVideoDisplaySize, sliceClipMedia } from './clip-media'
+import {
+  outputMimeForClipMedia,
+  probeVideoDisplaySize,
+  probeVideoFileSize,
+  sliceClipMedia,
+} from './clip-media'
 import { measureBlobDuration } from './media'
 
 describe('outputMimeForClipMedia', () => {
@@ -19,6 +24,7 @@ describe('probeVideoDisplaySize', () => {
   it('reads landscape pixels from the file, not a caller-supplied fallback', async () => {
     const blob = await makeLabeledClipBlob(640, 360)
     await expect(probeVideoDisplaySize(blob)).resolves.toEqual({ width: 640, height: 360 })
+    await expect(probeVideoFileSize(blob)).resolves.toEqual({ width: 640, height: 360 })
   })
 
   it('reads portrait pixels from the file', async () => {

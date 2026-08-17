@@ -35,6 +35,13 @@ export function viewportIsLandscape(): boolean {
   return typeof window !== 'undefined' && window.matchMedia('(orientation: landscape)').matches
 }
 
+/** How a phone/tablet is held right now. Null on desktop — rotating a
+ * window is not a film-orientation choice. */
+export function heldDeviceOrientation(): 'portrait' | 'landscape' | null {
+  if (!isCoarsePointerDevice()) return null
+  return viewportIsLandscape() ? 'landscape' : 'portrait'
+}
+
 /** All iOS browsers share WebKit (and its quirks), whatever their brand. */
 export function isIosBrowser(): boolean {
   if (/iPhone|iPad|iPod/i.test(navigator.userAgent)) return true

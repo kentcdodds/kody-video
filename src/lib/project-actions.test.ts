@@ -130,6 +130,22 @@ describe('appendRecording orientation lock', () => {
     expect(stored?.orientation).toBeUndefined()
   })
 
+  it('swaps a lying camera-track size to the hold when the file cannot be probed', async () => {
+    setPlatformOverridesForTests({ coarsePointer: true, viewportLandscape: true })
+    const project = await createProject('Held wide')
+    const clip = await appendRecording(project.id, {
+      blob: fakeBlob('sideways'),
+      mimeType: 'video/webm',
+      durationMs: 900,
+      width: 1080,
+      height: 1920,
+    })
+    expect(clip.width).toBe(1920)
+    expect(clip.height).toBe(1080)
+    expect((await getClip(clip.id))?.width).toBe(1920)
+    expect((await getClip(clip.id))?.height).toBe(1080)
+  })
+
   it('stores the encoded display size instead of the camera-track fallback', async () => {
     const project = await createProject('Track lie')
     const blob = await makeLabeledClipBlob(640, 360)

@@ -671,7 +671,7 @@ export function ProjectPage(handle: Handle<ProjectPageProps>) {
 
     return (
       <div
-        className={`screen project-screen${orientation === 'landscape' ? ' orientation-landscape' : ''}${filmFramed ? ' is-film-framed' : ''}`}
+        className={`screen project-screen${orientation === 'landscape' ? ' orientation-landscape' : ''}${filmFramed ? ' is-film-framed' : ''}${viewportIsLandscape() ? ' viewport-landscape' : ''}`}
       >
         {/* While exporting, the screens unmount entirely: the camera is
             released (no dead preview burning battery behind the overlay) and
