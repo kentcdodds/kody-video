@@ -36,6 +36,7 @@ import {
   updateClipAudioPeak,
   updateClipDuration,
   updateClipFit,
+  updateClipSize,
   updateClipThumbs,
   updateClipVolumes,
   updateProjectAudioTrack,
@@ -368,6 +369,23 @@ describe('storage layer', () => {
     const cropped = await updateClipFit(clip.id, 'crop')
     expect(cropped.fit).toBeUndefined()
     expect('fit' in ((await getClip(clip.id)) ?? {})).toBe(false)
+  })
+
+  it('updates stored clip display size without touching other fields', async () => {
+    const project = await createProject('Size')
+    const clip = await addClip({
+      projectId: project.id,
+      blob: fakeBlob('take'),
+      mimeType: 'video/webm',
+      durationMs: 900,
+      width: 1080,
+      height: 1920,
+    })
+    await updateClipSize(clip.id, 1920, 1080)
+    const stored = await getClip(clip.id)
+    expect(stored?.width).toBe(1920)
+    expect(stored?.height).toBe(1080)
+    expect(stored?.durationMs).toBe(900)
   })
 
   it('creates landscape projects when asked (Plus only)', async () => {

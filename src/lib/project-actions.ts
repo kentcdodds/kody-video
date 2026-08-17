@@ -21,6 +21,7 @@ import {
   undoDeleteLastClip,
   updateClipDuration,
   updateClipFit,
+  updateClipSize,
   updateClipThumbs,
   updateClipTrim,
   updateClipVolumes,
@@ -28,6 +29,7 @@ import {
   type ClipVolumeSettings,
   type ProjectAudioTrackSettings,
 } from './storage'
+import { probeVideoDisplaySize } from './clip-media'
 import { lockOrientationFromFirstClip } from './orientation-lock'
 import { probeAudioFile } from './audio-import'
 import { estimateExportCacheBytes } from './export/export-cache'
@@ -229,18 +231,31 @@ export async function loadProjectPage(projectId: ProjectId): Promise<ProjectLoad
   }
 }
 
-/** Generate missing filmstrip thumbs and audio-peak measurements. Serial
- * because Android caps concurrent video decoders. Safe to call after the
- * first paint — tiles already render with placeholders. */
+/** Generate missing filmstrip thumbs and audio-peak measurements, and
+ * correct stored pixel size from the file (camera track settings often
+ * stay at the session-start sensor size). Serial because Android caps
+ * concurrent video decoders. Safe to call after the first paint — tiles
+ * already render with placeholders. */
 export async function hydrateProjectClips(clips: ClipRecord[]): Promise<ClipRecord[]> {
   if (clips.length === 0) return clips
   const { ensureClipThumbs } = await import('./thumbs')
   const { ensureClipAudioPeak } = await import('./clip-audio-peak')
   const hydrated: ClipRecord[] = []
   for (const clip of clips) {
-    hydrated.push(await ensureClipAudioPeak(await ensureClipThumbs(clip)))
+    hydrated.push(await ensureClipAudioPeak(await ensureClipThumbs(await ensureClipDisplaySize(clip))))
   }
   return hydrated
+}
+
+/** Reconcile stored width/height with the file's display size. Photos
+ * already come from a bitmap decode, so they are left alone. */
+export async function ensureClipDisplaySize(clip: ClipRecord): Promise<ClipRecord> {
+  if (isImageClip(clip)) return clip
+  const probed = await probeVideoDisplaySize(clip.blob).catch(() => null)
+  if (!probed) return clip
+  if (clip.width === probed.width && clip.height === probed.height) return clip
+  await updateClipSize(clip.id, probed.width, probed.height).catch(() => undefined)
+  return { ...clip, width: probed.width, height: probed.height }
 }
 
 export async function appendRecording(
@@ -267,6 +282,12 @@ export async function appendRecording(
     capturedThumbs?: GeneratedThumbs | null
   },
 ): Promise<ClipRecord> {
+  // Prefer the encoded file's display size. Phone camera tracks often keep
+  // reporting the session-start sensor size after the device is rotated,
+  // which made landscape takes look like portrait (and vice versa).
+  const probed = await probeVideoDisplaySize(input.blob).catch(() => null)
+  const width = probed?.width ?? input.width
+  const height = probed?.height ?? input.height
   const clip = await addClip({
     projectId,
     blob: input.blob,
@@ -274,8 +295,8 @@ export async function appendRecording(
     durationMs: input.durationMs,
     trimStartMs: input.trimStartMs,
     trimEndMs: input.trimEndMs,
-    width: input.width,
-    height: input.height,
+    width,
+    height,
     lat: input.lat,
     lng: input.lng,
     locationAccuracyM: input.locationAccuracyM,

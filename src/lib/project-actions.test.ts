@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import { appendRecording, loadHomeProjects } from './project-actions'
-import { __resetDbForTests, addClip, createProject, deleteClip, getProject, listProjects, renameProject } from './storage'
+import { appendRecording, hydrateProjectClips, loadHomeProjects } from './project-actions'
+import { __resetDbForTests, addClip, createProject, deleteClip, getClip, getProject, listProjects, renameProject } from './storage'
+import { makeLabeledClipBlob } from './testing/make-test-clip'
 import { markWatermarkRemoved } from './entitlement'
 import { setPlatformOverridesForTests } from './platform'
 
@@ -127,5 +128,46 @@ describe('appendRecording orientation lock', () => {
     const stored = await getProject(project.id)
     expect(stored?.clipIds).toHaveLength(1)
     expect(stored?.orientation).toBeUndefined()
+  })
+
+  it('stores the encoded display size instead of the camera-track fallback', async () => {
+    const project = await createProject('Track lie')
+    const blob = await makeLabeledClipBlob(640, 360)
+    const clip = await appendRecording(project.id, {
+      blob,
+      mimeType: 'video/webm',
+      durationMs: 1200,
+      width: 360,
+      height: 640,
+    })
+    expect(clip.width).toBe(640)
+    expect(clip.height).toBe(360)
+    expect((await getClip(clip.id))?.width).toBe(640)
+    expect((await getClip(clip.id))?.height).toBe(360)
+  })
+})
+
+describe('hydrateProjectClips display size', () => {
+  beforeEach(async () => {
+    await __resetDbForTests()
+  })
+
+  it('corrects a stored size that disagrees with the file', async () => {
+    const project = await createProject('Backfill')
+    const blob = await makeLabeledClipBlob(640, 360)
+    const clip = await addClip({
+      projectId: project.id,
+      blob,
+      mimeType: 'video/webm',
+      durationMs: 1200,
+      width: 360,
+      height: 640,
+    })
+
+    const [hydrated] = await hydrateProjectClips([clip])
+    expect(hydrated.width).toBe(640)
+    expect(hydrated.height).toBe(360)
+    expect((await getClip(clip.id))?.width).toBe(640)
+    expect((await getClip(clip.id))?.height).toBe(360)
   })
 })

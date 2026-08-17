@@ -1,8 +1,8 @@
 import { beforeEach, describe, expect, it } from 'vitest'
 import { permanentlyTrimClip, splitSelectedClip } from './project-actions'
 import { __resetDbForTests, addClip, createProject, getClip, getClipsForProject, updateClipTrim } from './storage'
-import { makeTestClipBlob } from './testing/make-test-clip'
-import { outputMimeForClipMedia, sliceClipMedia } from './clip-media'
+import { makeLabeledClipBlob, makeTestClipBlob } from './testing/make-test-clip'
+import { outputMimeForClipMedia, probeVideoDisplaySize, sliceClipMedia } from './clip-media'
 import { measureBlobDuration } from './media'
 
 describe('outputMimeForClipMedia', () => {
@@ -12,6 +12,22 @@ describe('outputMimeForClipMedia', () => {
     expect(outputMimeForClipMedia('video/x-m4v')).toBe('video/mp4')
     expect(outputMimeForClipMedia('video/webm')).toBe('video/webm')
     expect(outputMimeForClipMedia('')).toBe('video/webm')
+  })
+})
+
+describe('probeVideoDisplaySize', () => {
+  it('reads landscape pixels from the file, not a caller-supplied fallback', async () => {
+    const blob = await makeLabeledClipBlob(640, 360)
+    await expect(probeVideoDisplaySize(blob)).resolves.toEqual({ width: 640, height: 360 })
+  })
+
+  it('reads portrait pixels from the file', async () => {
+    const blob = await makeTestClipBlob(400)
+    await expect(probeVideoDisplaySize(blob)).resolves.toEqual({ width: 320, height: 568 })
+  })
+
+  it('returns null for a non-video blob', async () => {
+    await expect(probeVideoDisplaySize(new Blob(['nope'], { type: 'text/plain' }))).resolves.toBeNull()
   })
 })
 

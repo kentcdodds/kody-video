@@ -68,8 +68,10 @@
 }
 
 .editor-film-orientation button.is-active {
-  color: var(--ink);
-  background: color-mix(in srgb, var(--stage-bg) 88%, var(--ink));
+  /* Light text on a dark fill in both themes: --ink and --stage-bg are
+     both dark in light mode, so mixing them made the label unreadable. */
+  color: #f3f5f4;
+  background: var(--ink-strong);
 }
 
 .editor-stage {
@@ -1069,33 +1071,33 @@
   flex: 0 1 auto;
 }
 
-/* The landscape interface: with the project (and viewport) sideways there
-   is no room for a player stacked over a tall panel — the stage takes the
-   left, and the timeline/tools panel becomes a right-hand column. */
+/* Landscape viewport: the stage takes the left and the timeline/tools
+   panel becomes a right-hand column. Follows the viewport, not the film
+   — a portrait project held sideways has room beside the 9:16 preview. */
 @media (orientation: landscape) {
-  .orientation-landscape .editor-screen {
+  .editor-screen {
     display: grid;
     grid-template-columns: minmax(0, 1fr) minmax(320px, 44%);
     grid-template-rows: auto minmax(0, 1fr);
   }
 
-  .orientation-landscape .editor-top {
+  .editor-top {
     grid-column: 1 / -1;
   }
 
-  .orientation-landscape .editor-stage {
+  .editor-stage {
     grid-row: 2;
     grid-column: 1;
     margin: 2px 0 calc(12px + var(--safe-bottom)) 14px;
   }
 
-  .orientation-landscape .editor-screen.is-trimming .editor-stage,
-  .orientation-landscape .editor-screen.is-splitting .editor-stage,
-  .orientation-landscape .editor-screen.is-audio-editing .editor-stage {
+  .editor-screen.is-trimming .editor-stage,
+  .editor-screen.is-splitting .editor-stage,
+  .editor-screen.is-audio-editing .editor-stage {
     flex: none;
   }
 
-  .orientation-landscape .editor-panel {
+  .editor-panel {
     grid-row: 2;
     grid-column: 2;
     min-height: 0;
