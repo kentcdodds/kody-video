@@ -365,11 +365,12 @@
   pointer-events: none;
 }
 
-/* Mismatched clips show crop or letterbox in the top-left. */
+/* Mismatched clips show crop or letterbox in the bottom-left — top-left
+   is the music-volume pill. Duration stays bottom-right. */
 .clip-thumb .clip-fit-badge {
   position: absolute;
   left: 4px;
-  top: 4px;
+  bottom: 4px;
   display: grid;
   place-items: center;
   width: 18px;
@@ -380,7 +381,8 @@
   pointer-events: none;
 }
 
-/* Photo tiles carry a small camera badge so stills read at a glance. */
+/* Photo tiles carry a small camera badge so stills read at a glance.
+   When a fit badge is also present, sit beside it instead of stacking. */
 .clip-thumb .clip-photo-badge {
   position: absolute;
   left: 4px;
@@ -393,6 +395,10 @@
   color: #fff;
   background: rgba(0, 0, 0, 0.55);
   pointer-events: none;
+}
+
+.clip-thumb:has(.clip-fit-badge) .clip-photo-badge {
+  left: 24px;
 }
 
 /* In-timeline trim mode */

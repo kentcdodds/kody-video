@@ -194,6 +194,13 @@ test.describe('export-cover preview (touch)', () => {
     await expect(page.locator('.project-screen')).toHaveClass(/is-film-framed/)
     await expect(page.locator('.clip-fit-badge')).toBeVisible()
     await expect(page.getByRole('option', { name: /cropped/i })).toBeVisible()
+    // Bottom-left, clear of the top-left music pill and the duration.
+    const tileBox = await page.locator('.clip-thumb').first().boundingBox()
+    const badgeBox = await page.locator('.clip-fit-badge').boundingBox()
+    expect(tileBox).not.toBeNull()
+    expect(badgeBox).not.toBeNull()
+    expect(badgeBox!.x).toBeLessThan(tileBox!.x + tileBox!.width / 2)
+    expect(badgeBox!.y).toBeGreaterThan(tileBox!.y + tileBox!.height / 2)
     const preview = page.locator('.editor-clip-preview')
     await expect
       .poll(() => preview.evaluate((el) => (el as HTMLVideoElement).videoWidth))
