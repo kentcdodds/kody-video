@@ -96,8 +96,8 @@ export function EditorClipPreview(handle: Handle<EditorClipPreviewProps>) {
             alt="Selected photo"
             mix={ref(bindImage)}
           />
+          {props.onInfoClick ? <PreviewInfoButton onClick={props.onInfoClick} /> : null}
         </div>
-        {props.onInfoClick ? <PreviewInfoButton onClick={props.onInfoClick} /> : null}
       </div>
     )
   }
@@ -574,7 +574,6 @@ export function EditorClipPreview(handle: Handle<EditorClipPreviewProps>) {
             on('click', togglePlayback),
           ]}
         />
-        </div>
         <button
           type="button"
           className="editor-preview-affordance"
@@ -584,6 +583,7 @@ export function EditorClipPreview(handle: Handle<EditorClipPreviewProps>) {
           {playing ? <IconPause size={18} /> : <IconPlay size={18} />}
         </button>
         {props.onInfoClick ? <PreviewInfoButton onClick={props.onInfoClick} /> : null}
+        </div>
       </div>
     )
   }
