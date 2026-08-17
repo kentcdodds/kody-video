@@ -121,15 +121,21 @@ export async function makeLabeledClipBlob(
   ctx.fillText('RIGHT', width * 0.8, height / 2)
   ctx.fillText('WIDE', width / 2 - 50, height / 2)
 
+  const fps = 12
   const target = new BufferTarget()
   const output = new Output({ format: new WebMOutputFormat(), target })
   const source = new CanvasSource(canvas, {
     codec,
     quality: new Quality({ bitrate: 600_000 }),
   })
-  output.addVideoTrack(source, { frameRate: 12 })
+  output.addVideoTrack(source, { frameRate: fps })
   await output.start()
-  await source.add(0, durationMs / 1000)
+  const totalSec = durationMs / 1000
+  const frames = Math.max(2, Math.ceil(totalSec * fps))
+  for (let i = 0; i < frames; i += 1) {
+    const duration = Math.max(0.001, Math.min(1 / fps, totalSec - i / fps))
+    await source.add(i / fps, duration)
+  }
   source.close()
   await output.finalize()
   if (!target.buffer) throw new Error('Test clip encode produced no bytes')
