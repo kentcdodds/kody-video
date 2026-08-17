@@ -202,8 +202,8 @@ test.describe('export-cover preview (touch)', () => {
     await expect(page.locator('.project-screen')).toHaveClass(/is-film-framed/)
     const preview = page.locator('.editor-clip-preview')
     await expect
-      .poll(() => preview.evaluate((el) => (el as HTMLVideoElement).readyState >= 2))
-      .toBe(true)
+      .poll(() => preview.evaluate((el) => (el as HTMLVideoElement).videoWidth))
+      .toBeGreaterThan(0)
     const file = testInfo.outputPath('editor_landscape_clip_cropped.png')
     await page.screenshot({ path: file, fullPage: false })
     await page.screenshot({
