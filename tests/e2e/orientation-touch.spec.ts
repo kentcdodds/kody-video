@@ -172,6 +172,15 @@ test.describe('export-cover preview (touch)', () => {
 
     await page.getByRole('button', { name: 'Play project preview' }).click()
     await expect(page.locator('.playback-overlay')).toBeVisible()
+    const overlay = page.locator('.playback-overlay')
+    const playFilm = overlay.locator('> .film-frame')
+    const overlayBox = await overlay.boundingBox()
+    const playBox = await playFilm.boundingBox()
+    expect(overlayBox).not.toBeNull()
+    expect(playBox).not.toBeNull()
+    expect(playBox!.width / playBox!.height).toBeCloseTo(9 / 16, 2)
+    expect(Math.abs(playBox!.x + playBox!.width / 2 - (overlayBox!.x + overlayBox!.width / 2))).toBeLessThan(4)
+    expect(Math.abs(playBox!.y + playBox!.height / 2 - (overlayBox!.y + overlayBox!.height / 2))).toBeLessThan(4)
     await shot('playback_portrait_film')
   })
 

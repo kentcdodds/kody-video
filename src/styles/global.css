@@ -238,9 +238,11 @@ a {
 }
 
 .project-screen.is-film-framed .playback-overlay > .film-frame {
-  top: 50%;
-  left: 50%;
-  transform: translate(-50%, -50%);
+  /* The framed size rules set `inset: auto` at higher specificity than
+     `top/left: 50%` would win, so drop out of absolute fill and let the
+     overlay's flex centering place the film. */
+  position: relative;
+  inset: auto;
 }
 
 @keyframes rise-in {
