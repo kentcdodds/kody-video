@@ -11,6 +11,11 @@ rate-limits do not block. Follow `.cursor/skills/ship-pr/SKILL.md`.
 
 ## Cursor Cloud specific instructions
 
+Code-changing agents push their branch and create or update the pull request
+with Cursor Cloud `ManagePullRequest` (Kent C. Dodds account) before finishing.
+`@kentcdodds/cursor` `createAgent` always enables those tools. Never have
+Kody/workflows/GitHub create the initial PR as a substitute.
+
 Contributor and cloud-agent docs live in `docs/contribute/`:
 
 - [`environment.md`](docs/contribute/environment.md) — required Node version (`>=24.3.0`) and dependency/install caveats.
