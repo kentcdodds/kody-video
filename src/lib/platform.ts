@@ -27,12 +27,26 @@ export function isCoarsePointerDevice(): boolean {
   return typeof window !== 'undefined' && window.matchMedia('(pointer: coarse)').matches
 }
 
-/** How the device is currently held (viewport orientation). */
+/**
+ * True when the layout viewport is wider than it is tall.
+ *
+ * Do not use `matchMedia('(orientation: landscape)')` here: some Android
+ * PWAs leave that CSS signal stuck on portrait after a physical rotate
+ * (the window is already wide — mint gutters beside a 480px #root —
+ * while the media query still says portrait). Layout aspect follows the
+ * window the chrome actually has.
+ */
 export function viewportIsLandscape(): boolean {
   if (platformOverrides.viewportLandscape !== undefined) {
     return platformOverrides.viewportLandscape
   }
-  return typeof window !== 'undefined' && window.matchMedia('(orientation: landscape)').matches
+  if (typeof window === 'undefined') return false
+  const width = window.innerWidth
+  const height = window.innerHeight
+  if (width > 0 && height > 0) return width > height
+  const type = screen.orientation?.type
+  if (typeof type === 'string') return type.startsWith('landscape')
+  return window.matchMedia('(orientation: landscape)').matches
 }
 
 /** How a phone/tablet is held right now. Null on desktop — rotating a
@@ -40,6 +54,40 @@ export function viewportIsLandscape(): boolean {
 export function heldDeviceOrientation(): 'portrait' | 'landscape' | null {
   if (!isCoarsePointerDevice()) return null
   return viewportIsLandscape() ? 'landscape' : 'portrait'
+}
+
+
+/**
+ * Re-run when the hold may have changed. CSS orientation media can stay
+ * silent on the Android PWA bug above, so this also listens to resize,
+ * visualViewport, screen.orientation, and the legacy orientationchange.
+ */
+export function subscribeViewportOrientationChange(onChange: () => void): () => void {
+  if (typeof window === 'undefined') return () => {}
+  let frame = 0
+  const fire = () => {
+    if (frame) return
+    frame = requestAnimationFrame(() => {
+      frame = 0
+      onChange()
+    })
+  }
+  const landscapeMedia = window.matchMedia('(orientation: landscape)')
+  landscapeMedia.addEventListener('change', fire)
+  window.addEventListener('resize', fire)
+  window.addEventListener('orientationchange', fire)
+  const visual = window.visualViewport
+  visual?.addEventListener('resize', fire)
+  const screenOrientation = screen.orientation
+  screenOrientation?.addEventListener('change', fire)
+  return () => {
+    landscapeMedia.removeEventListener('change', fire)
+    window.removeEventListener('resize', fire)
+    window.removeEventListener('orientationchange', fire)
+    visual?.removeEventListener('resize', fire)
+    screenOrientation?.removeEventListener('change', fire)
+    if (frame) cancelAnimationFrame(frame)
+  }
 }
 
 /** All iOS browsers share WebKit (and its quirks), whatever their brand. */
