@@ -1188,6 +1188,17 @@ html[data-shell='wide'] .app-shell {
   }
 }
 
+/* JS-detected landscape (class on the project screen). Some Android
+   PWAs keep CSS orientation: portrait after a physical rotate (window
+   already wide, media query still portrait), which left the 480px
+   phone column and a cramped bottom dock. The class is driven by
+   layout-viewport aspect, not the stuck media query. */
+html:has(.project-screen.viewport-landscape) #root,
+html:has(.project-screen.viewport-landscape) .app-shell {
+  width: 100%;
+  max-width: none;
+}
+
 @media (min-width: 720px) and (orientation: landscape) and (pointer: fine) {
   html[data-shell='adaptive'] #root,
   html[data-shell='wide'] #root,

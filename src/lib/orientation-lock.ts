@@ -1,7 +1,7 @@
 import { orientationFromSize } from './clip-fit'
-import { isCoarsePointerDevice, viewportIsLandscape } from './platform'
+import { heldDeviceOrientation } from './platform'
 import { getProject, setProjectOrientation } from './storage'
-import type { ClipRecord, ProjectId, ProjectOrientation } from './types'
+import type { ClipRecord, ProjectId } from './types'
 
 /**
  * The first clip sets the film's orientation. On a phone, how the device
@@ -19,11 +19,7 @@ export async function lockOrientationFromFirstClip(
   const project = await getProject(projectId)
   if (!project || project.clipIds.length !== 1) return
   const fromClip = orientationFromSize(clip.width, clip.height)
-  const held: ProjectOrientation | null = isCoarsePointerDevice()
-    ? viewportIsLandscape()
-      ? 'landscape'
-      : 'portrait'
-    : null
+  const held = heldDeviceOrientation()
   const chosen = options?.preferHeldOrientation
     ? (held ?? fromClip)
     : (fromClip ?? held)

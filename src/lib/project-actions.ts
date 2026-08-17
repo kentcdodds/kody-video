@@ -29,8 +29,10 @@ import {
   type ClipVolumeSettings,
   type ProjectAudioTrackSettings,
 } from './storage'
-import { probeVideoDisplaySize } from './clip-media'
+import { isOrientationSwap, sizeMatchingHold } from './clip-fit'
+import { probeVideoElementSize, probeVideoFileSize } from './clip-media'
 import { lockOrientationFromFirstClip } from './orientation-lock'
+import { heldDeviceOrientation } from './platform'
 import { probeAudioFile } from './audio-import'
 import { estimateExportCacheBytes } from './export/export-cache'
 import { estimateStorageSpace, type StorageSpace } from './storage-space'
@@ -248,14 +250,23 @@ export async function hydrateProjectClips(clips: ClipRecord[]): Promise<ClipReco
 }
 
 /** Reconcile stored width/height with the file's display size. Photos
- * already come from a bitmap decode, so they are left alone. */
+ * already come from a bitmap decode, so they are left alone. The
+ * container parse is trusted; a `<video>` fallback must not 90°-swap a
+ * size we already stored (Android reports the current hold, not the file). */
 export async function ensureClipDisplaySize(clip: ClipRecord): Promise<ClipRecord> {
   if (isImageClip(clip)) return clip
-  const probed = await probeVideoDisplaySize(clip.blob).catch(() => null)
-  if (!probed) return clip
-  if (clip.width === probed.width && clip.height === probed.height) return clip
-  await updateClipSize(clip.id, probed.width, probed.height).catch(() => undefined)
-  return { ...clip, width: probed.width, height: probed.height }
+  const fromFile = await probeVideoFileSize(clip.blob).catch(() => null)
+  if (fromFile) {
+    if (clip.width === fromFile.width && clip.height === fromFile.height) return clip
+    await updateClipSize(clip.id, fromFile.width, fromFile.height).catch(() => undefined)
+    return { ...clip, width: fromFile.width, height: fromFile.height }
+  }
+  const fromElement = await probeVideoElementSize(clip.blob).catch(() => null)
+  if (!fromElement) return clip
+  if (clip.width === fromElement.width && clip.height === fromElement.height) return clip
+  if (isOrientationSwap(clip, fromElement)) return clip
+  await updateClipSize(clip.id, fromElement.width, fromElement.height).catch(() => undefined)
+  return { ...clip, width: fromElement.width, height: fromElement.height }
 }
 
 export async function appendRecording(
@@ -284,10 +295,12 @@ export async function appendRecording(
 ): Promise<ClipRecord> {
   // Prefer the encoded file's display size. Phone camera tracks often keep
   // reporting the session-start sensor size after the device is rotated,
-  // which made landscape takes look like portrait (and vice versa).
-  const probed = await probeVideoDisplaySize(input.blob).catch(() => null)
-  const width = probed?.width ?? input.width
-  const height = probed?.height ?? input.height
+  // which made landscape takes look like portrait (and vice versa). When
+  // the container cannot be parsed, swap the track size to the hold.
+  const fromFile = await probeVideoFileSize(input.blob).catch(() => null)
+  const fallback = sizeMatchingHold(input.width, input.height, heldDeviceOrientation())
+  const width = fromFile?.width ?? fallback.width
+  const height = fromFile?.height ?? fallback.height
   const clip = await addClip({
     projectId,
     blob: input.blob,

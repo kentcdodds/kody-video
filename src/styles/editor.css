@@ -57,7 +57,9 @@
   appearance: none;
   border: 0;
   background: transparent;
-  color: var(--ink-muted);
+  /* Fill-color beats WebKit color-scheme forcing dark ink onto buttons. */
+  color: var(--ink);
+  -webkit-text-fill-color: var(--ink);
   font: inherit;
   font-size: 0.68rem;
   font-weight: 700;
@@ -68,10 +70,27 @@
 }
 
 .editor-film-orientation button.is-active {
-  /* Light text on a dark fill in both themes: --ink and --stage-bg are
-     both dark in light mode, so mixing them made the label unreadable. */
-  color: #f3f5f4;
-  background: var(--ink-strong);
+  color: #fff;
+  -webkit-text-fill-color: #fff;
+  background: #102019;
+}
+
+@media (prefers-color-scheme: light) {
+  .editor-film-orientation {
+    background: #fff;
+    border-color: color-mix(in srgb, #102019 22%, transparent);
+  }
+
+  .editor-film-orientation button {
+    color: #102019;
+    -webkit-text-fill-color: #102019;
+  }
+
+  .editor-film-orientation button.is-active {
+    color: #fff;
+    -webkit-text-fill-color: #fff;
+    background: #102019;
+  }
 }
 
 .editor-stage {
@@ -1110,6 +1129,74 @@
     overflow-y: auto;
     padding-right: calc(12px + env(safe-area-inset-right, 0px));
   }
+
+  .editor-actions {
+    gap: 10px;
+    padding: 6px 0;
+  }
+
+  .editor-action {
+    padding: 10px 6px;
+  }
+
+  .editor-action-icon {
+    width: 32px;
+    height: 32px;
+  }
+
+  .editor-action-label {
+    font-size: 0.78rem;
+  }
+}
+
+/* Same side-by-side editor when JS sees a landscape viewport — some
+   Android PWAs keep CSS orientation: portrait after a physical rotate. */
+.project-screen.viewport-landscape .editor-screen {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(320px, 44%);
+  grid-template-rows: auto minmax(0, 1fr);
+}
+
+.project-screen.viewport-landscape .editor-top {
+  grid-column: 1 / -1;
+}
+
+.project-screen.viewport-landscape .editor-stage {
+  grid-row: 2;
+  grid-column: 1;
+  margin: 2px 0 calc(12px + var(--safe-bottom)) 14px;
+}
+
+.project-screen.viewport-landscape .editor-screen.is-trimming .editor-stage,
+.project-screen.viewport-landscape .editor-screen.is-splitting .editor-stage,
+.project-screen.viewport-landscape .editor-screen.is-audio-editing .editor-stage {
+  flex: none;
+}
+
+.project-screen.viewport-landscape .editor-panel {
+  grid-row: 2;
+  grid-column: 2;
+  min-height: 0;
+  overflow-y: auto;
+  padding-right: calc(12px + env(safe-area-inset-right, 0px));
+}
+
+.project-screen.viewport-landscape .editor-actions {
+  gap: 10px;
+  padding: 6px 0;
+}
+
+.project-screen.viewport-landscape .editor-action {
+  padding: 10px 6px;
+}
+
+.project-screen.viewport-landscape .editor-action-icon {
+  width: 32px;
+  height: 32px;
+}
+
+.project-screen.viewport-landscape .editor-action-label {
+  font-size: 0.78rem;
 }
 
 .clip-info-facts {
