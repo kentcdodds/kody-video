@@ -225,17 +225,18 @@ export function ProjectPage(handle: Handle<ProjectPageProps>) {
 
   /**
    * The film's orientation this page renders for. Locked projects (any with
-   * clips) are stuck with what their first take chose, wherever they open.
-   * Unlocked projects on phones/tablets follow how the device is held right
-   * now — rotating IS the orientation picker. Desktop keeps the classic
-   * column for unlocked projects (its cameras are landscape media without
-   * that being a choice).
+   * clips) use the stored film. Unlocked Plus projects on phones follow
+   * how the device is held — rotating is the orientation picker. Free
+   * unlocked projects stay portrait: landscape films are Plus, so a
+   * sideways preview would not match the take they can actually lock.
+   * Desktop keeps the classic column for unlocked projects.
    */
   const effectiveOrientation = (): ProjectOrientation => {
     const project = data?.project
     if (!project) return 'portrait'
     if (orientationUnlocked() && isCoarsePointerDevice()) {
-      return viewportIsLandscape() ? 'landscape' : 'portrait'
+      if (viewportIsLandscape() && data?.watermarkRemoved) return 'landscape'
+      return 'portrait'
     }
     return projectOrientation(project)
   }

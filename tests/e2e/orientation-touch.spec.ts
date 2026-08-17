@@ -96,18 +96,19 @@ test.describe('rotate-to-choose orientation (touch)', () => {
     await expect.poll(() => shellLayout(page)).toBe('wide')
   })
 
-  test('free plan: rotating previews landscape and recording is allowed', async ({
+  test('free plan: rotating stays portrait and recording is allowed', async ({
     page,
   }) => {
     await openNewProject(page)
     await expect.poll(() => shellLayout(page)).toBe('narrow')
 
-    // Turn the phone: the layout follows. Recording is allowed; Plus is
-    // only required to lock the film landscape.
+    // Turn the phone: the film stays portrait (landscape lock is Plus),
+    // recording is still allowed, and there is no gate or upsell.
     await rotate(page)
-    await expect.poll(() => shellLayout(page)).toBe('wide')
+    await expect.poll(() => shellLayout(page)).toBe('narrow')
     await expect(page.locator('.sheet[aria-label="Kody Video Plus"]')).toBeHidden()
     await expect(page.locator('.orientation-gate-pill')).toHaveCount(0)
+    await expect(page.locator('.project-screen.orientation-landscape')).toHaveCount(0)
 
     await recordClip(page)
     expect(await totalClipCount(page)).toBe(1)

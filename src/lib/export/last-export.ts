@@ -39,8 +39,9 @@ export function exportSignature(
     includeLocation,
     // Title is written into the file; a rename must not reuse the old MP4.
     projectName,
-    // Only landscape signs (JSON drops undefined).
-    orientation: orientation === 'landscape' ? 'landscape' : undefined,
+    // Portrait signs explicitly so pre-pin caches (that followed the
+    // first clip's aspect) cannot be reused as a 9:16 film.
+    orientation: orientation === 'landscape' ? 'landscape' : 'portrait',
     clips: clips.map((clip) => {
       const row: Array<string | number> = [
         clip.id,

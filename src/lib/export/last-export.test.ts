@@ -24,6 +24,9 @@ describe('exportSignature', () => {
     expect(exportSignature(clips, true, null, undefined)).toBe(
       exportSignature(clips, true, null),
     )
+    expect(JSON.parse(exportSignature(clips, true, null, 'portrait')).orientation).toBe(
+      'portrait',
+    )
   })
 
   it('signs landscape differently so the cached export re-renders', () => {
