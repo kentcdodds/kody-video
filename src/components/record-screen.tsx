@@ -999,6 +999,35 @@ export function RecordScreen(handle: Handle<RecordScreenProps>) {
               autoPlay
               mix={ref((node, signal) => bindCameraVideo(node as HTMLVideoElement, signal))}
             />
+            {/* Locked films keep a compact hold hint when the device is
+                turned the other way. Visibility is CSS-driven (each hint
+                shows only on the mismatching viewport, and the portrait
+                one only where rotating means anything — coarse pointers).
+                Sits on the film so it does not collide with the title. */}
+            {!props.orientationUnlocked &&
+            props.orientation === 'landscape' &&
+            !recording &&
+            !screenRecording ? (
+              <div className="orientation-hint" role="status">
+                <IconOrientation size={16} landscape />
+                <span>
+                  <strong>Hold sideways</strong>
+                  <span>or crop this take</span>
+                </span>
+              </div>
+            ) : null}
+            {!props.orientationUnlocked &&
+            props.orientation === 'portrait' &&
+            !recording &&
+            !screenRecording ? (
+              <div className="orientation-hint orientation-hint-portrait" role="status">
+                <IconOrientation size={16} />
+                <span>
+                  <strong>Hold upright</strong>
+                  <span>or crop this take</span>
+                </span>
+              </div>
+            ) : null}
           </div>
 
           {/* aria-live sits on the LABEL, not the pill: the elapsed readout
@@ -1041,35 +1070,6 @@ export function RecordScreen(handle: Handle<RecordScreenProps>) {
             <div className={`hold-hint${clips.length > 0 ? ' hold-hint-subtle' : ''}`}>
               <strong>Hold anywhere</strong>
               <span>release to stop</span>
-            </div>
-          ) : null}
-
-          {/* Locked films keep a compact hold hint when the device is
-              turned the other way. Visibility is CSS-driven (each hint
-              shows only on the mismatching viewport, and the portrait
-              one only where rotating means anything — coarse pointers). */}
-          {!props.orientationUnlocked &&
-          props.orientation === 'landscape' &&
-          !recording &&
-          !screenRecording ? (
-            <div className="orientation-hint" role="status">
-              <IconOrientation size={16} landscape />
-              <span>
-                <strong>Hold sideways</strong>
-                <span>or crop this take</span>
-              </span>
-            </div>
-          ) : null}
-          {!props.orientationUnlocked &&
-          props.orientation === 'portrait' &&
-          !recording &&
-          !screenRecording ? (
-            <div className="orientation-hint orientation-hint-portrait" role="status">
-              <IconOrientation size={16} />
-              <span>
-                <strong>Hold upright</strong>
-                <span>or crop this take</span>
-              </span>
             </div>
           ) : null}
 
