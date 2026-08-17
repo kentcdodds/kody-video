@@ -25,7 +25,11 @@ import {
   shareFile,
   shareOrDownload,
 } from '../lib/media'
-import { isCoarsePointerDevice, viewportIsLandscape } from '../lib/platform'
+import {
+  isCoarsePointerDevice,
+  subscribeViewportOrientationChange,
+  viewportIsLandscape,
+} from '../lib/platform'
 import { hydrateProjectClips, loadProjectPage, type ProjectLoaderData } from '../lib/project-actions'
 import { projectBackupFilename, serializeProject } from '../lib/project-transfer'
 import {
@@ -275,14 +279,12 @@ export function ProjectPage(handle: Handle<ProjectPageProps>) {
   })
 
   // Rotating the device re-renders (an unlocked layout follows it).
-  const landscapeMedia = window.matchMedia('(orientation: landscape)')
-  const onDeviceOrientationChange = () => {
+  // Resize is required: some Android PWAs never fire the CSS orientation
+  // media change even though the window is already landscape.
+  const unsubscribeOrientation = subscribeViewportOrientationChange(() => {
     void handle.update()
-  }
-  landscapeMedia.addEventListener('change', onDeviceOrientationChange)
-  handle.signal.addEventListener('abort', () => {
-    landscapeMedia.removeEventListener('change', onDeviceOrientationChange)
   })
+  handle.signal.addEventListener('abort', unsubscribeOrientation)
 
   // Lazy creation: a "/project/new" project is persisted only when the
   // first clip finishes recording. The promise is memoized so overlapping
