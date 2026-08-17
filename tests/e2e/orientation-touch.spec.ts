@@ -1,5 +1,6 @@
 import { test, expect, type Page } from '@playwright/test'
 import {
+  gotoHome,
   openNewProject,
   recordClip,
   totalClipCount,
@@ -175,57 +176,18 @@ test.describe('export-cover preview (touch)', () => {
   })
 
   test('a landscape clip is side-cropped in a portrait film', async ({ page }, testInfo) => {
-    await page.goto('/')
+    await gotoHome(page)
     await page.evaluate(async () => {
       const storage = await import('/src/lib/storage.ts')
       const thumbs = await import('/src/lib/thumbs.ts')
-      const {
-        BufferTarget,
-        CanvasSource,
-        Output,
-        Quality,
-        WebMOutputFormat,
-        getFirstEncodableVideoCodec,
-      } = await import('mediabunny')
+      const { makeLabeledClipBlob } = await import('/src/lib/testing/make-test-clip.ts')
       const width = 640
       const height = 360
-      const canvas = document.createElement('canvas')
-      canvas.width = width
-      canvas.height = height
-      const ctx = canvas.getContext('2d')
-      if (!ctx) throw new Error('canvas')
-      ctx.fillStyle = '#1a7a4c'
-      ctx.fillRect(0, 0, width, height)
-      ctx.fillStyle = '#c62828'
-      ctx.fillRect(0, 0, width * 0.22, height)
-      ctx.fillStyle = '#1565c0'
-      ctx.fillRect(width * 0.78, 0, width * 0.22, height)
-      ctx.fillStyle = '#f9a825'
-      ctx.fillRect(0, 0, width, 36)
-      ctx.fillRect(0, height - 36, width, 36)
-      ctx.fillStyle = '#fff'
-      ctx.font = 'bold 42px sans-serif'
-      ctx.fillText('LEFT', 16, height / 2)
-      ctx.fillText('RIGHT', width - 170, height / 2)
-      ctx.fillText('WIDE SHOT', width / 2 - 120, height / 2)
-      const codec = await getFirstEncodableVideoCodec(['vp8', 'vp9'], { width, height })
-      if (!codec) throw new Error('codec')
-      const target = new BufferTarget()
-      const output = new Output({ format: new WebMOutputFormat(), target })
-      const source = new CanvasSource(canvas, {
-        codec,
-        quality: new Quality({ bitrate: 600_000 }),
-      })
-      output.addVideoTrack(source, { frameRate: 12 })
-      await output.start()
-      await source.add(0, 1.2)
-      source.close()
-      await output.finalize()
-      if (!target.buffer) throw new Error('encode')
+      const blob = await makeLabeledClipBlob(width, height)
       const project = await storage.createProject('Wide in tall')
       const clip = await storage.addClip({
         projectId: project.id,
-        blob: new Blob([target.buffer], { type: 'video/webm' }),
+        blob,
         mimeType: 'video/webm',
         durationMs: 1200,
         width,
@@ -238,6 +200,10 @@ test.describe('export-cover preview (touch)', () => {
     await page.getByRole('button', { name: 'Open editor' }).click()
     await expect(page.locator('.editor-screen')).toBeVisible()
     await expect(page.locator('.project-screen')).toHaveClass(/is-film-framed/)
+    const preview = page.locator('.editor-clip-preview')
+    await expect
+      .poll(() => preview.evaluate((el) => (el as HTMLVideoElement).readyState >= 2))
+      .toBe(true)
     const file = testInfo.outputPath('editor_landscape_clip_cropped.png')
     await page.screenshot({ path: file, fullPage: false })
     await page.screenshot({

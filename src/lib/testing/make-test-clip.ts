@@ -92,3 +92,46 @@ export async function makeTestClipBlob(durationMs: number, toneHz?: number): Pro
   if (!target.buffer) throw new Error('Test clip encode produced no bytes')
   return new Blob([target.buffer], { type: 'video/webm' })
 }
+
+/** Landscape (or any size) fixture with labeled edges so cover-crop is visible. */
+export async function makeLabeledClipBlob(
+  width: number,
+  height: number,
+  durationMs = 1200,
+): Promise<Blob> {
+  const codec = await getFirstEncodableVideoCodec(['vp8', 'vp9'], { width, height })
+  if (!codec) throw new Error('No encodable test codec')
+  const canvas = document.createElement('canvas')
+  canvas.width = width
+  canvas.height = height
+  const ctx = canvas.getContext('2d')
+  if (!ctx) throw new Error('Canvas not available')
+  ctx.fillStyle = '#1a7a4c'
+  ctx.fillRect(0, 0, width, height)
+  ctx.fillStyle = '#c62828'
+  ctx.fillRect(0, 0, width * 0.22, height)
+  ctx.fillStyle = '#1565c0'
+  ctx.fillRect(width * 0.78, 0, width * 0.22, height)
+  ctx.fillStyle = '#f9a825'
+  ctx.fillRect(0, 0, width, 36)
+  ctx.fillRect(0, height - 36, width, 36)
+  ctx.fillStyle = '#fff'
+  ctx.font = `bold ${Math.round(height / 8)}px sans-serif`
+  ctx.fillText('LEFT', 16, height / 2)
+  ctx.fillText('RIGHT', width * 0.8, height / 2)
+  ctx.fillText('WIDE', width / 2 - 50, height / 2)
+
+  const target = new BufferTarget()
+  const output = new Output({ format: new WebMOutputFormat(), target })
+  const source = new CanvasSource(canvas, {
+    codec,
+    quality: new Quality({ bitrate: 600_000 }),
+  })
+  output.addVideoTrack(source, { frameRate: 12 })
+  await output.start()
+  await source.add(0, durationMs / 1000)
+  source.close()
+  await output.finalize()
+  if (!target.buffer) throw new Error('Test clip encode produced no bytes')
+  return new Blob([target.buffer], { type: 'video/webm' })
+}
