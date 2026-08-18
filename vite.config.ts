@@ -128,6 +128,7 @@ export default defineConfig({
         'robots.txt',
         'sitemap.xml',
         'llms.txt',
+        'auth.md',
       ],
       manifest: {
         name: 'Kody Video',
@@ -190,6 +191,7 @@ export default defineConfig({
           /^\/robots\.txt$/,
           /^\/sitemap\.xml$/,
           /^\/llms\.txt$/,
+          /^\/auth\.md$/,
           /^\/version\.json$/,
           /^\/assets\//,
           /\.map$/,
