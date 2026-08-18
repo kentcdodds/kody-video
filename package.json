@@ -19,7 +19,7 @@
     "client-zip": "^2.5.0",
     "idb": "^8.0.3",
     "mediabunny": "^1.52.1",
-    "remix": "3.0.0-beta.5",
+    "remix": "3.0.0-beta.10",
     "uqr": "^0.1.3"
   },
   "devDependencies": {
