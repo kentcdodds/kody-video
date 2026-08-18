@@ -2,7 +2,7 @@
 
 ## Node version
 
-This project requires Node `>=24.3.0` (the pinned `remix@3.0.0-beta.5` engine).
+This project requires Node `>=24.3.0` (the pinned `remix@3.0.0-beta.10` engine).
 
 In the Cursor Cloud VM, Node 24 is installed via `nvm` and made the default.
 The VM also ships a system Node 22 at `/exec-daemon/node` that would otherwise

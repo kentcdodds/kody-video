@@ -102,7 +102,7 @@ for what it covers and the remaining real-device-only checks.
 
 ## Architecture
 
-Built with [Remix 3](https://github.com/remix-run/remix) (`remix@3.0.0-beta.5`,
+Built with [Remix 3](https://github.com/remix-run/remix) (`remix@3.0.0-beta.10`,
 pinned — v3 is prerelease) as a pure client-side app: `remix/ui` components
 rendered with `createRoot`, no server rendering.
 
