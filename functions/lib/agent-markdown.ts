@@ -257,8 +257,24 @@ export function pageIdForPath(pathname: string): AgentPageId | null {
   }
 }
 
+function acceptQuality(accept: string | null, type: string): number {
+  if (!accept) return 0
+  let best = 0
+  for (const part of accept.split(',')) {
+    const [media, ...params] = part.split(';').map((token) => token.trim())
+    if (media?.toLowerCase() !== type) continue
+    const qParam = params.find((param) => param.toLowerCase().startsWith('q='))
+    const quality = qParam ? Number(qParam.slice(2)) : 1
+    if (Number.isFinite(quality) && quality > 0) best = Math.max(best, quality)
+  }
+  return best
+}
+
+/** True when text/markdown is present with q>0 and is not outranked by text/html. */
 export function prefersMarkdown(accept: string | null): boolean {
-  return Boolean(accept && /\btext\/markdown\b/i.test(accept))
+  const markdown = acceptQuality(accept, 'text/markdown')
+  if (markdown <= 0) return false
+  return markdown >= acceptQuality(accept, 'text/html')
 }
 
 export function renderAgentMarkdown(id: AgentPageId): string {

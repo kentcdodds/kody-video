@@ -26,9 +26,12 @@ describe('pageIdForPath', () => {
 })
 
 describe('prefersMarkdown', () => {
-  it('requires an explicit text/markdown type', () => {
+  it('requires an explicit text/markdown type and honors q-values', () => {
     expect(prefersMarkdown('text/markdown')).toBe(true)
     expect(prefersMarkdown('text/markdown, text/html')).toBe(true)
+    expect(prefersMarkdown('text/html;q=0.9, text/markdown')).toBe(true)
+    expect(prefersMarkdown('text/html, text/markdown;q=0.1')).toBe(false)
+    expect(prefersMarkdown('text/markdown;q=0')).toBe(false)
     expect(prefersMarkdown('text/html')).toBe(false)
     expect(prefersMarkdown('*/*')).toBe(false)
     expect(prefersMarkdown(null)).toBe(false)
