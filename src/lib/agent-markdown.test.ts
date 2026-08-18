@@ -48,6 +48,8 @@ describe('renderAgentMarkdown', () => {
     const auth = renderAgentMarkdown('auth')
     expect(auth).toContain('no accounts')
     expect(auth).toContain('/api/verify-purchase')
+    expect(auth).toContain('session_id=<CHECKOUT_SESSION_ID>')
+    expect(auth).toContain('https://buy.stripe.com/00wfZi71ibU30rk9hU2Ry07')
     expect(auth).toContain('Do not invent a sign-in flow')
   })
 })

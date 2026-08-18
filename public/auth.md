@@ -15,7 +15,7 @@ Kody Video has **no accounts**.
 
 ## Kody Video Plus
 
-Plus is a one-time $0.99 [Stripe Payment Link](https://kody.video/). After checkout, Stripe redirects to `/unlocked?session_id=…`. `/api/verify-purchase` checks that session server-side; the entitlement is then stored on the device. 100%-off promotion codes use the same verification.
+Plus is a one-time $0.99 [Stripe Payment Link](https://buy.stripe.com/00wfZi71ibU30rk9hU2Ry07). After checkout, Stripe redirects to `/unlocked?session_id=<CHECKOUT_SESSION_ID>`. `/api/verify-purchase` checks that session server-side; the entitlement is then stored on the device. 100%-off promotion codes use the same verification.
 
 Restore on another device with **Already paid?** (export sheet or a locked slot). That is the same Stripe session, not a password.
 
