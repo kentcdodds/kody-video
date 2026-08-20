@@ -115,10 +115,27 @@ export function looksLikeStripeReceipt(text: string): boolean {
   return /pay\.stripe\.com\/receipts|dashboard\.stripe\.com/i.test(text)
 }
 
+function extractCodeFromText(text: string): string | null {
+  const trimmed = text.trim()
+  try {
+    const url = new URL(trimmed)
+    const fromQuery = normalizeRoomCode(url.searchParams.get('code') ?? '')
+    if (fromQuery) return fromQuery
+  } catch {
+    // Pasted text is often a bare code, not an absolute URL.
+  }
+  const queryMatch = trimmed.match(/[?&]code=([A-Za-z0-9-]+)/i)
+  if (queryMatch?.[1]) {
+    const fromQuery = normalizeRoomCode(queryMatch[1])
+    if (fromQuery) return fromQuery
+  }
+  return normalizeRoomCode(trimmed)
+}
+
 /** Session id, or the 6-character code from the device that already has Plus. */
 export function extractRestoreToken(text: string): RestoreToken | null {
   const sessionId = extractSessionId(text)
   if (sessionId) return { kind: 'session', value: sessionId }
-  const code = normalizeRoomCode(text)
+  const code = extractCodeFromText(text)
   return code ? { kind: 'code', value: code } : null
 }

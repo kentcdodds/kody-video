@@ -18,6 +18,21 @@ describe('extractRestoreToken', () => {
     expect(extractRestoreToken('abc234')).toEqual({ kind: 'code', value: 'ABC234' })
   })
 
+  it('pulls a restore code out of a copied unlock URL', () => {
+    expect(extractRestoreToken('https://kody.video/unlocked?code=ABC234')).toEqual({
+      kind: 'code',
+      value: 'ABC234',
+    })
+    expect(extractRestoreToken('https://kody.video/unlocked?code=ABC-234')).toEqual({
+      kind: 'code',
+      value: 'ABC234',
+    })
+    expect(extractRestoreToken('kody.video/unlocked?code=ABC234')).toEqual({
+      kind: 'code',
+      value: 'ABC234',
+    })
+  })
+
   it('does not treat a Stripe receipt URL as a session id', () => {
     const receipt =
       'https://pay.stripe.com/receipts/invoices/CAcQARoXChVhY2N0XzFQT2hYV0xBUXBBbnNZc3o'

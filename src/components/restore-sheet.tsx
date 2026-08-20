@@ -70,8 +70,8 @@ export function RestoreSheet(handle: Handle<RestoreSheetProps>) {
           <h3>Restore purchase</h3>
           <p className="muted sheet-lede">
             On the device that already has Plus, open About and tap{' '}
-            <strong>Use Plus on another device</strong>. Type that short code here, or scan its QR.
-            A checkout session id starting with “cs_” still works too.
+            <strong>Use Plus on another device</strong>. Type that short code here, paste its unlock
+            link, or scan the QR. A checkout session id starting with “cs_” still works too.
           </p>
           <div className="field">
             <label htmlFor="restore-input">Restore code or session id</label>
