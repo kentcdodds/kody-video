@@ -50,6 +50,47 @@ test.describe('home & app shell', () => {
     expect(about!.width).toBeLessThanOrEqual(760)
   })
 
+  test('short viewports scroll the home column instead of crushing slots', async ({
+    page,
+  }) => {
+    // iPhone 13 mini (375×812) minus Safari / in-app-browser chrome — the
+    // viewport that crushed the 2×3 grid when overflow was hidden.
+    await page.setViewportSize({ width: 375, height: 560 })
+    await page.goto('/')
+
+    const main = page.locator('.home-main')
+    const slots = page.locator('.project-slots')
+    const lastSlot = page.locator('.project-slot').last()
+    const footer = page.locator('.home-privacy')
+    await expect(slots).toBeVisible()
+
+    const slotBox = await page.locator('.project-slot').first().boundingBox()
+    expect(slotBox).not.toBeNull()
+    expect(slotBox!.height).toBeGreaterThanOrEqual(120)
+
+    expect(
+      await main.evaluate((el) => el.scrollHeight > el.clientHeight + 1),
+    ).toBe(true)
+
+    // The LCP boot hero stays pinned with the spacer; only `.home-main`
+    // (banners, slots, footer) scrolls.
+    const bootBefore = await page.locator('#boot-hero').boundingBox()
+    const spacerBefore = await page.locator('.home-hero').boundingBox()
+    expect(bootBefore).not.toBeNull()
+    expect(spacerBefore).not.toBeNull()
+    expect(Math.abs(bootBefore!.y - spacerBefore!.y)).toBeLessThan(8)
+
+    await lastSlot.scrollIntoViewIfNeeded()
+    await expect(lastSlot).toBeInViewport()
+    await footer.scrollIntoViewIfNeeded()
+    await expect(footer).toBeInViewport()
+
+    const bootAfter = await page.locator('#boot-hero').boundingBox()
+    const spacerAfter = await page.locator('.home-hero').boundingBox()
+    expect(bootAfter!.y).toBe(bootBefore!.y)
+    expect(spacerAfter!.y).toBe(spacerBefore!.y)
+  })
+
   test('onboarding shows on first camera open, dismisses for good', async ({ page }) => {
     await page.goto('/')
     await page.locator('.project-slot.empty').first().click()
