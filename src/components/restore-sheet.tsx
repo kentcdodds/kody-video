@@ -1,7 +1,11 @@
 import type { Handle } from 'remix/ui'
 import { on, ref } from 'remix/ui'
 import { attachSheetModal } from '../lib/sheet-modal'
-import { extractSessionId, verifyPurchaseSession } from '../lib/entitlement'
+import {
+  extractRestoreToken,
+  looksLikeStripeReceipt,
+  verifyPurchase,
+} from '../lib/entitlement'
 
 interface RestoreSheetProps {
   onRestored: () => void
@@ -9,8 +13,9 @@ interface RestoreSheetProps {
 }
 
 /**
- * Restore the Kody Video Plus purchase on a new device: paste the link
- * from the Stripe receipt email (or the checkout session id) and re-verify.
+ * Restore Kody Video Plus on a new device: paste a short code from the
+ * device that already has Plus, scan its QR (opens /unlocked?code=), or
+ * paste a checkout session id.
  */
 export function RestoreSheet(handle: Handle<RestoreSheetProps>) {
   let value = ''
@@ -18,12 +23,18 @@ export function RestoreSheet(handle: Handle<RestoreSheetProps>) {
   let error: string | null = null
 
   const restore = async () => {
-    const sessionId = extractSessionId(value)
-    if (!sessionId) return
+    const token = extractRestoreToken(value)
+    if (!token) {
+      error = looksLikeStripeReceipt(value)
+        ? 'Stripe receipt links do not include a restore handle. On the device that already has Plus, open About and tap Use Plus on another device.'
+        : 'Enter the short code from the other device, or a checkout session id starting with “cs_”.'
+      void handle.update()
+      return
+    }
     busy = true
     error = null
     void handle.update()
-    const result = await verifyPurchaseSession(sessionId)
+    const result = await verifyPurchase(token)
     busy = false
     if (result.unlocked) {
       handle.props.onRestored()
@@ -58,16 +69,21 @@ export function RestoreSheet(handle: Handle<RestoreSheetProps>) {
         >
           <h3>Restore purchase</h3>
           <p className="muted sheet-lede">
-            Paste the confirmation link from your Stripe receipt email (or the checkout session id
-            starting with “cs_”). We’ll verify it and remove the watermark on this device.
+            On the device that already has Plus, open About and tap{' '}
+            <strong>Use Plus on another device</strong>. Type that short code here, paste its unlock
+            link, or scan the QR. A checkout session id starting with “cs_” still works too.
           </p>
           <div className="field">
-            <label htmlFor="restore-input">Receipt link or session id</label>
+            <label htmlFor="restore-input">Restore code or session id</label>
             <input
               id="restore-input"
               type="text"
+              inputMode="text"
+              autoCapitalize="none"
+              autoCorrect="off"
+              spellCheck={false}
               value={value}
-              placeholder="https://… or cs_live_…"
+              placeholder="ABC-234 or cs_live_…"
               mix={[
                 ref((node) => (node as HTMLInputElement).focus()),
                 on('input', (event) => {
@@ -90,7 +106,7 @@ export function RestoreSheet(handle: Handle<RestoreSheetProps>) {
             <button
               type="button"
               className="btn btn-primary"
-              disabled={busy || !extractSessionId(value)}
+              disabled={busy || !extractRestoreToken(value)}
               mix={on('click', () => void restore())}
             >
               {busy ? 'Verifying…' : 'Restore'}

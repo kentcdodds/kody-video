@@ -92,7 +92,9 @@ export function PrivacyPage() {
           <p>
             The one-time watermark-removal purchase is processed by Stripe on Stripe&rsquo;s pages
             — their privacy policy applies. The app&rsquo;s verification endpoint sees only the
-            checkout session id, never your media or location.
+            checkout session id, never your media or location. Sharing Plus with another device
+            mints a short-lived restore code that maps to that same session id and expires in
+            minutes.
           </p>
         </section>
 

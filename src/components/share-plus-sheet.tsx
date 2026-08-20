@@ -1,0 +1,117 @@
+import type { Handle } from 'remix/ui'
+import { on, ref } from 'remix/ui'
+import { attachSheetModal } from '../lib/sheet-modal'
+import { formatRoomCode } from '../lib/sync-protocol'
+import { getPurchaseSessionId, mintRestoreCode } from '../lib/entitlement'
+import { SyncQr } from './sync-qr'
+
+interface SharePlusSheetProps {
+  onClose: () => void
+}
+
+/**
+ * Plus device: show a short-lived code + QR so another device can unlock.
+ */
+export function SharePlusSheet(handle: Handle<SharePlusSheetProps>) {
+  let code: string | null = null
+  let error: string | null = null
+  let busy = true
+  let copied = false
+
+  const load = async () => {
+    busy = true
+    error = null
+    code = null
+    void handle.update()
+    const sessionId = await getPurchaseSessionId()
+    if (!sessionId) {
+      busy = false
+      error =
+        'This device has Plus, but no restore handle is saved. Open the checkout confirmation link, or write team@kody.video.'
+      void handle.update()
+      return
+    }
+    const minted = await mintRestoreCode(sessionId)
+    busy = false
+    if ('error' in minted) {
+      error = minted.error
+    } else {
+      code = minted.code
+    }
+    if (!handle.signal.aborted) void handle.update()
+  }
+
+  void load()
+
+  const unlockHref = () => {
+    const origin = window.location.origin
+    return code ? `${origin}/unlocked?code=${encodeURIComponent(code)}` : `${origin}/unlocked`
+  }
+
+  return () => {
+    const { onClose } = handle.props
+    return (
+      <>
+        <div
+          className="sheet-backdrop"
+          mix={on('click', () => {
+            if (!busy) onClose()
+          })}
+        />
+        <div
+          className="sheet send-sheet"
+          role="dialog"
+          aria-modal="true"
+          aria-label="Use Plus on another device"
+          mix={ref((node, signal) =>
+            attachSheetModal(node as HTMLElement, signal, {
+              onDismiss: () => handle.props.onClose(),
+              busy: () => busy,
+            }),
+          )}
+        >
+          <h3>Use Plus on another device</h3>
+          <p className={error ? 'sheet-lede is-error' : 'sheet-lede muted'}>
+            {error ??
+              (busy
+                ? 'Making a short code…'
+                : 'On the new device, open kody.video and tap Already paid? Type this code, or scan the QR. It expires in 30 minutes.')}
+          </p>
+          {code ? (
+            <div className="sync-code-block">
+              <p className="sync-code" aria-label={`Restore code ${formatRoomCode(code)}`}>
+                {formatRoomCode(code)}
+              </p>
+              <SyncQr href={unlockHref()} label="QR code to unlock Plus on another device" />
+              <button
+                type="button"
+                className="link-button"
+                mix={on('click', () => {
+                  void navigator.clipboard?.writeText(unlockHref()).then(
+                    () => {
+                      copied = true
+                      void handle.update()
+                    },
+                    () => undefined,
+                  )
+                })}
+              >
+                {copied ? 'Link copied' : 'Copy unlock link'}
+              </button>
+            </div>
+          ) : null}
+          <div className="sheet-actions">
+            {error ? (
+              <button type="button" className="btn btn-primary" mix={on('click', () => void load())}>
+                Try again
+              </button>
+            ) : null}
+            <button type="button" className="btn btn-ghost" mix={on('click', () => onClose())}>
+              Done
+            </button>
+          </div>
+        </div>
+      </>
+    )
+  }
+}

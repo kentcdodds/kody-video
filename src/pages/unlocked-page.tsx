@@ -1,22 +1,35 @@
 import type { Handle } from 'remix/ui'
+import { on } from 'remix/ui'
 import { BrandMark } from '../components/brand-mark'
-import { verifyPurchaseSession, type VerifyResult } from '../lib/entitlement'
+import { SharePlusSheet } from '../components/share-plus-sheet'
+import {
+  extractRestoreToken,
+  verifyPurchase,
+  type VerifyResult,
+} from '../lib/entitlement'
 
 /**
  * Stripe's Payment Link redirects here after checkout with
- * ?session_id={CHECKOUT_SESSION_ID}; setup verifies it server-side and
+ * ?session_id={CHECKOUT_SESSION_ID}. A Plus device can also mint a short
+ * code whose QR opens ?code=ABC123. Setup verifies server-side and
  * persists the entitlement before rendering the result.
  */
 async function verifyFromLocation(): Promise<VerifyResult> {
-  const sessionId = new URL(window.location.href).searchParams.get('session_id')
-  if (!sessionId) {
-    return { unlocked: false, error: 'Missing checkout session. Use the link from your receipt.' }
+  const params = new URL(window.location.href).searchParams
+  const raw = params.get('session_id') ?? params.get('code') ?? ''
+  const token = extractRestoreToken(raw)
+  if (!token) {
+    return {
+      unlocked: false,
+      error: 'Missing checkout session or restore code. Use the code from the other device.',
+    }
   }
-  return verifyPurchaseSession(sessionId)
+  return verifyPurchase(token)
 }
 
 export function UnlockedPage(handle: Handle) {
   let result: VerifyResult | null = null
+  let sharing = false
 
   void verifyFromLocation().then((verified) => {
     if (handle.signal.aborted) return
@@ -40,8 +53,8 @@ export function UnlockedPage(handle: Handle) {
             <p className="muted">
               Thank you for supporting Kody Video. Every export from this device is now
               watermark-free, all six project slots are open, optional location tagging is
-              available, and you can send a project to another device. Keep your Stripe receipt
-              email — its link restores the purchase on another device.
+              available, and you can send a project to another device. To unlock a second
+              phone or computer, tap Add another device and scan or type the short code.
             </p>
           </>
         ) : (
@@ -50,16 +63,41 @@ export function UnlockedPage(handle: Handle) {
             <h1>Hmm, that didn’t check out</h1>
             <p className="muted">
               {result.error ?? 'Could not verify this purchase.'} If you paid and keep seeing
-              this, retry from the link in your Stripe receipt email.
+              this, restore from the device that already has Plus (About → Use Plus on another
+              device).
             </p>
           </>
         )}
-        {result === null ? null : (
+        {result === null ? null : result.unlocked ? (
+          <div className="sheet-actions">
+            <button
+              type="button"
+              className="btn btn-ghost"
+              mix={on('click', () => {
+                sharing = true
+                void handle.update()
+              })}
+            >
+              Add another device
+            </button>
+            <a className="btn btn-primary" href="/">
+              Start creating
+            </a>
+          </div>
+        ) : (
           <a className="btn btn-primary" href="/">
-            {result.unlocked ? 'Start creating' : 'Back to Kody Video'}
+            Back to Kody Video
           </a>
         )}
       </div>
+      {sharing ? (
+        <SharePlusSheet
+          onClose={() => {
+            sharing = false
+            void handle.update()
+          }}
+        />
+      ) : null}
     </div>
   )
 }

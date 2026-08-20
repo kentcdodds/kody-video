@@ -14,7 +14,7 @@ export function TermsPage() {
 
       <div className="about-body">
         <h1>Terms</h1>
-        <p className="legal-updated">Last updated: July 2026</p>
+        <p className="legal-updated">Last updated: August 2026</p>
 
         <section className="about-section">
           <h2>Free to use, as is</h2>
@@ -39,7 +39,8 @@ export function TermsPage() {
             optional location tagging, sending a project to another device, and up to six project
             slots (the free plan includes one project) for the browser profile where it&rsquo;s
             verified. You can restore the
-            purchase on another device via the Stripe receipt link. Payments are handled by Stripe.
+            purchase on another device with a short code or QR from the device that already has
+            Plus. Payments are handled by Stripe.
             For refunds or purchase trouble, email{' '}
             <a href="mailto:team@kody.video">team@kody.video</a>.
           </p>

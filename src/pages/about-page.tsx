@@ -2,6 +2,7 @@ import type { Handle } from 'remix/ui'
 import { on } from 'remix/ui'
 import { IconBack } from '../components/icons'
 import { BrandMark } from '../components/brand-mark'
+import { SharePlusSheet } from '../components/share-plus-sheet'
 import {
   checkForUpdates,
   fetchDeployedVersion,
@@ -16,6 +17,7 @@ import { clearExportCache, estimateExportCacheBytes } from '../lib/export/export
 import { listRearCameras } from '../lib/media'
 import { BackupFormatError, importKodyVideoBackupFile } from '../lib/project-transfer'
 import { estimateStorageSpace, formatBytes, type StorageSpace } from '../lib/storage-space'
+import { getSettings } from '../lib/storage'
 import { navigate } from '../router'
 
 /** Prefilled GitHub issue so bug reports arrive with device context attached. */
@@ -71,14 +73,16 @@ function updateDiagnosticsReport(
 interface AboutData {
   storage: StorageSpace | null
   exportCacheBytes: number
+  plus: boolean
 }
 
 async function loadAboutData(): Promise<AboutData> {
-  const [storage, exportCacheBytes] = await Promise.all([
+  const [storage, exportCacheBytes, settings] = await Promise.all([
     estimateStorageSpace(),
     estimateExportCacheBytes(),
+    getSettings(),
   ])
-  return { storage, exportCacheBytes }
+  return { storage, exportCacheBytes, plus: settings.watermarkRemoved === true }
 }
 
 type UpdateStatus = 'idle' | 'checking' | 'current' | 'updating' | 'downloading' | 'unavailable'
@@ -93,7 +97,8 @@ const UPDATE_STATUS_LABEL: Record<Exclude<UpdateStatus, 'idle'>, string> = {
 
 /** Credits, inspiration, and the open-source pointer. */
 export function AboutPage(handle: Handle) {
-  let data: AboutData = { storage: null, exportCacheBytes: 0 }
+  let data: AboutData = { storage: null, exportCacheBytes: 0, plus: false }
+  let sharingPlus = false
   let updateStatus: UpdateStatus = 'idle'
   let cacheStatus: string | null = null
   let clearingCache = false
@@ -248,7 +253,7 @@ export function AboutPage(handle: Handle) {
   }
 
   return () => {
-    const { storage, exportCacheBytes } = data
+    const { storage, exportCacheBytes, plus } = data
     const version = <code>{shortVersion()}</code>
     const versionUrl = commitUrl()
     const diagReport = updateDiagnosticsReport(deployedCommit, deployedKnown)
@@ -269,6 +274,26 @@ export function AboutPage(handle: Handle) {
           <h1>
             Kody <span>Video</span>
           </h1>
+
+          {plus ? (
+            <section className="about-section">
+              <h2>Kody Video Plus</h2>
+              <p>
+                This device is unlocked. To use Plus on a second phone or computer, show a short
+                code and QR the new device can type or scan — no Stripe receipt required.
+              </p>
+              <button
+                type="button"
+                className="btn btn-ghost"
+                mix={on('click', () => {
+                  sharingPlus = true
+                  void handle.update()
+                })}
+              >
+                Use Plus on another device
+              </button>
+            </section>
+          ) : null}
 
           <section className="about-section">
             <h2>Free &amp; open source</h2>
@@ -344,7 +369,8 @@ export function AboutPage(handle: Handle) {
               something breaks, cookieless page-view counts via Fathom Analytics, the tour video
               streaming from this app&rsquo;s own domain if you tap play on it, and — only if you
               tap Send to device — a short-lived matchmaking room so two browsers can find each
-              other. Clips still never upload.
+              other, and a short-lived restore code if you share Plus with another device. Clips
+              still never upload.
             </p>
           </section>
 
@@ -508,6 +534,14 @@ export function AboutPage(handle: Handle) {
             </p>
           </section>
         </div>
+        {sharingPlus ? (
+          <SharePlusSheet
+            onClose={() => {
+              sharingPlus = false
+              void handle.update()
+            }}
+          />
+        ) : null}
       </div>
     )
   }
