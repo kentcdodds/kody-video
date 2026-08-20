@@ -4,6 +4,11 @@
   gap: 0;
   /* Anchor for the corner buttons. */
   position: relative;
+  /* Floor for each slot tile: empty/locked copy (plus + two lines) still
+     fits, and a 3×2 / 2×3 grid won't crush into untappable chips on a
+     short phone (iPhone 13 mini, in-app browsers). `.home-main` scrolls
+     once this floor no longer fits under the hero. */
+  --home-slot-min-h: 7.75rem;
 }
 
 /* Install (left) / About (right) corner buttons: full 44px tap targets in
@@ -78,10 +83,20 @@
   }
 }
 
-/* Portrait: .home-main is invisible to layout — its children stay direct
-   flex items of the .home-screen column, exactly the classic layout. */
+/* Banners, slots, and the privacy line. A real box (not display:contents)
+   so this column can scroll on short viewports while the hero — and the
+   static #boot-hero that paints over its spacer — stay put. Tall phones
+   still fill: slots grow with leftover height and nothing scrolls. */
 .home-main {
-  display: contents;
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 auto;
+  min-height: 0;
+  min-width: 0;
+  overflow-x: hidden;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
 }
 
 /* The landscape home: a deliberate two-pane layout instead of a squeezed
@@ -123,18 +138,15 @@
   }
 
   .home-main {
-    display: flex;
-    flex-direction: column;
     grid-column: 2;
     grid-row: 1;
-    min-height: 0;
-    min-width: 0;
   }
 
   /* Six slots read as 3×2 in a wide pane (2×3 is the portrait shape). */
   .home-main .project-slots {
     grid-template-columns: repeat(3, minmax(0, 1fr));
-    grid-template-rows: repeat(2, minmax(0, 1fr));
+    grid-template-rows: repeat(2, minmax(var(--home-slot-min-h), 1fr));
+    min-height: calc(2 * var(--home-slot-min-h) + 8px);
   }
 
   /* Top-right would sit on the first slot row's ⋯ button; the install
@@ -188,17 +200,19 @@
   margin: 10px 0 0;
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
-  grid-template-rows: repeat(3, minmax(0, 1fr));
+  grid-template-rows: repeat(3, minmax(var(--home-slot-min-h), 1fr));
   gap: 8px;
-  flex: 1;
-  min-height: 0;
+  /* Grow to fill leftover height; don't shrink below the tile floor —
+     overflow:hidden would otherwise let flex min-height:auto collapse to 0. */
+  flex: 1 0 auto;
+  min-height: calc(3 * var(--home-slot-min-h) + 16px);
   overflow: hidden;
   padding: 0;
 }
 
 .project-slot {
   position: relative;
-  min-height: 0;
+  min-height: var(--home-slot-min-h);
   border-radius: 20px;
   border: 1px solid var(--line);
   background:
@@ -956,5 +970,19 @@
   .slot-plus {
     width: 40px;
     height: 40px;
+  }
+
+  .tour-card {
+    padding: 6px 40px 6px 6px;
+  }
+
+  .tour-card-teaser {
+    grid-template-columns: 36px 1fr 24px;
+    gap: 10px;
+  }
+
+  .tour-card-teaser img {
+    width: 36px;
+    height: 64px;
   }
 }
