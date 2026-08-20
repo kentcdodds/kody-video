@@ -43,8 +43,9 @@ export function UpsellSheet(handle: Handle<UpsellSheetProps>) {
               type="button"
               className="btn btn-primary"
               mix={on('click', () => {
-                window.open(REMOVE_WATERMARK_LINK, '_blank', 'noopener')
-                handle.props.onClose()
+                // Same tab so Stripe's redirect lands in this browser profile
+                // (a popup can pay successfully and still leave this device locked).
+                window.location.assign(REMOVE_WATERMARK_LINK)
               })}
             >
               Get Plus — $0.99

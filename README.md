@@ -254,8 +254,11 @@ Stripe redirects back to `/unlocked?session_id=…`, and a single Cloudflare
 Pages Function (`functions/api/verify-purchase.ts`) verifies the session
 server-side before the entitlement is stored in IndexedDB. 100%-off
 promotion codes (friends / the developer) flow through the exact same
-verification. Restore on another device: "Already paid?" on the export
-sheet or a locked slot's upsell.
+verification. Restore on another device: on the phone or computer that
+already has Plus, open About and tap "Use Plus on another
+device" — type the short code or scan the QR. "Already paid?"
+on the export sheet still accepts that code (or a checkout
+session id).
 
 Projects are also created lazily — "New project" opens the camera at
 `/project/new` and nothing is persisted until the first clip is recorded, so

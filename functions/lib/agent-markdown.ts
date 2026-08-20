@@ -44,7 +44,7 @@ Photos can be added to the timeline as still clips. Desktop can record a screen 
 
 ## Kody Video Plus
 
-A one-time $0.99 Stripe Payment Link. It removes the export watermark and unlocks six project slots, background music, landscape projects, optional location tagging, and send-to-another-device. Restore with **Already paid?** using the Stripe receipt — there is no login.
+A one-time $0.99 Stripe Payment Link. It removes the export watermark and unlocks six project slots, background music, landscape projects, optional location tagging, and send-to-another-device. Restore from the device that already has Plus (About → Use Plus on another device) with a short code or QR — there is no login.
 
 ## Support
 
@@ -81,6 +81,7 @@ The app's only own network traffic:
 - Cookieless Fathom page-view counts
 - The home-screen tour video from \`media.kody.video\` if you tap play
 - A short-lived \`/api/sync\` matchmaking room if you tap Send to device (code + WebRTC descriptions, never clips)
+- A short-lived Plus restore code if you share Plus with another device (session id only)
 
 ## Made for phones
 
@@ -136,7 +137,7 @@ Location tagging is an optional Plus feature and is off by default. When it is o
 
 ## Watermark removal purchase
 
-The one-time Plus purchase is processed by Stripe on Stripe's pages — their privacy policy applies. The app's verification endpoint sees only the checkout session id, never your media or location.
+The one-time Plus purchase is processed by Stripe on Stripe's pages — their privacy policy applies. The app's verification endpoint sees only the checkout session id, never your media or location. Sharing Plus with another device mints a short-lived restore code that maps to that same session id and expires in minutes.
 
 ## Exports and sharing
 
@@ -171,7 +172,7 @@ You own your recordings entirely. The app claims no rights to any of your conten
 
 ## Kody Video Plus
 
-Kody Video Plus is a one-time $0.99 purchase that unlocks watermark-free exports, optional location tagging, sending a project to another device, and up to six project slots (the free plan includes one project) for the browser profile where it is verified. You can restore the purchase on another device via the Stripe receipt link. Payments are handled by Stripe. For refunds or purchase trouble, email [team@kody.video](mailto:team@kody.video).
+Kody Video Plus is a one-time $0.99 purchase that unlocks watermark-free exports, optional location tagging, sending a project to another device, and up to six project slots (the free plan includes one project) for the browser profile where it is verified. You can restore the purchase on another device with a short code or QR from the device that already has Plus. Payments are handled by Stripe. For refunds or purchase trouble, email [team@kody.video](mailto:team@kody.video).
 
 ## Recording responsibly
 
@@ -219,11 +220,13 @@ Kody Video has **no accounts**.
 
 Plus is a one-time $0.99 [Stripe Payment Link](https://buy.stripe.com/00wfZi71ibU30rk9hU2Ry07). After checkout, Stripe redirects to \`/unlocked?session_id=<CHECKOUT_SESSION_ID>\`. \`/api/verify-purchase\` checks that session server-side; the entitlement is then stored on the device. 100%-off promotion codes use the same verification.
 
-Restore on another device with **Already paid?** (export sheet or a locked slot). That is the same Stripe session, not a password.
+Restore on another device from the device that already has Plus: About → **Use Plus on another device** shows a short code and QR. The new device types the code under **Already paid?** or opens \`/unlocked?code=\`. That mints a short-lived mapping to the same Stripe session — not a password. A checkout session id still works if you have one. Stripe receipt URLs do not include that session id.
 
 ## Other network calls
 
 - \`/api/sync\` — short-lived send-to-device matchmaking (room code + WebRTC descriptions). Never media.
+- \`/api/restore-codes\` — short-lived Plus restore codes (session id only, 30 minutes).
+- \`/api/verify-purchase\` — Stripe session or restore-code check. Never media.
 - \`/api/diag\` and \`/api/recover\` — on-device shell repair. Recover never touches IndexedDB.
 
 See [Privacy](/privacy) and [About](/about).

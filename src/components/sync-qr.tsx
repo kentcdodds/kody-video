@@ -4,9 +4,10 @@ import { renderSVG } from 'uqr'
 
 interface SyncQrProps {
   href: string
+  label?: string
 }
 
-/** QR for the receive URL — scanned on the other device. */
+/** QR for a pairing URL — scanned on the other device. */
 export function SyncQr(handle: Handle<SyncQrProps>) {
   return () => {
     const svg = renderSVG(handle.props.href, {
@@ -19,7 +20,7 @@ export function SyncQr(handle: Handle<SyncQrProps>) {
       <div
         className="sync-qr"
         role="img"
-        aria-label="QR code to receive this project"
+        aria-label={handle.props.label ?? 'QR code to receive this project'}
         mix={ref((node) => {
           ;(node as HTMLElement).innerHTML = svg
         })}
