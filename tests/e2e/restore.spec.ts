@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test'
-import { unlockPlus } from './helpers'
+import { gotoHome, unlockPlus } from './helpers'
 
 test.describe('Plus restore codes', () => {
   test('the Plus device shows a code the other browser can redeem', async ({
@@ -10,6 +10,7 @@ test.describe('Plus restore codes', () => {
     const receiverContext = await browser.newContext({ baseURL })
     const receiver = await receiverContext.newPage()
     try {
+      await gotoHome(page)
       await unlockPlus(page)
       await page.goto('/about')
       await page.getByRole('button', { name: 'Use Plus on another device' }).click()
