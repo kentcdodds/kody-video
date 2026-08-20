@@ -17,6 +17,12 @@ export type PurchaseCheck =
   | { ok: true; sessionId: string }
   | { ok: false; error: string; status: number }
 
+interface StripeCheckoutSession {
+  status?: string
+  payment_status?: string
+  payment_link?: string
+}
+
 export function normalizeSessionId(value: string): string | null {
   const sessionId = value.trim()
   return SESSION_ID_PATTERN.test(sessionId) ? sessionId : null
@@ -37,10 +43,15 @@ export async function checkPurchaseSession(
     return { ok: false, error: 'Purchase verification is not configured yet.', status: 503 }
   }
 
-  const response = await fetchImpl(
-    `https://api.stripe.com/v1/checkout/sessions/${encodeURIComponent(normalized)}`,
-    { headers: { authorization: `Bearer ${secretKey}` } },
-  )
+  let response: Response
+  try {
+    response = await fetchImpl(
+      `https://api.stripe.com/v1/checkout/sessions/${encodeURIComponent(normalized)}`,
+      { headers: { authorization: `Bearer ${secretKey}` } },
+    )
+  } catch {
+    return { ok: false, error: 'Could not reach Stripe. Try again shortly.', status: 502 }
+  }
   if (response.status === 404) {
     return { ok: false, error: 'No such purchase.', status: 404 }
   }
@@ -48,10 +59,11 @@ export async function checkPurchaseSession(
     return { ok: false, error: 'Could not reach Stripe. Try again shortly.', status: 502 }
   }
 
-  const session = (await response.json()) as {
-    status?: string
-    payment_status?: string
-    payment_link?: string
+  let session: StripeCheckoutSession
+  try {
+    session = (await response.json()) as StripeCheckoutSession
+  } catch {
+    return { ok: false, error: 'Could not reach Stripe. Try again shortly.', status: 502 }
   }
 
   const expectedLink = env.STRIPE_PAYMENT_LINK_ID ?? PRODUCTION_PAYMENT_LINK_ID

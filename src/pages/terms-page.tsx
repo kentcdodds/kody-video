@@ -14,7 +14,7 @@ export function TermsPage() {
 
       <div className="about-body">
         <h1>Terms</h1>
-        <p className="legal-updated">Last updated: July 2026</p>
+        <p className="legal-updated">Last updated: August 2026</p>
 
         <section className="about-section">
           <h2>Free to use, as is</h2>

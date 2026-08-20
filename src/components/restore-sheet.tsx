@@ -79,7 +79,7 @@ export function RestoreSheet(handle: Handle<RestoreSheetProps>) {
               id="restore-input"
               type="text"
               inputMode="text"
-              autoCapitalize="characters"
+              autoCapitalize="none"
               autoCorrect="off"
               spellCheck={false}
               value={value}

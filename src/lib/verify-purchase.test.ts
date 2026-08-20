@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { handleVerifyPurchaseRequest, handleRestoreCodesRequest } from './purchase-http'
 import { PRODUCTION_PAYMENT_LINK_ID } from './purchase-session'
+import { RESTORE_CODE_TTL_MS } from './restore-codes'
 import { memorySyncKv } from './sync-rooms'
 
 const PLINK = PRODUCTION_PAYMENT_LINK_ID
@@ -19,6 +20,7 @@ function env(kv = memorySyncKv()) {
 
 afterEach(() => {
   vi.unstubAllGlobals()
+  vi.restoreAllMocks()
 })
 
 describe('verify-purchase function', () => {
@@ -90,6 +92,28 @@ describe('verify-purchase function', () => {
     const response = await handleVerifyPurchaseRequest(new Request(url), env(), fetchSpy)
     expect(response.status).toBe(404)
   })
+
+  it('maps Stripe transport failures to 502', async () => {
+    const fetchSpy = vi.fn(async () => {
+      throw new Error('network down')
+    })
+    const response = await handleVerifyPurchaseRequest(new Request(url), env(), fetchSpy)
+    expect(response.status).toBe(502)
+    expect((await body(response)).unlocked).toBe(false)
+  })
+
+  it('maps unreadable Stripe JSON to 502', async () => {
+    const fetchSpy = vi.fn(
+      async () =>
+        new Response('not-json', {
+          status: 200,
+          headers: { 'content-type': 'application/json' },
+        }),
+    )
+    const response = await handleVerifyPurchaseRequest(new Request(url), env(), fetchSpy)
+    expect(response.status).toBe(502)
+    expect((await body(response)).unlocked).toBe(false)
+  })
 })
 
 describe('restore codes', () => {
@@ -132,6 +156,37 @@ describe('restore codes', () => {
     )
     expect(response.status).toBe(404)
     expect((await body(response)).unlocked).toBe(false)
+  })
+
+  it('rejects a minted code after it expires', async () => {
+    const kv = memorySyncKv()
+    const rooms = env(kv)
+    const fetchSpy = stripeResponds({
+      status: 'complete',
+      payment_status: 'paid',
+      payment_link: PLINK,
+    })
+    const minted = await handleRestoreCodesRequest(
+      new Request('https://kody.video/api/restore-codes', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ session_id: 'cs_live_abc123' }),
+      }),
+      rooms,
+      fetchSpy,
+    )
+    const code = (await body(minted)).code
+    expect(code).toBeTruthy()
+
+    const now = Date.now()
+    vi.spyOn(Date, 'now').mockReturnValue(now + RESTORE_CODE_TTL_MS + 1)
+    const redeemed = await handleVerifyPurchaseRequest(
+      new Request(`https://kody.video/api/verify-purchase?code=${code}`),
+      rooms,
+      fetchSpy,
+    )
+    expect(redeemed.status).toBe(404)
+    expect((await body(redeemed)).unlocked).toBe(false)
   })
 
   it('does not mint a code for an unverified session', async () => {
