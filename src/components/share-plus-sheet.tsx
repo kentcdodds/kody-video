@@ -19,10 +19,16 @@ export function SharePlusSheet(handle: Handle<SharePlusSheetProps>) {
   let copied = false
 
   const load = async () => {
+    // Remix wires scheduleUpdate only after the first render commits. Calling
+    // handle.update() synchronously from setup (before any await) rejects with
+    // "scheduleUpdate not implemented" — an unhandledrejection on every open.
+    // Initial state is already busy=true / empty, so skip that paint; on retry
+    // (mounted) we do need a busy paint when leaving an error/code state.
+    const needsBusyPaint = !busy || error !== null || code !== null
     busy = true
     error = null
     code = null
-    void handle.update()
+    if (needsBusyPaint) void handle.update()
     const sessionId = await getPurchaseSessionId()
     if (!sessionId) {
       busy = false
