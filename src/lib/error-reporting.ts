@@ -94,6 +94,20 @@ export function isProjectLimitEvent(event: FilterableSentryEvent): boolean {
 const IDB_BACKING_STORE_OPEN =
   /Internal error opening backing store for indexedDB\.open/i
 
+/** Shared text matcher for raw Chromium / wrapper open failures. */
+function isIndexedDbBackingStoreOpenText(
+  type: string | undefined,
+  text: string,
+): boolean {
+  if (IDB_BACKING_STORE_OPEN.test(text)) return true
+  // storage.ts also accepts UnknownError + "opening backing store" without the
+  // exact Chromium sentence (alternate wrappers / localized paraphrases).
+  return (
+    (type === 'UnknownError' || /^UnknownError:/i.test(text)) &&
+    /opening backing store/i.test(text)
+  )
+}
+
 /**
  * Environmental IndexedDB.open noise: Chromium cannot open the profile's
  * LevelDB backing store (disk/profile/AV). After one retry, storage throws
@@ -105,11 +119,11 @@ export function isIndexedDbBackingStoreOpenEvent(
   const exceptionValues = event.exception?.values ?? []
   for (const value of exceptionValues) {
     if (value.type === 'IndexedDbUnavailableError') return true
-    const text = value.value ?? ''
-    if (IDB_BACKING_STORE_OPEN.test(text)) return true
+    if (isIndexedDbBackingStoreOpenText(value.type, value.value ?? '')) return true
   }
   return (
-    typeof event.message === 'string' && IDB_BACKING_STORE_OPEN.test(event.message)
+    typeof event.message === 'string' &&
+    isIndexedDbBackingStoreOpenText(undefined, event.message)
   )
 }
 
@@ -447,7 +461,7 @@ export function isExpectedUserError(error: unknown): boolean {
   if (error.name === 'ProjectLimitError') return true
   if (error.name === 'IndexedDbUnavailableError') return true
   // Raw Chromium open failure if something reports before storage wraps it.
-  return IDB_BACKING_STORE_OPEN.test(error.message)
+  return isIndexedDbBackingStoreOpenText(error.name, error.message)
 }
 
 /**

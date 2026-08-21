@@ -181,6 +181,28 @@ describe('isIndexedDbBackingStoreOpenEvent', () => {
     ).toBe(true)
   })
 
+  it('drops UnknownError wrappers that only say opening backing store', () => {
+    expect(
+      isIndexedDbBackingStoreOpenEvent({
+        exception: {
+          values: [
+            {
+              type: 'UnknownError',
+              value: 'Failed opening backing store for this profile',
+            },
+          ],
+        },
+      }),
+    ).toBe(true)
+    expect(
+      isExpectedUserError(
+        Object.assign(new Error('Failed opening backing store for this profile'), {
+          name: 'UnknownError',
+        }),
+      ),
+    ).toBe(true)
+  })
+
   it('keeps unrelated IndexedDB UnknownErrors', () => {
     expect(
       isIndexedDbBackingStoreOpenEvent({
