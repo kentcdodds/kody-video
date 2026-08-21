@@ -20,6 +20,8 @@ import {
   getUndoSnapshot,
   isRetriableIdbFailure,
   isStaleConnectionError,
+  isIndexedDbBackingStoreOpenFailure,
+  IndexedDbUnavailableError,
   listProjects,
   moveClip,
   PlusRequiredError,
@@ -131,6 +133,29 @@ describe('storage layer', () => {
       false,
     )
     expect(isStaleConnectionError(new Error('nope'))).toBe(false)
+  })
+
+  it('recognizes Chromium IndexedDB backing-store open failures (KODY-VIDEO-Y)', () => {
+    expect(
+      isIndexedDbBackingStoreOpenFailure(
+        new DOMException(
+          'Internal error opening backing store for indexedDB.open.',
+          'UnknownError',
+        ),
+      ),
+    ).toBe(true)
+    expect(
+      isIndexedDbBackingStoreOpenFailure(
+        new Error('UnknownError: Internal error opening backing store for indexedDB.open.'),
+      ),
+    ).toBe(true)
+    expect(
+      isIndexedDbBackingStoreOpenFailure(
+        new DOMException('Error preparing Blob/File data to be stored', 'UnknownError'),
+      ),
+    ).toBe(false)
+    expect(isIndexedDbBackingStoreOpenFailure(new Error('Clip not found'))).toBe(false)
+    expect(new IndexedDbUnavailableError().name).toBe('IndexedDbUnavailableError')
   })
 
   it('heals a DB left empty by a version-less open (diag-style)', async () => {
@@ -980,6 +1005,14 @@ describe('storage layer', () => {
     expect(
       isRetriableIdbFailure(
         new DOMException('Error preparing Blob/File data to be stored', 'UnknownError'),
+      ),
+    ).toBe(true)
+    expect(
+      isRetriableIdbFailure(
+        new DOMException(
+          'Internal error opening backing store for indexedDB.open.',
+          'UnknownError',
+        ),
       ),
     ).toBe(true)
     expect(isRetriableIdbFailure(new DOMException('Transaction aborted', 'AbortError'))).toBe(true)

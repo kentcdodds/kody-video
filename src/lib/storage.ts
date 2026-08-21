@@ -106,6 +106,40 @@ export function isStaleConnectionError(error: unknown): boolean {
 }
 
 /**
+ * Chromium LevelDB open failure (KODY-VIDEO-Y): the profile's IndexedDB
+ * backing store will not open — disk pressure, profile corruption, AV locks,
+ * or enterprise storage policy. Not an app logic bug; keep in sync with the
+ * beforeSend matcher in error-reporting.ts.
+ */
+const IDB_BACKING_STORE_OPEN =
+  /Internal error opening backing store for indexedDB\.open/i
+
+/** True when IndexedDB.open failed because Chromium could not open LevelDB. */
+export function isIndexedDbBackingStoreOpenFailure(error: unknown): boolean {
+  if (!(error instanceof DOMException) && !(error instanceof Error)) return false
+  if (IDB_BACKING_STORE_OPEN.test(error.message)) return true
+  // Some wrappers put the DOMException name in the message ("UnknownError: …").
+  return (
+    error.name === 'UnknownError' &&
+    /opening backing store/i.test(error.message)
+  )
+}
+
+/**
+ * Soft storage-unavailable gate after IndexedDB.open fails environmentally.
+ * Surfaced in-app as guidance; expected platform noise, never a crash report.
+ */
+export class IndexedDbUnavailableError extends Error {
+  override readonly name = 'IndexedDbUnavailableError'
+
+  constructor(
+    message = 'This browser can’t open on-device storage right now. Free some disk space, close other kody.video tabs, or restart the browser — then reload.',
+  ) {
+    super(message)
+  }
+}
+
+/**
  * True when an IndexedDB failure looks environmental — the connection or the
  * backing store gave out mid-operation (iOS Safari closing IDB under memory
  * pressure, Chromium's "Error preparing Blob/File data to be stored") — so an
@@ -115,6 +149,7 @@ export function isStaleConnectionError(error: unknown): boolean {
  */
 export function isRetriableIdbFailure(error: unknown): boolean {
   if (isStaleConnectionError(error)) return true
+  if (isIndexedDbBackingStoreOpenFailure(error)) return true
   if (!(error instanceof DOMException)) return false
   return (
     error.name === 'AbortError' ||
@@ -168,7 +203,8 @@ function discardStaleDb(stale: IDBPDatabase<ClipsDB> | null, pending: Promise<ID
  * The handle is cached, but browsers — especially iOS Safari — may close it
  * out from under us. getDb() clears the cache on close and, if a caller still
  * holds a closing handle, probes and reopens once so getSettings/load-home
- * does not surface InvalidStateError.
+ * does not surface InvalidStateError. Chromium LevelDB open failures
+ * (KODY-VIDEO-Y) get the same one-shot retry, then a clear IndexedDbUnavailableError.
  */
 export async function getDb(): Promise<IDBPDatabase<ClipsDB>> {
   for (let attempt = 0; attempt < 2; attempt += 1) {
@@ -186,7 +222,14 @@ export async function getDb(): Promise<IDBPDatabase<ClipsDB>> {
       db.transaction('meta')
       return db
     } catch (error) {
-      if (!isStaleConnectionError(error) || attempt === 1) throw error
+      const retriable =
+        isStaleConnectionError(error) || isIndexedDbBackingStoreOpenFailure(error)
+      if (!retriable || attempt === 1) {
+        if (isIndexedDbBackingStoreOpenFailure(error)) {
+          throw new IndexedDbUnavailableError()
+        }
+        throw error
+      }
       discardStaleDb(activeDb, pending)
     }
   }

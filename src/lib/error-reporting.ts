@@ -87,6 +87,33 @@ export function isProjectLimitEvent(event: FilterableSentryEvent): boolean {
 }
 
 /**
+ * Chromium LevelDB open failure (KODY-VIDEO-Y). Keep in sync with
+ * `isIndexedDbBackingStoreOpenFailure` in storage.ts — message-only here so
+ * this module stays free of an idb import.
+ */
+const IDB_BACKING_STORE_OPEN =
+  /Internal error opening backing store for indexedDB\.open/i
+
+/**
+ * Environmental IndexedDB.open noise: Chromium cannot open the profile's
+ * LevelDB backing store (disk/profile/AV). After one retry, storage throws
+ * IndexedDbUnavailableError for in-app guidance — not a triage-worthy bug.
+ */
+export function isIndexedDbBackingStoreOpenEvent(
+  event: FilterableSentryEvent,
+): boolean {
+  const exceptionValues = event.exception?.values ?? []
+  for (const value of exceptionValues) {
+    if (value.type === 'IndexedDbUnavailableError') return true
+    const text = value.value ?? ''
+    if (IDB_BACKING_STORE_OPEN.test(text)) return true
+  }
+  return (
+    typeof event.message === 'string' && IDB_BACKING_STORE_OPEN.test(event.message)
+  )
+}
+
+/**
  * Browser-extension / host-bridge noise (often Edge/Chrome on Windows).
  * Rejects a non-Error string like
  * "Object Not Found Matching Id:1, MethodName:update, ParamCount:4" with no
@@ -373,6 +400,7 @@ function loadSentry(): Promise<SentryLike> | null {
         if (isMonitoringSelfTestEvent(event)) return null
         if (isCloudflareInsightsBeaconEvent(event)) return null
         if (isProjectLimitEvent(event)) return null
+        if (isIndexedDbBackingStoreOpenEvent(event)) return null
         if (isBrowserExtensionHostObjectNoiseEvent(event)) return null
         if (isViteCssPreloadError(event)) return null
         if (isChunkLoadErrorEvent(event)) return null
@@ -409,12 +437,17 @@ export function initErrorReporting(): void {
 }
 
 /**
- * True for expected product gates that must never become crash reports.
- * Matched by `error.name` so this module stays free of a storage import
+ * True for expected product gates / environmental storage failures that must
+ * never become crash reports. Matched by `error.name` (and a narrow Chromium
+ * IndexedDB.open signature) so this module stays free of a storage import
  * (storage pulls idb/OPFS; reportError is on the idle-deferred Sentry path).
  */
 export function isExpectedUserError(error: unknown): boolean {
-  return error instanceof Error && error.name === 'ProjectLimitError'
+  if (!(error instanceof Error)) return false
+  if (error.name === 'ProjectLimitError') return true
+  if (error.name === 'IndexedDbUnavailableError') return true
+  // Raw Chromium open failure if something reports before storage wraps it.
+  return IDB_BACKING_STORE_OPEN.test(error.message)
 }
 
 /**
