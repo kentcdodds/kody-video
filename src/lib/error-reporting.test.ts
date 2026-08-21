@@ -4,6 +4,7 @@ import {
   isChunkLoadErrorEvent,
   isCloudflareInsightsBeaconEvent,
   isExpectedUserError,
+  isIndexedDbBackingStoreOpenEvent,
   isMonitoringSelfTestEvent,
   isProjectLimitEvent,
   isReportingHostname,
@@ -13,7 +14,7 @@ import {
   reportComponentError,
   reportError,
 } from './error-reporting'
-import { ProjectLimitError } from './storage'
+import { IndexedDbUnavailableError, ProjectLimitError } from './storage'
 
 describe('isMonitoringSelfTestEvent', () => {
   it('drops the setup-agent synthetic exception signature', () => {
@@ -124,6 +125,97 @@ describe('isExpectedUserError / reportError', () => {
     expect(() =>
       reportError(new ProjectLimitError('The free plan includes 1 project'), 'save-clip'),
     ).not.toThrow()
+  })
+
+  it('recognizes IndexedDbUnavailableError and raw Chromium open failures', () => {
+    expect(isExpectedUserError(new IndexedDbUnavailableError())).toBe(true)
+    expect(
+      isExpectedUserError(
+        new DOMException(
+          'Internal error opening backing store for indexedDB.open.',
+          'UnknownError',
+        ),
+      ),
+    ).toBe(true)
+    expect(
+      isExpectedUserError(
+        new Error('UnknownError: Internal error opening backing store for indexedDB.open.'),
+      ),
+    ).toBe(true)
+  })
+
+  it('reportError stays silent for IndexedDbUnavailableError', () => {
+    expect(() => reportError(new IndexedDbUnavailableError(), 'load-home')).not.toThrow()
+  })
+})
+
+describe('isIndexedDbBackingStoreOpenEvent', () => {
+  it('drops IndexedDbUnavailableError by exception type', () => {
+    expect(
+      isIndexedDbBackingStoreOpenEvent({
+        exception: {
+          values: [
+            {
+              type: 'IndexedDbUnavailableError',
+              value:
+                'This browser can’t open on-device storage right now. Free some disk space, close other kody.video tabs, or restart the browser — then reload.',
+            },
+          ],
+        },
+      }),
+    ).toBe(true)
+  })
+
+  it('drops the raw Chromium backing-store open signature (KODY-VIDEO-Y)', () => {
+    expect(
+      isIndexedDbBackingStoreOpenEvent({
+        exception: {
+          values: [
+            {
+              type: 'Error',
+              value: 'UnknownError: Internal error opening backing store for indexedDB.open.',
+            },
+          ],
+        },
+      }),
+    ).toBe(true)
+  })
+
+  it('drops UnknownError wrappers that only say opening backing store', () => {
+    expect(
+      isIndexedDbBackingStoreOpenEvent({
+        exception: {
+          values: [
+            {
+              type: 'UnknownError',
+              value: 'Failed opening backing store for this profile',
+            },
+          ],
+        },
+      }),
+    ).toBe(true)
+    expect(
+      isExpectedUserError(
+        Object.assign(new Error('Failed opening backing store for this profile'), {
+          name: 'UnknownError',
+        }),
+      ),
+    ).toBe(true)
+  })
+
+  it('keeps unrelated IndexedDB UnknownErrors', () => {
+    expect(
+      isIndexedDbBackingStoreOpenEvent({
+        exception: {
+          values: [
+            {
+              type: 'Error',
+              value: 'UnknownError: Error preparing Blob/File data to be stored in object store',
+            },
+          ],
+        },
+      }),
+    ).toBe(false)
   })
 })
 
