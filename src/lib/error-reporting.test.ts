@@ -142,10 +142,18 @@ describe('isExpectedUserError / reportError', () => {
         new Error('UnknownError: Internal error opening backing store for indexedDB.open.'),
       ),
     ).toBe(true)
+    expect(isExpectedUserError(new ReferenceError('indexedDB is not defined'))).toBe(true)
+    expect(isExpectedUserError(new ReferenceError('foo is not defined'))).toBe(false)
   })
 
   it('reportError stays silent for IndexedDbUnavailableError', () => {
     expect(() => reportError(new IndexedDbUnavailableError(), 'load-home')).not.toThrow()
+  })
+
+  it('reportError stays silent for missing IndexedDB ReferenceError (KODY-VIDEO-10)', () => {
+    expect(() =>
+      reportError(new ReferenceError('indexedDB is not defined'), 'load-home'),
+    ).not.toThrow()
   })
 })
 
@@ -179,6 +187,33 @@ describe('isIndexedDbBackingStoreOpenEvent', () => {
         },
       }),
     ).toBe(true)
+  })
+
+  it('drops missing IndexedDB ReferenceError (KODY-VIDEO-10)', () => {
+    expect(
+      isIndexedDbBackingStoreOpenEvent({
+        exception: {
+          values: [
+            {
+              type: 'ReferenceError',
+              value: 'indexedDB is not defined',
+            },
+          ],
+        },
+      }),
+    ).toBe(true)
+    expect(
+      isIndexedDbBackingStoreOpenEvent({
+        exception: {
+          values: [
+            {
+              type: 'ReferenceError',
+              value: 'localStorage is not defined',
+            },
+          ],
+        },
+      }),
+    ).toBe(false)
   })
 
   it('drops UnknownError wrappers that only say opening backing store', () => {

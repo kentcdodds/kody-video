@@ -21,6 +21,8 @@ import {
   isRetriableIdbFailure,
   isStaleConnectionError,
   isIndexedDbBackingStoreOpenFailure,
+  isIndexedDbMissing,
+  isIndexedDbMissingError,
   IndexedDbUnavailableError,
   listProjects,
   moveClip,
@@ -156,6 +158,35 @@ describe('storage layer', () => {
     ).toBe(false)
     expect(isIndexedDbBackingStoreOpenFailure(new Error('Clip not found'))).toBe(false)
     expect(new IndexedDbUnavailableError().name).toBe('IndexedDbUnavailableError')
+  })
+
+  it('maps a missing IndexedDB global to IndexedDbUnavailableError (KODY-VIDEO-10)', async () => {
+    expect(isIndexedDbMissing()).toBe(false)
+    expect(isIndexedDbMissingError(new ReferenceError('indexedDB is not defined'))).toBe(true)
+    expect(isIndexedDbMissingError(new ReferenceError('foo is not defined'))).toBe(false)
+    expect(isIndexedDbMissingError(new Error('indexedDB is not defined'))).toBe(false)
+
+    // Clear any cached handle before removing the global — deleteDatabase needs it.
+    await __resetDbForTests()
+    const descriptor =
+      Object.getOwnPropertyDescriptor(globalThis, 'indexedDB') ??
+      Object.getOwnPropertyDescriptor(window, 'indexedDB')
+    Object.defineProperty(globalThis, 'indexedDB', {
+      configurable: true,
+      writable: true,
+      value: undefined,
+    })
+    try {
+      expect(isIndexedDbMissing()).toBe(true)
+      await expect(getDb()).rejects.toBeInstanceOf(IndexedDbUnavailableError)
+    } finally {
+      if (descriptor) {
+        Object.defineProperty(globalThis, 'indexedDB', descriptor)
+      } else {
+        delete (globalThis as { indexedDB?: IDBFactory }).indexedDB
+      }
+    }
+    expect(isIndexedDbMissing()).toBe(false)
   })
 
   it('heals a DB left empty by a version-less open (diag-style)', async () => {
