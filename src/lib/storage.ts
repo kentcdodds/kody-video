@@ -126,6 +126,22 @@ export function isIndexedDbBackingStoreOpenFailure(error: unknown): boolean {
 }
 
 /**
+ * True when this JS realm has no IndexedDB binding (KODY-VIDEO-10). Bots,
+ * exotic shells, and non-browser hosts throw ReferenceError inside idb's
+ * openDB; typeof is safe even when the identifier is undeclared.
+ */
+export function isIndexedDbMissing(): boolean {
+  return typeof indexedDB === 'undefined'
+}
+
+/** True when idb (or raw indexedDB) threw because the global is absent. */
+export function isIndexedDbMissingError(error: unknown): boolean {
+  return (
+    error instanceof ReferenceError && /indexedDB is not defined/i.test(error.message)
+  )
+}
+
+/**
  * Soft storage-unavailable gate after IndexedDB.open fails environmentally.
  * Surfaced in-app as guidance; expected platform noise, never a crash report.
  */
@@ -169,6 +185,12 @@ function forgetCachedDb(closedDb?: IDBPDatabase<ClipsDB> | null): void {
 }
 
 function openTrackedDb(): Promise<IDBPDatabase<ClipsDB>> {
+  // idb's openDB reads the free `indexedDB` binding; missing globals throw
+  // ReferenceError (KODY-VIDEO-10). Fail closed with the soft unavailable
+  // gate so load-home shows guidance instead of a crash report.
+  if (isIndexedDbMissing()) {
+    return Promise.reject(new IndexedDbUnavailableError())
+  }
   // Capture this open's handle in terminated — activeDb may already point at
   // a newer reconnect by the time the close event runs.
   const tracked = openDB<ClipsDB>(DB_NAME, DB_VERSION, {
@@ -204,7 +226,8 @@ function discardStaleDb(stale: IDBPDatabase<ClipsDB> | null, pending: Promise<ID
  * out from under us. getDb() clears the cache on close and, if a caller still
  * holds a closing handle, probes and reopens once so getSettings/load-home
  * does not surface InvalidStateError. Chromium LevelDB open failures
- * (KODY-VIDEO-Y) get the same one-shot retry, then a clear IndexedDbUnavailableError.
+ * (KODY-VIDEO-Y) and a missing IndexedDB global (KODY-VIDEO-10) map to
+ * IndexedDbUnavailableError after any one-shot retry that applies.
  */
 export async function getDb(): Promise<IDBPDatabase<ClipsDB>> {
   for (let attempt = 0; attempt < 2; attempt += 1) {
@@ -222,6 +245,11 @@ export async function getDb(): Promise<IDBPDatabase<ClipsDB>> {
       db.transaction('meta')
       return db
     } catch (error) {
+      if (isIndexedDbMissingError(error) || error instanceof IndexedDbUnavailableError) {
+        throw error instanceof IndexedDbUnavailableError
+          ? error
+          : new IndexedDbUnavailableError()
+      }
       const retriable =
         isStaleConnectionError(error) || isIndexedDbBackingStoreOpenFailure(error)
       if (!retriable || attempt === 1) {

@@ -110,8 +110,10 @@ function isIndexedDbBackingStoreOpenText(
 
 /**
  * Environmental IndexedDB.open noise: Chromium cannot open the profile's
- * LevelDB backing store (disk/profile/AV). After one retry, storage throws
- * IndexedDbUnavailableError for in-app guidance — not a triage-worthy bug.
+ * LevelDB backing store (disk/profile/AV), or the IndexedDB global is
+ * absent (bots / non-browser shells — KODY-VIDEO-10). After one retry where
+ * applicable, storage throws IndexedDbUnavailableError for in-app guidance —
+ * not a triage-worthy bug.
  */
 export function isIndexedDbBackingStoreOpenEvent(
   event: FilterableSentryEvent,
@@ -120,11 +122,22 @@ export function isIndexedDbBackingStoreOpenEvent(
   for (const value of exceptionValues) {
     if (value.type === 'IndexedDbUnavailableError') return true
     if (isIndexedDbBackingStoreOpenText(value.type, value.value ?? '')) return true
+    if (isIndexedDbNotDefinedText(value.type, value.value ?? '')) return true
   }
   return (
     typeof event.message === 'string' &&
-    isIndexedDbBackingStoreOpenText(undefined, event.message)
+    (isIndexedDbBackingStoreOpenText(undefined, event.message) ||
+      isIndexedDbNotDefinedText(undefined, event.message))
   )
+}
+
+/** Missing IndexedDB global (ReferenceError from idb / raw indexedDB.open). */
+const IDB_NOT_DEFINED = /indexedDB is not defined/i
+
+function isIndexedDbNotDefinedText(type: string | undefined, text: string): boolean {
+  if (!IDB_NOT_DEFINED.test(text)) return false
+  // Prefer the ReferenceError type when present; still accept bare messages.
+  return type === undefined || type === 'ReferenceError' || type === 'Error'
 }
 
 /**
@@ -452,8 +465,8 @@ export function initErrorReporting(): void {
 
 /**
  * True for expected product gates / environmental storage failures that must
- * never become crash reports. Matched by `error.name` (and a narrow Chromium
- * IndexedDB.open signature) so this module stays free of a storage import
+ * never become crash reports. Matched by `error.name` (and narrow IndexedDB
+ * signatures) so this module stays free of a storage import
  * (storage pulls idb/OPFS; reportError is on the idle-deferred Sentry path).
  */
 export function isExpectedUserError(error: unknown): boolean {
@@ -461,7 +474,9 @@ export function isExpectedUserError(error: unknown): boolean {
   if (error.name === 'ProjectLimitError') return true
   if (error.name === 'IndexedDbUnavailableError') return true
   // Raw Chromium open failure if something reports before storage wraps it.
-  return isIndexedDbBackingStoreOpenText(error.name, error.message)
+  if (isIndexedDbBackingStoreOpenText(error.name, error.message)) return true
+  // Missing IndexedDB global (KODY-VIDEO-10) before storage wraps it.
+  return isIndexedDbNotDefinedText(error.name, error.message)
 }
 
 /**
