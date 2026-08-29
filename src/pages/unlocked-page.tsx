@@ -52,9 +52,10 @@ export function UnlockedPage(handle: Handle) {
             <h1>Kody Video Plus unlocked! 🎉</h1>
             <p className="muted">
               Thank you for supporting Kody Video. Every export from this device is now
-              watermark-free, all six project slots are open, optional location tagging is
-              available, and you can send a project to another device. To unlock a second
-              phone or computer, tap Add another device and scan or type the short code.
+              watermark-free, all six project slots are open, 1080p High quality is available,
+              optional location tagging is available, and you can send a project to another device.
+              To unlock a second phone or computer, tap Add another device and scan or type the
+              short code.
             </p>
           </>
         ) : (

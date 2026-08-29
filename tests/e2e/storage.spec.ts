@@ -1,5 +1,5 @@
 import { test, expect, type Page } from '@playwright/test'
-import { gotoHome, seedProject } from './helpers'
+import { gotoHome, seedProject, unlockPlus } from './helpers'
 
 function listExportCache(page: Page): Promise<string[]> {
   return page.evaluate(async () => {
@@ -98,12 +98,19 @@ test.describe('storage management', () => {
     await context.close()
   })
 
-  test('about page persists a lower video quality', async ({ page }) => {
+  test('about page defaults free quality to Standard and persists Saver', async ({ page }) => {
     await page.goto('/about')
     const section = page.locator('#video-quality')
-    await expect(section.getByRole('radio', { name: 'High' })).toHaveAttribute('aria-checked', 'true')
-    await section.getByRole('radio', { name: 'Standard' }).click()
     await expect(section.getByRole('radio', { name: 'Standard' })).toHaveAttribute(
+      'aria-checked',
+      'true',
+    )
+    await section.getByRole('radio', { name: 'High (Kody Video Plus)' }).click()
+    await expect(page.getByRole('dialog', { name: 'Kody Video Plus' })).toBeVisible()
+    await page.getByRole('button', { name: 'Not now' }).click()
+
+    await section.getByRole('radio', { name: 'Saver' }).click()
+    await expect(section.getByRole('radio', { name: 'Saver' })).toHaveAttribute(
       'aria-checked',
       'true',
     )
@@ -114,14 +121,37 @@ test.describe('storage management', () => {
           return (await storage.getSettings()).videoQuality ?? null
         }),
       )
-      .toBe('standard')
+      .toBe('saver')
 
     await page.reload()
-    await expect(page.locator('#video-quality').getByRole('radio', { name: 'Standard' })).toHaveAttribute(
+    await expect(page.locator('#video-quality').getByRole('radio', { name: 'Saver' })).toHaveAttribute(
       'aria-checked',
       'true',
     )
-    await expect(page.locator('#video-quality')).toContainText('720p')
+  })
+
+  test('Plus can pick High video quality', async ({ page }) => {
+    await unlockPlus(page)
+    await page.goto('/about')
+    const section = page.locator('#video-quality')
+    await expect(section.getByRole('radio', { name: 'High' })).toHaveAttribute(
+      'aria-checked',
+      'true',
+    )
+    await section.getByRole('radio', { name: 'Standard' }).click()
+    await expect(section.getByRole('radio', { name: 'Standard' })).toHaveAttribute(
+      'aria-checked',
+      'true',
+    )
+    await section.getByRole('radio', { name: 'High' }).click()
+    await expect
+      .poll(async () =>
+        page.evaluate(async () => {
+          const storage = await import('/src/lib/storage.ts')
+          return (await storage.getSettings()).videoQuality ?? null
+        }),
+      )
+      .toBe('high')
   })
 
   test('about page shows cache size and clears it', async ({ page }) => {

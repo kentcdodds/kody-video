@@ -238,22 +238,37 @@ describe('storage layer', () => {
     expect(db.objectStoreNames.contains('projects')).toBe(true)
   })
 
-  it('defaults video quality to high and persists a lower preset', async () => {
+  it('defaults free video quality to standard and persists saver', async () => {
     expect((await getSettings()).videoQuality).toBeUndefined()
+    expect(activeVideoQuality()).toBe('standard')
     await setVideoQuality('standard')
     expect((await getSettings()).videoQuality).toBe('standard')
     await setVideoQuality('saver')
     expect((await getSettings()).videoQuality).toBe('saver')
+  })
+
+  it('gates high video quality behind Plus', async () => {
+    await expect(setVideoQuality('high')).rejects.toBeInstanceOf(PlusRequiredError)
+    await markWatermarkRemoved('cs_test_video_quality')
     await setVideoQuality('high')
     expect((await getSettings()).videoQuality).toBe('high')
+    expect(activeVideoQuality()).toBe('high')
   })
 
   it('hydrates the in-memory capture preset when settings are read', async () => {
     await setVideoQuality('saver')
     resetActiveVideoQualityForTests()
-    expect(activeVideoQuality()).toBe('high')
+    expect(activeVideoQuality()).toBe('standard')
     await getSettings()
     expect(activeVideoQuality()).toBe('saver')
+  })
+
+  it('hydrates Plus users to high when they have not picked a preset', async () => {
+    await markWatermarkRemoved('cs_test_video_quality_default')
+    resetActiveVideoQualityForTests()
+    expect(activeVideoQuality()).toBe('standard')
+    await getSettings()
+    expect(activeVideoQuality()).toBe('high')
   })
 
   it('defaults keepWatermark off and persists the Plus opt-in', async () => {

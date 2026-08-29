@@ -2,7 +2,9 @@ import type { Handle } from 'remix/ui'
 import { on } from 'remix/ui'
 import { IconBack } from '../components/icons'
 import { BrandMark } from '../components/brand-mark'
+import { RestoreSheet } from '../components/restore-sheet'
 import { SharePlusSheet } from '../components/share-plus-sheet'
+import { UpsellSheet } from '../components/upsell-sheet'
 import { VideoQualityPicker } from '../components/video-quality-picker'
 import {
   checkForUpdates,
@@ -89,7 +91,7 @@ async function loadAboutData(): Promise<AboutData> {
     storage,
     exportCacheBytes,
     plus: settings.watermarkRemoved === true,
-    videoQuality: resolveVideoQuality(settings.videoQuality),
+    videoQuality: resolveVideoQuality(settings.videoQuality, settings.watermarkRemoved === true),
   }
 }
 
@@ -109,9 +111,11 @@ export function AboutPage(handle: Handle) {
     storage: null,
     exportCacheBytes: 0,
     plus: false,
-    videoQuality: 'high',
+    videoQuality: 'standard',
   }
   let sharingPlus = false
+  let upselling = false
+  let restoring = false
   let updateStatus: UpdateStatus = 'idle'
   let cacheStatus: string | null = null
   let clearingCache = false
@@ -412,11 +416,16 @@ export function AboutPage(handle: Handle) {
             <h2>Video quality</h2>
             <p>
               New clips only — already-recorded takes stay as they are. Every option stays at 30
-              frames a second so recording does not drop frames or get janky. Lower settings ask
-              the camera for a smaller picture and a smaller file.
+              frames a second so recording does not drop frames or get janky. Without Plus, new
+              clips record at Standard (720p). High (1080p) is a Kody Video Plus perk.
             </p>
             <VideoQualityPicker
               value={videoQuality}
+              plus={plus}
+              onUpsell={() => {
+                upselling = true
+                void handle.update()
+              }}
               onChange={(next) => {
                 data = { ...data, videoQuality: next }
                 void handle.update()
@@ -580,6 +589,32 @@ export function AboutPage(handle: Handle) {
             onClose={() => {
               sharingPlus = false
               void handle.update()
+            }}
+          />
+        ) : null}
+        {upselling ? (
+          <UpsellSheet
+            onClose={() => {
+              upselling = false
+              void handle.update()
+            }}
+            onRestore={() => {
+              upselling = false
+              restoring = true
+              void handle.update()
+            }}
+          />
+        ) : null}
+        {restoring ? (
+          <RestoreSheet
+            onClose={() => {
+              restoring = false
+              void handle.update()
+            }}
+            onRestored={() => {
+              restoring = false
+              void handle.update()
+              void refresh()
             }}
           />
         ) : null}

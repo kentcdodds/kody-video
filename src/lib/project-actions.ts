@@ -107,7 +107,7 @@ export async function loadHomePage(): Promise<HomeLoaderData> {
     exportCacheBytes,
     plus: settings.watermarkRemoved === true,
     tourCardDismissed: settings.tourCardDismissed === true,
-    videoQuality: resolveVideoQuality(settings.videoQuality),
+    videoQuality: resolveVideoQuality(settings.videoQuality, settings.watermarkRemoved === true),
   }
 }
 

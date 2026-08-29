@@ -312,7 +312,7 @@ export async function getSettings(): Promise<AppMeta> {
       onboardingDismissed: false,
     }
     const settings = existing ? { ...defaults, ...existing } : defaults
-    setActiveVideoQuality(settings.videoQuality)
+    setActiveVideoQuality(settings.videoQuality, settings.watermarkRemoved === true)
     if (!existing || existing.onboardingDismissed === undefined) {
       await db.put('meta', settings)
     }
@@ -361,14 +361,18 @@ function enqueueMetaWrite<T>(write: () => Promise<T>): Promise<T> {
 }
 
 export async function setVideoQuality(videoQuality: VideoQualityPreset): Promise<VideoQualityPreset> {
-  const resolved = resolveVideoQuality(videoQuality)
-  await enqueueMetaWrite(async () => {
+  return enqueueMetaWrite(async () => {
     const db = await getDb()
     const settings = await getSettings()
-    setActiveVideoQuality(resolved)
-    await db.put('meta', { ...settings, videoQuality: resolved })
+    const plus = settings.watermarkRemoved === true
+    if (videoQuality === 'high' && !plus) {
+      throw new PlusRequiredError('High video quality is a Kody Video Plus perk.')
+    }
+    const next = resolveVideoQuality(videoQuality, plus)
+    setActiveVideoQuality(next, plus)
+    await db.put('meta', { ...settings, videoQuality: next })
+    return next
   })
-  return resolved
 }
 
 export async function setKeepWatermark(keepWatermark: boolean): Promise<void> {

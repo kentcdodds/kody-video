@@ -211,7 +211,7 @@ export function HomePage(handle: Handle) {
       ) : null
     }
     const { projects, storage, exportCacheBytes, plus } = data
-    const videoQuality = data.videoQuality ?? 'high'
+    const videoQuality = data.videoQuality ?? 'standard'
     const installable = canPromptInstall()
 
     const slots = Array.from({ length: MAX_PROJECTS }, (_, index) => projects[index] ?? null)
@@ -523,9 +523,14 @@ export function HomePage(handle: Handle) {
               <StorageMeter
                 storage={storage}
                 videoQuality={videoQuality}
+                plus={plus}
                 onVideoQualityChange={(next) => {
                   data = { ...data!, videoQuality: next }
                   lastHomeData = data
+                  void handle.update()
+                }}
+                onUpsell={() => {
+                  upselling = true
                   void handle.update()
                 }}
               />

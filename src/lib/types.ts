@@ -226,7 +226,8 @@ export interface AppMeta {
   /** Opt-in: tag new clips with device location. */
   locationTaggingEnabled?: boolean
   /**
-   * Capture size/bitrate for new recordings. Missing/unknown = high (1080p).
+   * Capture size/bitrate for new recordings. Missing/unknown = standard
+   * (720p) without Plus, high (1080p) with Plus. High requires Plus.
    * Does not rewrite already-saved clips. Frame rate stays 30 either way.
    */
   videoQuality?: 'high' | 'standard' | 'saver'

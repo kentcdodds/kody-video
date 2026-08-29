@@ -29,7 +29,7 @@ export const VIDEO_QUALITY_PRESETS: Record<
   high: {
     id: 'high',
     label: 'High',
-    hint: '1080p — sharpest new clips, largest files.',
+    hint: '1080p — Plus. Sharpest new clips, largest files.',
     longEdge: VIDEO_LONG_EDGE,
     shortEdge: VIDEO_SHORT_EDGE,
     captureBpp: CAPTURE_BPP,
@@ -54,19 +54,23 @@ export const VIDEO_QUALITY_PRESETS: Record<
 
 export const VIDEO_QUALITY_IDS = ['high', 'standard', 'saver'] as const satisfies readonly VideoQualityPreset[]
 
-const DEFAULT_VIDEO_QUALITY: VideoQualityPreset = 'high'
+/** Free (and unknown-plus) default — 720p, still 30fps. */
+export const FREE_VIDEO_QUALITY: VideoQualityPreset = 'standard'
+/** Plus default when the user has not picked a preset — 1080p is the perk. */
+export const PLUS_DEFAULT_VIDEO_QUALITY: VideoQualityPreset = 'high'
 
-let activeQuality: VideoQualityPreset = DEFAULT_VIDEO_QUALITY
+let activeQuality: VideoQualityPreset = FREE_VIDEO_QUALITY
 
-export function resolveVideoQuality(value: unknown): VideoQualityPreset {
-  if (value === 'high' || value === 'standard' || value === 'saver') return value
-  return DEFAULT_VIDEO_QUALITY
+export function resolveVideoQuality(value: unknown, plus = false): VideoQualityPreset {
+  if (value === 'standard' || value === 'saver') return value
+  if (value === 'high') return plus ? 'high' : FREE_VIDEO_QUALITY
+  return plus ? PLUS_DEFAULT_VIDEO_QUALITY : FREE_VIDEO_QUALITY
 }
 
 /** In-memory capture preset used by the camera and recorder (sync). Hydrated
  * from settings on load so the first take already matches the user's choice. */
-export function setActiveVideoQuality(value: unknown): VideoQualityPreset {
-  activeQuality = resolveVideoQuality(value)
+export function setActiveVideoQuality(value: unknown, plus = false): VideoQualityPreset {
+  activeQuality = resolveVideoQuality(value, plus)
   return activeQuality
 }
 
@@ -75,7 +79,7 @@ export function activeVideoQuality(): VideoQualityPreset {
 }
 
 export function resetActiveVideoQualityForTests(): void {
-  activeQuality = DEFAULT_VIDEO_QUALITY
+  activeQuality = FREE_VIDEO_QUALITY
 }
 
 export function videoQualityPreset(

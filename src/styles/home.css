@@ -702,6 +702,10 @@
 
 .video-quality-option {
   flex: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
   min-height: var(--tap);
   padding: 0 8px;
   border-radius: 12px;
@@ -710,6 +714,12 @@
   font-size: 0.88rem;
   background: color-mix(in srgb, var(--ink) 6%, transparent);
   color: var(--ink);
+}
+
+.video-quality-lock {
+  display: inline-flex;
+  line-height: 0;
+  opacity: 0.75;
 }
 
 .video-quality-option.is-active {
