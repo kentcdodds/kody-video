@@ -131,6 +131,7 @@ test.describe('storage management', () => {
   })
 
   test('Plus can pick High video quality', async ({ page }) => {
+    await gotoHome(page)
     await unlockPlus(page)
     await page.goto('/about')
     const section = page.locator('#video-quality')
