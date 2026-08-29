@@ -102,7 +102,7 @@ export function RecordScreen(handle: Handle<RecordScreenProps>) {
    * stray pointer events must not end the take or reset drag-zoom state. */
   let keyboardTake = false
   let beginInFlight = false
-  let endInFlight = false
+  let endInFlight: Promise<void> | null = null
   let countdownTimer = 0
   let wakeLock: WakeLockSentinel | null = null
   let wakeLockGen = 0
@@ -418,7 +418,7 @@ export function RecordScreen(handle: Handle<RecordScreenProps>) {
       }
 
       recorder.arm(stream)
-      const startedOk = recorder.start(stream)
+      const startedOk = await recorder.start(stream)
       if (!startedOk) {
         pointerId = null
         // Never strip mic from an already-active recording owned by another start.
@@ -485,8 +485,9 @@ export function RecordScreen(handle: Handle<RecordScreenProps>) {
     }
     // One end per take: stop() resolves asynchronously (duration is
     // measured), so a second caller (e.g. hide + return in quick
-    // succession) must not re-enter and double-save the clip.
-    if (endInFlight) return
+    // succession) must not re-enter and double-save the clip — it waits
+    // for the in-flight flush instead (worker stop is no longer same-turn).
+    if (endInFlight) return endInFlight
     if (!recorder.isRecording && !recording) {
       // Pointer released while mic grant was still in flight. Keep the
       // just-acquired mic warm — an aborted press is usually followed by
@@ -496,7 +497,7 @@ export function RecordScreen(handle: Handle<RecordScreenProps>) {
       camera.releaseMic({ keepWarm: true })
       return
     }
-    endInFlight = true
+    const run = (async () => {
     pointerId = null
     keyboardTake = false
     recording = false
@@ -512,8 +513,8 @@ export function RecordScreen(handle: Handle<RecordScreenProps>) {
     const capturedThumbs = captureTakeThumbs().catch(() => null)
     try {
       // flushNow: the caller is about to tear the camera (and the
-      // recorder's live mic track) down — the stop-grace tail must be
-      // skipped and the encoder flushed synchronously inside this call.
+      // recorder's live mic track) down — skip the stop-grace tail and
+      // await the encoder flush before those tracks are stopped.
       const result = await recorder.stop(options?.flushNow ? { graceMs: 0 } : undefined)
       if (!result) {
         props.showToast('Hold a bit longer')
@@ -544,7 +545,6 @@ export function RecordScreen(handle: Handle<RecordScreenProps>) {
       reportError(err, 'save-clip')
       props.showToast(err instanceof Error ? err.message : 'Save failed')
     } finally {
-      endInFlight = false
       // stop() resolves only after the blob's duration is measured, so a
       // quick next hold may already be recording (or acquiring the mic) by
       // now — never strip the mic, monitor, or wake lock from that newer
@@ -563,6 +563,13 @@ export function RecordScreen(handle: Handle<RecordScreenProps>) {
         stopThumbMirror()
         armEncoderIfPossible()
       }
+    }
+    })()
+    endInFlight = run
+    try {
+      await run
+    } finally {
+      if (endInFlight === run) endInFlight = null
     }
   }
 
@@ -718,16 +725,16 @@ export function RecordScreen(handle: Handle<RecordScreenProps>) {
       // returning starts fresh with a restarted camera (and mic, on iOS).
       micSilent = false
       void handle.update()
-      if (recorder.isRecording || recording) {
-        // flushNow makes MediaRecorder.stop() run synchronously inside
-        // endRecord (no stop-grace), so the encoder has flushed by the time
-        // the tracks are stopped below; the save itself continues in the
-        // background.
-        void endRecord(undefined, { flushNow: true })
-      }
-      recorder.disarm()
-      camera.stop()
       cameraStoppedInBackground = true
+      void (async () => {
+        if (recorder.isRecording || recording) {
+          // Worker MediaRecorder cannot flush in this turn — await the
+          // encoder stop before releasing the camera tracks.
+          await endRecord(undefined, { flushNow: true })
+        }
+        recorder.disarm()
+        camera.stop()
+      })()
       return
     }
     // Coming back to the foreground: restart the camera unconditionally.

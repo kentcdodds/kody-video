@@ -81,7 +81,7 @@ export async function startScreenRecording(): Promise<ScreenRecordingSession> {
     void audioContext?.close().catch(() => undefined)
   }
 
-  if (!recorder.start(recordStream)) {
+  if (!(await recorder.start(recordStream))) {
     releaseTracks()
     throw new Error('Could not start the screen recording')
   }
