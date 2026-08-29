@@ -225,6 +225,12 @@ export interface AppMeta {
   includeLocationInExports?: boolean
   /** Opt-in: tag new clips with device location. */
   locationTaggingEnabled?: boolean
+  /**
+   * Capture size/bitrate for new recordings. Missing/unknown = standard
+   * (720p) without Plus, high (1080p) with Plus. High requires Plus.
+   * Does not rewrite already-saved clips. Frame rate stays 30 either way.
+   */
+  videoQuality?: 'high' | 'standard' | 'saver'
   /** The persisted last export (OPFS-backed), recoverable after the share
    * sheet is missed — and served instantly when nothing changed. */
   lastExport?: {

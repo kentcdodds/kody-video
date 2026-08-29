@@ -1,7 +1,7 @@
 import { clipDownloadFilename } from './clip-facts'
 import { isMobileBrowser } from './platform'
 import type { ClipRecord } from './types'
-import { VIDEO_LONG_EDGE, VIDEO_SHORT_EDGE } from './video-quality'
+import { captureVideoConstraints } from './video-quality'
 
 export { isIosBrowser, isMobileBrowser } from './platform'
 
@@ -65,11 +65,7 @@ export async function openCameraStream(
         ? { deviceId: { exact: options.audioDeviceId } }
         : true
       : false
-  const baseConstraints: MediaTrackConstraints = {
-    width: { ideal: VIDEO_LONG_EDGE },
-    height: { ideal: VIDEO_SHORT_EDGE },
-    frameRate: { ideal: 30 },
-  }
+  const baseConstraints: MediaTrackConstraints = captureVideoConstraints()
 
   // A specific lens (e.g. the rear ultra-wide) is requested by device id;
   // stale ids (permission reset, OS updates) fall back to facing mode.

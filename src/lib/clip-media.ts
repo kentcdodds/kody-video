@@ -75,6 +75,58 @@ export async function sliceClipMedia(
   }
 }
 
+/** Re-encode a clip at a smaller size/bitrate. Always transcodes. */
+export async function reduceClipMedia(
+  blob: Blob,
+  target: { width: number; height: number; bitrate: number },
+  mimeHint?: string,
+): Promise<SlicedClipMedia> {
+  const { ALL_FORMATS, BlobSource, BufferTarget, Conversion, Input, Mp4OutputFormat, Output, Quality, WebMOutputFormat } =
+    await import('mediabunny')
+
+  const input = new Input({ source: new BlobSource(blob), formats: ALL_FORMATS })
+  try {
+    const mimeType = outputMimeForClipMedia(blob.type || mimeHint || '')
+    const preferMp4 = mimeType === 'video/mp4'
+    const dest = new BufferTarget()
+    const output = new Output({
+      format: preferMp4 ? new Mp4OutputFormat({ fastStart: 'in-memory' }) : new WebMOutputFormat(),
+      target: dest,
+    })
+    const conversion = await Conversion.init({
+      input,
+      output,
+      video: {
+        width: target.width,
+        height: target.height,
+        fit: 'contain',
+        quality: new Quality({ bitrate: target.bitrate }),
+        forceTranscode: true,
+      },
+      showWarnings: false,
+    })
+    if (!conversion.isValid) {
+      throw new Error('Could not reduce that clip on this device')
+    }
+    await conversion.execute()
+    if (!dest.buffer || dest.buffer.byteLength <= 0) {
+      throw new Error('Reducing the clip produced no video')
+    }
+
+    const reduced = new Blob([dest.buffer], { type: mimeType })
+    const durationMs = await measureSlicedDuration(reduced, 0)
+    return {
+      blob: reduced,
+      mimeType,
+      durationMs: durationMs > 0 ? durationMs : 0,
+      width: target.width,
+      height: target.height,
+    }
+  } finally {
+    input.dispose()
+  }
+}
+
 async function measureSlicedDuration(blob: Blob, fallbackMs: number): Promise<number> {
   try {
     const measured = await measureBlobDuration(blob)

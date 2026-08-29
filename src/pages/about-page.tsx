@@ -2,7 +2,10 @@ import type { Handle } from 'remix/ui'
 import { on } from 'remix/ui'
 import { IconBack } from '../components/icons'
 import { BrandMark } from '../components/brand-mark'
+import { RestoreSheet } from '../components/restore-sheet'
 import { SharePlusSheet } from '../components/share-plus-sheet'
+import { UpsellSheet } from '../components/upsell-sheet'
+import { VideoQualityPicker } from '../components/video-quality-picker'
 import {
   checkForUpdates,
   fetchDeployedVersion,
@@ -17,7 +20,8 @@ import { clearExportCache, estimateExportCacheBytes } from '../lib/export/export
 import { listRearCameras } from '../lib/media'
 import { BackupFormatError, importKodyVideoBackupFile } from '../lib/project-transfer'
 import { estimateStorageSpace, formatBytes, type StorageSpace } from '../lib/storage-space'
-import { getSettings } from '../lib/storage'
+import { getSettings, setVideoQuality } from '../lib/storage'
+import { resolveVideoQuality, type VideoQualityPreset } from '../lib/video-quality'
 import { navigate } from '../router'
 
 /** Prefilled GitHub issue so bug reports arrive with device context attached. */
@@ -73,8 +77,14 @@ function updateDiagnosticsReport(
 interface AboutData {
   storage: StorageSpace | null
   exportCacheBytes: number
-  plus: boolean
+  /** `null` until settings load so High is not locked on first paint. */
+  plus: boolean | null
+  videoQuality: VideoQualityPreset
 }
+
+/** Last loaded About settings, kept across mounts so Plus/quality do not
+ * flash the free-plan picker when navigating back. */
+let lastAboutData: AboutData | null = null
 
 async function loadAboutData(): Promise<AboutData> {
   const [storage, exportCacheBytes, settings] = await Promise.all([
@@ -82,7 +92,12 @@ async function loadAboutData(): Promise<AboutData> {
     estimateExportCacheBytes(),
     getSettings(),
   ])
-  return { storage, exportCacheBytes, plus: settings.watermarkRemoved === true }
+  return {
+    storage,
+    exportCacheBytes,
+    plus: settings.watermarkRemoved === true,
+    videoQuality: resolveVideoQuality(settings.videoQuality, settings.watermarkRemoved === true),
+  }
 }
 
 type UpdateStatus = 'idle' | 'checking' | 'current' | 'updating' | 'downloading' | 'unavailable'
@@ -97,8 +112,15 @@ const UPDATE_STATUS_LABEL: Record<Exclude<UpdateStatus, 'idle'>, string> = {
 
 /** Credits, inspiration, and the open-source pointer. */
 export function AboutPage(handle: Handle) {
-  let data: AboutData = { storage: null, exportCacheBytes: 0, plus: false }
+  let data: AboutData = lastAboutData ?? {
+    storage: null,
+    exportCacheBytes: 0,
+    plus: null,
+    videoQuality: 'standard',
+  }
   let sharingPlus = false
+  let upselling = false
+  let restoring = false
   let updateStatus: UpdateStatus = 'idle'
   let cacheStatus: string | null = null
   let clearingCache = false
@@ -110,12 +132,25 @@ export function AboutPage(handle: Handle) {
   let deployedCommit: string | null = null
   let deployedKnown = false
 
-  const refresh = async () => {
-    data = await loadAboutData()
-    if (handle.signal.aborted) return
-    void handle.update()
+  /** Same stale-load guard as home: an in-flight refresh must not overwrite
+   * a quality pick that landed while settings were still loading. */
+  let refreshVersion = 0
+  const refresh = () => {
+    const version = ++refreshVersion
+    void loadAboutData()
+      .then((loaded) => {
+        if (handle.signal.aborted || version !== refreshVersion) return
+        lastAboutData = loaded
+        data = loaded
+        void handle.update()
+      })
+      .catch((err) => {
+        if (handle.signal.aborted || version !== refreshVersion) return
+        reportError(err, 'load-about')
+      })
   }
-  void refresh()
+  refresh()
+  let hashScrolled = false
   void fetchDeployedVersion().then((deployed) => {
     if (handle.signal.aborted) return
     deployedCommit = deployed?.commit ?? null
@@ -253,7 +288,13 @@ export function AboutPage(handle: Handle) {
   }
 
   return () => {
-    const { storage, exportCacheBytes, plus } = data
+    const { storage, exportCacheBytes, plus, videoQuality } = data
+    if (!hashScrolled && location.hash === '#video-quality') {
+      hashScrolled = true
+      queueMicrotask(() => {
+        document.getElementById('video-quality')?.scrollIntoView({ block: 'start' })
+      })
+    }
     const version = <code>{shortVersion()}</code>
     const versionUrl = commitUrl()
     const diagReport = updateDiagnosticsReport(deployedCommit, deployedKnown)
@@ -388,6 +429,33 @@ export function AboutPage(handle: Handle) {
             </p>
           </section>
 
+          <section className="about-section" id="video-quality">
+            <h2>Video quality</h2>
+            <p>
+              New clips only — already-recorded takes stay as they are. Every option stays at 30
+              frames a second so recording does not drop frames or get janky. Without Plus, new
+              clips record at Standard (720p). High (1080p) is a Kody Video Plus perk.
+            </p>
+            <VideoQualityPicker
+              value={videoQuality}
+              plus={plus}
+              onUpsell={() => {
+                upselling = true
+                void handle.update()
+              }}
+              onChange={(next) => {
+                data = { ...data, videoQuality: next }
+                lastAboutData = data
+                const pickVersion = ++refreshVersion
+                void handle.update()
+                void setVideoQuality(next).catch((err) => {
+                  reportError(err, 'video-quality')
+                  if (refreshVersion === pickVersion) refresh()
+                })
+              }}
+            />
+          </section>
+
           <section className="about-section">
             <h2>Storage</h2>
             <p>
@@ -395,8 +463,9 @@ export function AboutPage(handle: Handle) {
                 ? `This app uses ${formatBytes(storage.usedBytes)} of the ${formatBytes(storage.quotaBytes)} the browser allows. `
                 : ''}
               Your recordings are the big consumer — delete old projects from the home screen
-              (⋯ → Delete) to free the most space. The app also keeps your latest export cached so
-              tapping Go on an unchanged project is instant.
+              (⋯ → Delete) to free the most space, or record new clips at a lower video quality
+              above. The app also keeps your latest export cached so tapping Go on an unchanged
+              project is instant.
             </p>
             <p>
               Cached export files: <strong>{formatBytes(exportCacheBytes)}</strong>
@@ -539,6 +608,32 @@ export function AboutPage(handle: Handle) {
             onClose={() => {
               sharingPlus = false
               void handle.update()
+            }}
+          />
+        ) : null}
+        {upselling ? (
+          <UpsellSheet
+            onClose={() => {
+              upselling = false
+              void handle.update()
+            }}
+            onRestore={() => {
+              upselling = false
+              restoring = true
+              void handle.update()
+            }}
+          />
+        ) : null}
+        {restoring ? (
+          <RestoreSheet
+            onClose={() => {
+              restoring = false
+              void handle.update()
+            }}
+            onRestored={() => {
+              restoring = false
+              void handle.update()
+              void refresh()
             }}
           />
         ) : null}

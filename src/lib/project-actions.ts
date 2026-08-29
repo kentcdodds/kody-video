@@ -36,6 +36,7 @@ import { heldDeviceOrientation } from './platform'
 import { probeAudioFile } from './audio-import'
 import { estimateExportCacheBytes } from './export/export-cache'
 import { estimateStorageSpace, type StorageSpace } from './storage-space'
+import { resolveVideoQuality } from './video-quality'
 import type { GeneratedThumbs } from './thumbs'
 import { canSplitClip, clipHasUnusedMedia, remapTrimToSlice, resolveSplitMs } from './clip-edit'
 import {
@@ -89,6 +90,8 @@ export interface HomeLoaderData {
   plus: boolean
   /** Home "Watch the tour" card dismissed (first-timer teaser). */
   tourCardDismissed: boolean
+  /** Capture quality for new recordings (missing follows Plus: high / standard). */
+  videoQuality: 'high' | 'standard' | 'saver'
 }
 
 export async function loadHomePage(): Promise<HomeLoaderData> {
@@ -104,6 +107,7 @@ export async function loadHomePage(): Promise<HomeLoaderData> {
     exportCacheBytes,
     plus: settings.watermarkRemoved === true,
     tourCardDismissed: settings.tourCardDismissed === true,
+    videoQuality: resolveVideoQuality(settings.videoQuality, settings.watermarkRemoved === true),
   }
 }
 
@@ -354,6 +358,31 @@ export async function trimClip(
   trimEndMs: number,
 ): Promise<void> {
   await updateClipTrim(clipId, trimStartMs, trimEndMs)
+}
+
+/** Permanently replace a clip with a smaller encode. Cannot be undone. */
+export async function reduceClipQuality(clipId: ClipId): Promise<ClipRecord> {
+  const clip = await getClip(clipId)
+  if (!clip) throw new Error('Clip not found')
+  const { planClipQualityReduction } = await import('./clip-quality')
+  const plan = planClipQualityReduction(clip)
+  if (!plan) throw new Error('This clip is already a small file')
+
+  const { reduceClipMedia } = await import('./clip-media')
+  const reduced = await reduceClipMedia(clip.blob, plan, clip.mimeType)
+  const durationMs = reduced.durationMs > 0 ? reduced.durationMs : clip.durationMs
+  const scale = durationMs / Math.max(1, clip.durationMs)
+  const updated = await replaceClipMedia(clipId, {
+    blob: reduced.blob,
+    mimeType: reduced.mimeType,
+    durationMs,
+    trimStartMs: Math.round(clip.trimStartMs * scale),
+    trimEndMs: Math.round(clip.trimEndMs * scale),
+    width: reduced.width ?? plan.width,
+    height: reduced.height ?? plan.height,
+  })
+  await clearUndo(clip.projectId)
+  return decorateSlicedClip(updated)
 }
 
 /** Bake the saved trim into the file and drop the unused head/tail. */

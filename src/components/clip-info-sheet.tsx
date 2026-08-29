@@ -1,6 +1,7 @@
 import type { Handle } from 'remix/ui'
 import { on, ref } from 'remix/ui'
 import { canSplitClip, clipHasUnusedMedia } from '../lib/clip-edit'
+import { planClipQualityReduction } from '../lib/clip-quality'
 import { buildClipFacts } from '../lib/clip-facts'
 import { clipFit, clipMismatchesFilm } from '../lib/clip-fit'
 import { attachSheetModal } from '../lib/sheet-modal'
@@ -11,7 +12,7 @@ import {
   type ClipRecord,
   type ProjectOrientation,
 } from '../lib/types'
-import { IconCrop, IconDownload, IconLetterbox, IconSplit, IconTrim } from './icons'
+import { IconCompress, IconCrop, IconDownload, IconLetterbox, IconSplit, IconTrim } from './icons'
 
 interface ClipInfoSheetProps {
   clip: ClipRecord
@@ -21,17 +22,19 @@ interface ClipInfoSheetProps {
   filmOrientation: ProjectOrientation
   onSetFit: (fit: ClipFit) => Promise<void>
   onPermanentlyTrim: () => Promise<void>
+  onReduceQuality: () => Promise<void>
   onStartSplit: () => void
   onDownload: () => Promise<void>
   onClose: () => void
 }
 
-type BusyAction = 'trim' | 'download' | null
+type BusyAction = 'trim' | 'quality' | 'download' | null
+type ConfirmingAction = 'trim' | 'quality' | null
 
 /** Facts + destructive clip edits (permanent trim, split) and download. */
 export function ClipInfoSheet(handle: Handle<ClipInfoSheetProps>) {
   let busy: BusyAction = null
-  let confirmingTrim = false
+  let confirming: ConfirmingAction = null
   let error: string | null = null
 
   const run = async (action: Exclude<BusyAction, null>, work: () => Promise<void>) => {
@@ -61,6 +64,7 @@ export function ClipInfoSheet(handle: Handle<ClipInfoSheetProps>) {
     const photo = isImageClip(clip)
     const canTrim = clipHasUnusedMedia(clip)
     const canSplit = canSplitClip(clip)
+    const qualityPlan = photo ? null : planClipQualityReduction(clip)
     const working = busy !== null
 
     return (
@@ -123,15 +127,21 @@ export function ClipInfoSheet(handle: Handle<ClipInfoSheetProps>) {
 
           {error ? <p className="sheet-message is-error">{error}</p> : null}
 
-          {confirmingTrim ? (
+          {confirming === 'trim' ? (
             <p className="sheet-message">
               This deletes the unused start and end from the file. You cannot undo
               it.
             </p>
           ) : null}
+          {confirming === 'quality' && qualityPlan ? (
+            <p className="sheet-message">
+              This permanently replaces the clip with {qualityPlan.summary}. You cannot
+              undo it.
+            </p>
+          ) : null}
 
           <div className="clip-info-actions">
-            {photo ? null : confirmingTrim ? (
+            {photo ? null : confirming === 'trim' ? (
               <div className="sheet-actions">
                 <button
                   type="button"
@@ -139,7 +149,7 @@ export function ClipInfoSheet(handle: Handle<ClipInfoSheetProps>) {
                   disabled={working}
                   data-sheet-focus
                   mix={on('click', () => {
-                    confirmingTrim = false
+                    confirming = null
                     void handle.update()
                   })}
                 >
@@ -156,20 +166,60 @@ export function ClipInfoSheet(handle: Handle<ClipInfoSheetProps>) {
                   {busy === 'trim' ? 'Deleting…' : 'Delete unused parts'}
                 </button>
               </div>
+            ) : confirming === 'quality' ? (
+              <div className="sheet-actions">
+                <button
+                  type="button"
+                  className="btn btn-ghost"
+                  disabled={working}
+                  data-sheet-focus
+                  mix={on('click', () => {
+                    confirming = null
+                    void handle.update()
+                  })}
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  className="btn btn-primary confirm-sheet-danger"
+                  disabled={working}
+                  mix={on('click', () =>
+                    run('quality', () => handle.props.onReduceQuality()),
+                  )}
+                >
+                  {busy === 'quality' ? 'Replacing…' : 'Replace permanently'}
+                </button>
+              </div>
             ) : (
-              <button
-                type="button"
-                className="btn btn-ghost clip-info-action"
-                disabled={working || !canTrim}
-                mix={on('click', () => {
-                  if (!canTrim) return
-                  confirmingTrim = true
-                  void handle.update()
-                })}
-              >
-                <IconTrim size={18} />
-                Permanently trim
-              </button>
+              <>
+                <button
+                  type="button"
+                  className="btn btn-ghost clip-info-action"
+                  disabled={working || !canTrim}
+                  mix={on('click', () => {
+                    if (!canTrim) return
+                    confirming = 'trim'
+                    void handle.update()
+                  })}
+                >
+                  <IconTrim size={18} />
+                  Permanently trim
+                </button>
+                <button
+                  type="button"
+                  className="btn btn-ghost clip-info-action"
+                  disabled={working || !qualityPlan}
+                  mix={on('click', () => {
+                    if (!qualityPlan) return
+                    confirming = 'quality'
+                    void handle.update()
+                  })}
+                >
+                  <IconCompress size={18} />
+                  Reduce quality
+                </button>
+              </>
             )}
             {photo ? null : (
               <button
@@ -189,7 +239,7 @@ export function ClipInfoSheet(handle: Handle<ClipInfoSheetProps>) {
               type="button"
               className="btn btn-ghost clip-info-action"
               disabled={working}
-              data-sheet-focus={confirmingTrim ? undefined : true}
+              data-sheet-focus={confirming ? undefined : true}
               mix={on('click', () => run('download', () => handle.props.onDownload()))}
             >
               <IconDownload size={18} />
@@ -206,13 +256,20 @@ export function ClipInfoSheet(handle: Handle<ClipInfoSheetProps>) {
           </div>
           {photo ? (
             <p className="clip-info-hint muted">Photos can be downloaded; trim and split are for video clips.</p>
-          ) : confirmingTrim ? null : (
+          ) : confirming ? null : (
             <>
               {!canTrim ? (
                 <p className="clip-info-hint muted">
                   Trim the clip first, then permanently delete the unused parts.
                 </p>
               ) : null}
+              {!qualityPlan ? (
+                <p className="clip-info-hint muted">This clip is already a small file.</p>
+              ) : (
+                <p className="clip-info-hint muted">
+                  Reduce quality replaces the file with a smaller encode. That cannot be undone.
+                </p>
+              )}
               {canSplit ? (
                 <p className="clip-info-hint muted">
                   Split opens a handle on the filmstrip so you can choose the cut.

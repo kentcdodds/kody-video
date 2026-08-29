@@ -19,6 +19,12 @@ import {
   type ProjectId,
   type ProjectOrientation,
 } from './types'
+import {
+  resetActiveVideoQualityForTests,
+  resolveVideoQuality,
+  setActiveVideoQuality,
+  type VideoQualityPreset,
+} from './video-quality'
 
 interface ClipsDB extends DBSchema {
   projects: {
@@ -287,6 +293,7 @@ export async function __resetDbForTests(): Promise<void> {
     db?.close()
   }
   forgetCachedDb()
+  resetActiveVideoQualityForTests()
   await new Promise<void>((resolve, reject) => {
     const req = indexedDB.deleteDatabase(DB_NAME)
     req.onsuccess = () => resolve()
@@ -305,6 +312,7 @@ export async function getSettings(): Promise<AppMeta> {
       onboardingDismissed: false,
     }
     const settings = existing ? { ...defaults, ...existing } : defaults
+    setActiveVideoQuality(settings.videoQuality, settings.watermarkRemoved === true)
     if (!existing || existing.onboardingDismissed === undefined) {
       await db.put('meta', settings)
     }
@@ -350,6 +358,21 @@ function enqueueMetaWrite<T>(write: () => Promise<T>): Promise<T> {
     () => undefined,
   )
   return run
+}
+
+export async function setVideoQuality(videoQuality: VideoQualityPreset): Promise<VideoQualityPreset> {
+  return enqueueMetaWrite(async () => {
+    const db = await getDb()
+    const settings = await getSettings()
+    const plus = settings.watermarkRemoved === true
+    if (videoQuality === 'high' && !plus) {
+      throw new PlusRequiredError('High video quality is a Kody Video Plus perk.')
+    }
+    const next = resolveVideoQuality(videoQuality, plus)
+    setActiveVideoQuality(next, plus)
+    await db.put('meta', { ...settings, videoQuality: next })
+    return next
+  })
 }
 
 export async function setKeepWatermark(keepWatermark: boolean): Promise<void> {

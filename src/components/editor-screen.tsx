@@ -7,6 +7,7 @@ import {
   importDeviceClips,
   moveSelectedClip,
   permanentlyTrimClip,
+  reduceClipQuality,
   removeClip,
   setAudioTrackSettings,
   setClipDuration,
@@ -769,6 +770,13 @@ export function EditorScreen(handle: Handle<EditorScreenProps>) {
               selectedClipId = updated.id
               await props.refresh()
               props.showToast('Unused parts deleted')
+            }}
+            onReduceQuality={async () => {
+              const updated = await reduceClipQuality(selected.id)
+              clipInfoOpen = false
+              selectedClipId = updated.id
+              await props.refresh()
+              props.showToast('Clip replaced with a smaller file')
             }}
             onStartSplit={() => {
               if (selected) openSplit(selected)
