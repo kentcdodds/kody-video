@@ -160,7 +160,6 @@ simply lack the data and degrade gracefully.
 - Phones prefer **hardware H.264** (`video/mp4`/`h264` MediaRecorder types) over software VP9 — software encoding is what makes previews and clips drop frames on Android.
 - Capture asks for **1080p at 30fps**; bitrate scales with the actual track size (about 10 Mbps at 1080×1920) instead of a flat 3.5 Mbps.
 - A live MediaRecorder is armed on the record screen so the hardware encoder is already past its ~170ms startup hole when the user presses; the take adopts that session and trims the pre-roll.
-- When the browser can transfer `MediaStreamTrack`s into a dedicated worker, the live encoder and its chunk loop run there so mid-take UI work cannot starve `ondataavailable`. Other browsers keep the in-page MediaRecorder.
 - Clip duration is measured from the encoded media after stop (wall-clock time includes encoder startup latency and corrupts trim/export math).
 - The elapsed timer is a leaf component mutating its text node directly from a 10Hz boundary-aligned timer (a per-frame rAF loop would force 60 main-thread frames/s), so the ticking readout never re-renders the page during capture.
 - A screen wake lock is held while recording.
