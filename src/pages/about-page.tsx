@@ -446,11 +446,11 @@ export function AboutPage(handle: Handle) {
               onChange={(next) => {
                 data = { ...data, videoQuality: next }
                 lastAboutData = data
-                refreshVersion += 1
+                const pickVersion = ++refreshVersion
                 void handle.update()
                 void setVideoQuality(next).catch((err) => {
                   reportError(err, 'video-quality')
-                  refresh()
+                  if (refreshVersion === pickVersion) refresh()
                 })
               }}
             />

@@ -532,11 +532,11 @@ export function HomePage(handle: Handle) {
                   // refresh from disk.
                   data = { ...data!, videoQuality: next }
                   lastHomeData = data
-                  refreshVersion += 1
+                  const pickVersion = ++refreshVersion
                   void handle.update()
                   void setVideoQuality(next).catch((err) => {
                     reportError(err, 'video-quality')
-                    refresh()
+                    if (refreshVersion === pickVersion) refresh()
                   })
                 }}
                 onUpsell={() => {
