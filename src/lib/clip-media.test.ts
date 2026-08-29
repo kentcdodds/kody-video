@@ -1,11 +1,12 @@
 import { beforeEach, describe, expect, it } from 'vitest'
-import { permanentlyTrimClip, splitSelectedClip } from './project-actions'
+import { permanentlyTrimClip, reduceClipQuality, splitSelectedClip } from './project-actions'
 import { __resetDbForTests, addClip, createProject, getClip, getClipsForProject, updateClipTrim } from './storage'
 import { makeLabeledClipBlob, makeTestClipBlob } from './testing/make-test-clip'
 import {
   outputMimeForClipMedia,
   probeVideoDisplaySize,
   probeVideoFileSize,
+  reduceClipMedia,
   sliceClipMedia,
 } from './clip-media'
 import { measureBlobDuration } from './media'
@@ -46,6 +47,25 @@ describe('sliceClipMedia', () => {
     expect(sliced.durationMs).toBeGreaterThanOrEqual(400)
     expect(sliced.durationMs).toBeLessThan(1000)
     await expect(measureBlobDuration(sliced.blob)).resolves.toBeGreaterThan(300)
+  })
+})
+
+describe('reduceClipMedia', () => {
+  it('re-encodes a 1080p clip down to 720p', async () => {
+    const source = await makeLabeledClipBlob(1080, 1920, 800)
+    const reduced = await reduceClipMedia(source, {
+      width: 720,
+      height: 1280,
+      bitrate: 800_000,
+    })
+    expect(reduced.blob.size).toBeGreaterThan(0)
+    expect(reduced.width).toBe(720)
+    expect(reduced.height).toBe(1280)
+    expect(reduced.durationMs).toBeGreaterThan(400)
+    await expect(probeVideoDisplaySize(reduced.blob)).resolves.toEqual({
+      width: 720,
+      height: 1280,
+    })
   })
 })
 
@@ -98,5 +118,38 @@ describe('permanentlyTrimClip / splitSelectedClip', () => {
     const ordered = await getClipsForProject(project.id)
     expect(ordered.map((item) => item.id)).toEqual([first.id, second.id])
     expect(await getClip(second.id)).toBeTruthy()
+  })
+
+  it('replaces a large clip with a 720p encode', async () => {
+    const project = await createProject('Shrink')
+    const blob = await makeLabeledClipBlob(1080, 1920, 800)
+    const original = await addClip({
+      projectId: project.id,
+      blob,
+      mimeType: 'video/webm',
+      durationMs: 800,
+      width: 1080,
+      height: 1920,
+    })
+
+    const updated = await reduceClipQuality(original.id)
+    expect(updated.width).toBe(720)
+    expect(updated.height).toBe(1280)
+    expect(updated.trimStartMs).toBe(0)
+    expect(updated.trimEndMs).toBe(updated.durationMs)
+  })
+
+  it('refuses to shrink an already-small clip', async () => {
+    const project = await createProject('Tiny')
+    const blob = await makeTestClipBlob(400)
+    const original = await addClip({
+      projectId: project.id,
+      blob,
+      mimeType: 'video/webm',
+      durationMs: 400,
+      width: 320,
+      height: 568,
+    })
+    await expect(reduceClipQuality(original.id)).rejects.toThrow(/already a small file/)
   })
 })

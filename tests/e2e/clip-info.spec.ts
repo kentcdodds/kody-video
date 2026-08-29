@@ -1,5 +1,5 @@
 import { test, expect, type Page } from '@playwright/test'
-import { openSeededProject } from './helpers'
+import { gotoHome, openSeededProject } from './helpers'
 
 async function openEditorWithClips(page: Page, clips: number, clipMs?: number): Promise<void> {
   await openSeededProject(page, { clips, clipMs, name: 'Facts' })
@@ -125,5 +125,46 @@ test.describe('clip info sheet', () => {
     expect(after.durationMs).toBeLessThan(1800)
     expect(after.trimStartMs).toBe(0)
     expect(after.trimEndMs).toBe(after.durationMs)
+  })
+
+  test('reduce quality permanently replaces a 1080p clip with 720p', async ({ page }) => {
+    await gotoHome(page)
+    const projectId = await page.evaluate(async () => {
+      const storage = await import('/src/lib/storage.ts')
+      const thumbs = await import('/src/lib/thumbs.ts')
+      const { makeLabeledClipBlob } = await import('/src/lib/testing/make-test-clip.ts')
+      const project = await storage.createProject('Shrink')
+      const blob = await makeLabeledClipBlob(1080, 1920, 800)
+      const clip = await storage.addClip({
+        projectId: project.id,
+        blob,
+        mimeType: 'video/webm',
+        durationMs: 800,
+        width: 1080,
+        height: 1920,
+      })
+      await thumbs.ensureClipThumbs(clip)
+      return project.id
+    })
+    await page.goto(`/project/${projectId}`)
+    await page.getByRole('button', { name: 'Open editor' }).click()
+    await expect(page.locator('.editor-screen')).toBeVisible()
+    await openClipInfo(page)
+
+    const sheet = page.locator('.clip-info-sheet')
+    await expect(sheet.getByText('1080 × 1920')).toBeVisible()
+    await sheet.getByRole('button', { name: 'Reduce quality' }).click()
+    await expect(sheet.getByText(/cannot undo/i)).toBeVisible()
+    await sheet.getByRole('button', { name: 'Replace permanently' }).click()
+    await expect(page.locator('.toast')).toContainText('smaller file', { timeout: 30_000 })
+
+    const after = await page.evaluate(async () => {
+      const storage = await import('/src/lib/storage.ts')
+      const projects = await storage.listProjects()
+      const clips = await storage.getClipMetasForProject(projects[0]!.id)
+      const clip = clips[0]!
+      return { width: clip.width, height: clip.height }
+    })
+    expect(after).toEqual({ width: 720, height: 1280 })
   })
 })

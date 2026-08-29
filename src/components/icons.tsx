@@ -139,6 +139,16 @@ export function IconDuplicate(handle: Handle<IconProps>) {
 }
 
 /** Bracket / I-beam handles that read as “trim”. */
+export function IconCompress(handle: Handle<IconProps>) {
+  return () => (
+    <svg {...baseProps(handle.props.size ?? 22)}>
+      <rect x="4" y="4" width="16" height="16" rx="2.5" />
+      <path d="M12 8v8" />
+      <path d="M8.5 13.5L12 17l3.5-3.5" />
+    </svg>
+  )
+}
+
 export function IconTrim(handle: Handle<IconProps>) {
   return () => (
     <svg {...baseProps(handle.props.size ?? 22)}>
