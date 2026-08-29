@@ -7,8 +7,6 @@ import {
   storageSeverity,
   type StorageSpace,
 } from '../lib/storage-space'
-import { reportError } from '../lib/error-reporting'
-import { setVideoQuality } from '../lib/storage'
 import { VIDEO_QUALITY_PRESETS, type VideoQualityPreset } from '../lib/video-quality'
 import { VideoQualityPicker } from './video-quality-picker'
 
@@ -84,12 +82,7 @@ export function StorageMeter(handle: Handle<StorageMeterProps>) {
               setOpen(false)
               handle.props.onUpsell()
             }}
-            onChange={(next) => {
-              handle.props.onVideoQualityChange(next)
-              void setVideoQuality(next).catch((err) => {
-                reportError(err, 'video-quality')
-              })
-            }}
+            onChange={handle.props.onVideoQualityChange}
           />
           <a href="/about#video-quality">More on About</a>
         </div>

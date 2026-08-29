@@ -10,8 +10,10 @@ import { IconLock } from './icons'
 interface VideoQualityPickerProps {
   value: VideoQualityPreset
   onChange: (next: VideoQualityPreset) => void
-  /** High (1080p) is a Plus perk; free taps open the upsell. */
-  plus: boolean
+  /** High (1080p) is a Plus perk; free taps open the upsell. `null` means
+   * entitlement is still loading — High is not locked and nothing is
+   * tappable, so a Plus user never sees a false upsell on first paint. */
+  plus: boolean | null
   onUpsell: () => void
   /** Tighter chips for the home storage popover. */
   compact?: boolean
@@ -21,12 +23,18 @@ interface VideoQualityPickerProps {
 export function VideoQualityPicker(handle: Handle<VideoQualityPickerProps>) {
   return () => {
     const { value, onChange, plus, onUpsell, compact } = handle.props
+    const ready = plus !== null
     const selected = VIDEO_QUALITY_PRESETS[value]
     return (
       <div className={`video-quality-picker${compact ? ' is-compact' : ''}`}>
-        <div className="video-quality-options" role="radiogroup" aria-label="Video quality">
+        <div
+          className="video-quality-options"
+          role="radiogroup"
+          aria-label="Video quality"
+          aria-busy={!ready}
+        >
           {VIDEO_QUALITY_IDS.map((id) => {
-            const locked = id === 'high' && !plus
+            const locked = id === 'high' && plus === false
             return (
               <button
                 key={id}
@@ -34,8 +42,10 @@ export function VideoQualityPicker(handle: Handle<VideoQualityPickerProps>) {
                 role="radio"
                 aria-checked={value === id}
                 aria-label={locked ? 'High (Kody Video Plus)' : undefined}
+                disabled={!ready}
                 className={`video-quality-option${value === id ? ' is-active' : ''}${locked ? ' is-locked' : ''}`}
                 mix={on('click', () => {
+                  if (!ready) return
                   if (locked) {
                     onUpsell()
                     return

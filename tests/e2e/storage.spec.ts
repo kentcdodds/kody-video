@@ -98,9 +98,50 @@ test.describe('storage management', () => {
     await context.close()
   })
 
+  test('home storage popover keeps a quality pick after home revalidates', async ({
+    page,
+  }) => {
+    await gotoHome(page)
+    await page.locator('.storage-meter').click()
+    const popover = page.locator('.storage-popover')
+    await expect(popover).toBeVisible()
+    await popover.getByRole('radio', { name: 'Saver' }).click()
+    await expect(popover.getByRole('radio', { name: 'Saver' })).toHaveAttribute(
+      'aria-checked',
+      'true',
+    )
+    await expect
+      .poll(async () =>
+        page.evaluate(async () => {
+          const storage = await import('/src/lib/storage.ts')
+          return (await storage.getSettings()).videoQuality ?? null
+        }),
+      )
+      .toBe('saver')
+    // The mount/revalidation load must not snap the control back after persist.
+    await expect(popover.getByRole('radio', { name: 'Saver' })).toHaveAttribute(
+      'aria-checked',
+      'true',
+    )
+
+    await page.getByRole('link', { name: 'More on About' }).click()
+    await expect(page.locator('#video-quality').getByRole('radio', { name: 'Saver' })).toHaveAttribute(
+      'aria-checked',
+      'true',
+    )
+    await page.getByRole('link', { name: 'Back to projects' }).click()
+    await expect(page.locator('.project-slots')).toBeVisible()
+    await page.locator('.storage-meter').click()
+    await expect(page.locator('.storage-popover').getByRole('radio', { name: 'Saver' })).toHaveAttribute(
+      'aria-checked',
+      'true',
+    )
+  })
+
   test('about page defaults free quality to Standard and persists Saver', async ({ page }) => {
     await page.goto('/about')
     const section = page.locator('#video-quality')
+    await expect(section.getByRole('radio', { name: 'Standard' })).toBeEnabled()
     await expect(section.getByRole('radio', { name: 'Standard' })).toHaveAttribute(
       'aria-checked',
       'true',
@@ -135,10 +176,12 @@ test.describe('storage management', () => {
     await unlockPlus(page)
     await page.goto('/about')
     const section = page.locator('#video-quality')
+    await expect(section.getByRole('radio', { name: 'High' })).toBeEnabled()
     await expect(section.getByRole('radio', { name: 'High' })).toHaveAttribute(
       'aria-checked',
       'true',
     )
+    await expect(section.getByRole('radio', { name: 'High (Kody Video Plus)' })).toHaveCount(0)
     await section.getByRole('radio', { name: 'Standard' }).click()
     await expect(section.getByRole('radio', { name: 'Standard' })).toHaveAttribute(
       'aria-checked',

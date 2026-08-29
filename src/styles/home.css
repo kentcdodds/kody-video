@@ -722,6 +722,11 @@
   opacity: 0.75;
 }
 
+.video-quality-option:disabled {
+  opacity: 0.55;
+  pointer-events: none;
+}
+
 .video-quality-option.is-active {
   background: var(--accent);
   color: var(--ink-strong);

@@ -29,6 +29,7 @@ import {
   getProjectAudio,
   renameProject,
   setTourCardDismissed,
+  setVideoQuality,
 } from '../lib/storage'
 import { clearExportCache } from '../lib/export/export-cache'
 import { reportError } from '../lib/error-reporting'
@@ -525,9 +526,18 @@ export function HomePage(handle: Handle) {
                 videoQuality={videoQuality}
                 plus={plus}
                 onVideoQualityChange={(next) => {
+                  // Invalidate the mount/revalidation load so it cannot land
+                  // after this pick and snap the control back to the stale
+                  // snapshot. Persist lives here so a failed write can
+                  // refresh from disk.
                   data = { ...data!, videoQuality: next }
                   lastHomeData = data
+                  refreshVersion += 1
                   void handle.update()
+                  void setVideoQuality(next).catch((err) => {
+                    reportError(err, 'video-quality')
+                    refresh()
+                  })
                 }}
                 onUpsell={() => {
                   upselling = true

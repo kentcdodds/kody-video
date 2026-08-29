@@ -90,7 +90,7 @@ export interface HomeLoaderData {
   plus: boolean
   /** Home "Watch the tour" card dismissed (first-timer teaser). */
   tourCardDismissed: boolean
-  /** Capture quality for new recordings (missing = high). */
+  /** Capture quality for new recordings (missing follows Plus: high / standard). */
   videoQuality: 'high' | 'standard' | 'saver'
 }
 

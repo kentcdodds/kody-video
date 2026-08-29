@@ -77,9 +77,14 @@ function updateDiagnosticsReport(
 interface AboutData {
   storage: StorageSpace | null
   exportCacheBytes: number
-  plus: boolean
+  /** `null` until settings load so High is not locked on first paint. */
+  plus: boolean | null
   videoQuality: VideoQualityPreset
 }
+
+/** Last loaded About settings, kept across mounts so Plus/quality do not
+ * flash the free-plan picker when navigating back. */
+let lastAboutData: AboutData | null = null
 
 async function loadAboutData(): Promise<AboutData> {
   const [storage, exportCacheBytes, settings] = await Promise.all([
@@ -107,10 +112,10 @@ const UPDATE_STATUS_LABEL: Record<Exclude<UpdateStatus, 'idle'>, string> = {
 
 /** Credits, inspiration, and the open-source pointer. */
 export function AboutPage(handle: Handle) {
-  let data: AboutData = {
+  let data: AboutData = lastAboutData ?? {
     storage: null,
     exportCacheBytes: 0,
-    plus: false,
+    plus: null,
     videoQuality: 'standard',
   }
   let sharingPlus = false
@@ -127,12 +132,24 @@ export function AboutPage(handle: Handle) {
   let deployedCommit: string | null = null
   let deployedKnown = false
 
-  const refresh = async () => {
-    data = await loadAboutData()
-    if (handle.signal.aborted) return
-    void handle.update()
+  /** Same stale-load guard as home: an in-flight refresh must not overwrite
+   * a quality pick that landed while settings were still loading. */
+  let refreshVersion = 0
+  const refresh = () => {
+    const version = ++refreshVersion
+    void loadAboutData()
+      .then((loaded) => {
+        if (handle.signal.aborted || version !== refreshVersion) return
+        lastAboutData = loaded
+        data = loaded
+        void handle.update()
+      })
+      .catch((err) => {
+        if (handle.signal.aborted || version !== refreshVersion) return
+        reportError(err, 'load-about')
+      })
   }
-  void refresh()
+  refresh()
   let hashScrolled = false
   void fetchDeployedVersion().then((deployed) => {
     if (handle.signal.aborted) return
@@ -428,10 +445,12 @@ export function AboutPage(handle: Handle) {
               }}
               onChange={(next) => {
                 data = { ...data, videoQuality: next }
+                lastAboutData = data
+                refreshVersion += 1
                 void handle.update()
                 void setVideoQuality(next).catch((err) => {
                   reportError(err, 'video-quality')
-                  void refresh()
+                  refresh()
                 })
               }}
             />
