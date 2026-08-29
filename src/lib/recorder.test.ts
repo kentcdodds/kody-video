@@ -1,5 +1,23 @@
 import { describe, expect, it } from 'vitest'
-import { takeFallbackDurationMs, takeTrimEndMs, takeTrimStartMs } from './recorder'
+import {
+  hintVideoTrackMotion,
+  takeFallbackDurationMs,
+  takeTrimEndMs,
+  takeTrimStartMs,
+} from './recorder'
+
+describe('hintVideoTrackMotion', () => {
+  it('marks a video track as motion for the encoder', () => {
+    const canvas = document.createElement('canvas')
+    canvas.width = 16
+    canvas.height = 16
+    const track = canvas.captureStream(0).getVideoTracks()[0]
+    expect(track).toBeDefined()
+    hintVideoTrackMotion(track!)
+    expect(track!.contentHint).toBe('motion')
+    track!.stop()
+  })
+})
 
 describe('takeTrimEndMs', () => {
   it('walks the trim-out back by the real stop grace', () => {
