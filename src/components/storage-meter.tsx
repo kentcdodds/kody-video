@@ -7,9 +7,15 @@ import {
   storageSeverity,
   type StorageSpace,
 } from '../lib/storage-space'
+import { reportError } from '../lib/error-reporting'
+import { setVideoQuality } from '../lib/storage'
+import { VIDEO_QUALITY_PRESETS, type VideoQualityPreset } from '../lib/video-quality'
+import { VideoQualityPicker } from './video-quality-picker'
 
 interface StorageMeterProps {
   storage: StorageSpace
+  videoQuality: VideoQualityPreset
+  onVideoQualityChange: (next: VideoQualityPreset) => void
 }
 
 /**
@@ -64,6 +70,21 @@ export function StorageMeter(handle: Handle<StorageMeterProps>) {
         >
           <strong>Device storage {percent} full</strong>
           <span>{detail}</span>
+          <span>
+            New clips: {VIDEO_QUALITY_PRESETS[handle.props.videoQuality].label}. Lower quality
+            uses less space — 30 fps either way.
+          </span>
+          <VideoQualityPicker
+            compact
+            value={handle.props.videoQuality}
+            onChange={(next) => {
+              handle.props.onVideoQualityChange(next)
+              void setVideoQuality(next).catch((err) => {
+                reportError(err, 'video-quality')
+              })
+            }}
+          />
+          <a href="/about#video-quality">More on About</a>
         </div>
       </Popover.Context>
     )

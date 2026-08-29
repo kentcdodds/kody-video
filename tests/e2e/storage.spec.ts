@@ -98,6 +98,32 @@ test.describe('storage management', () => {
     await context.close()
   })
 
+  test('about page persists a lower video quality', async ({ page }) => {
+    await page.goto('/about')
+    const section = page.locator('#video-quality')
+    await expect(section.getByRole('radio', { name: 'High' })).toHaveAttribute('aria-checked', 'true')
+    await section.getByRole('radio', { name: 'Standard' }).click()
+    await expect(section.getByRole('radio', { name: 'Standard' })).toHaveAttribute(
+      'aria-checked',
+      'true',
+    )
+    await expect
+      .poll(async () =>
+        page.evaluate(async () => {
+          const storage = await import('/src/lib/storage.ts')
+          return (await storage.getSettings()).videoQuality ?? null
+        }),
+      )
+      .toBe('standard')
+
+    await page.reload()
+    await expect(page.locator('#video-quality').getByRole('radio', { name: 'Standard' })).toHaveAttribute(
+      'aria-checked',
+      'true',
+    )
+    await expect(page.locator('#video-quality')).toContainText('720p')
+  })
+
   test('about page shows cache size and clears it', async ({ page }) => {
     await seedReferencedExportCache(page, 5 * 1024 * 1024)
     await page.goto('/about')

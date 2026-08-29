@@ -36,6 +36,7 @@ import { heldDeviceOrientation } from './platform'
 import { probeAudioFile } from './audio-import'
 import { estimateExportCacheBytes } from './export/export-cache'
 import { estimateStorageSpace, type StorageSpace } from './storage-space'
+import { resolveVideoQuality } from './video-quality'
 import type { GeneratedThumbs } from './thumbs'
 import { canSplitClip, clipHasUnusedMedia, remapTrimToSlice, resolveSplitMs } from './clip-edit'
 import {
@@ -89,6 +90,8 @@ export interface HomeLoaderData {
   plus: boolean
   /** Home "Watch the tour" card dismissed (first-timer teaser). */
   tourCardDismissed: boolean
+  /** Capture quality for new recordings (missing = high). */
+  videoQuality: 'high' | 'standard' | 'saver'
 }
 
 export async function loadHomePage(): Promise<HomeLoaderData> {
@@ -104,6 +107,7 @@ export async function loadHomePage(): Promise<HomeLoaderData> {
     exportCacheBytes,
     plus: settings.watermarkRemoved === true,
     tourCardDismissed: settings.tourCardDismissed === true,
+    videoQuality: resolveVideoQuality(settings.videoQuality),
   }
 }
 

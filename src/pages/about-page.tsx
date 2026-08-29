@@ -3,6 +3,7 @@ import { on } from 'remix/ui'
 import { IconBack } from '../components/icons'
 import { BrandMark } from '../components/brand-mark'
 import { SharePlusSheet } from '../components/share-plus-sheet'
+import { VideoQualityPicker } from '../components/video-quality-picker'
 import {
   checkForUpdates,
   fetchDeployedVersion,
@@ -17,7 +18,8 @@ import { clearExportCache, estimateExportCacheBytes } from '../lib/export/export
 import { listRearCameras } from '../lib/media'
 import { BackupFormatError, importKodyVideoBackupFile } from '../lib/project-transfer'
 import { estimateStorageSpace, formatBytes, type StorageSpace } from '../lib/storage-space'
-import { getSettings } from '../lib/storage'
+import { getSettings, setVideoQuality } from '../lib/storage'
+import { resolveVideoQuality, type VideoQualityPreset } from '../lib/video-quality'
 import { navigate } from '../router'
 
 /** Prefilled GitHub issue so bug reports arrive with device context attached. */
@@ -74,6 +76,7 @@ interface AboutData {
   storage: StorageSpace | null
   exportCacheBytes: number
   plus: boolean
+  videoQuality: VideoQualityPreset
 }
 
 async function loadAboutData(): Promise<AboutData> {
@@ -82,7 +85,12 @@ async function loadAboutData(): Promise<AboutData> {
     estimateExportCacheBytes(),
     getSettings(),
   ])
-  return { storage, exportCacheBytes, plus: settings.watermarkRemoved === true }
+  return {
+    storage,
+    exportCacheBytes,
+    plus: settings.watermarkRemoved === true,
+    videoQuality: resolveVideoQuality(settings.videoQuality),
+  }
 }
 
 type UpdateStatus = 'idle' | 'checking' | 'current' | 'updating' | 'downloading' | 'unavailable'
@@ -97,7 +105,12 @@ const UPDATE_STATUS_LABEL: Record<Exclude<UpdateStatus, 'idle'>, string> = {
 
 /** Credits, inspiration, and the open-source pointer. */
 export function AboutPage(handle: Handle) {
-  let data: AboutData = { storage: null, exportCacheBytes: 0, plus: false }
+  let data: AboutData = {
+    storage: null,
+    exportCacheBytes: 0,
+    plus: false,
+    videoQuality: 'high',
+  }
   let sharingPlus = false
   let updateStatus: UpdateStatus = 'idle'
   let cacheStatus: string | null = null
@@ -116,6 +129,7 @@ export function AboutPage(handle: Handle) {
     void handle.update()
   }
   void refresh()
+  let hashScrolled = false
   void fetchDeployedVersion().then((deployed) => {
     if (handle.signal.aborted) return
     deployedCommit = deployed?.commit ?? null
@@ -253,7 +267,13 @@ export function AboutPage(handle: Handle) {
   }
 
   return () => {
-    const { storage, exportCacheBytes, plus } = data
+    const { storage, exportCacheBytes, plus, videoQuality } = data
+    if (!hashScrolled && location.hash === '#video-quality') {
+      hashScrolled = true
+      queueMicrotask(() => {
+        document.getElementById('video-quality')?.scrollIntoView({ block: 'start' })
+      })
+    }
     const version = <code>{shortVersion()}</code>
     const versionUrl = commitUrl()
     const diagReport = updateDiagnosticsReport(deployedCommit, deployedKnown)
@@ -388,6 +408,26 @@ export function AboutPage(handle: Handle) {
             </p>
           </section>
 
+          <section className="about-section" id="video-quality">
+            <h2>Video quality</h2>
+            <p>
+              New clips only — already-recorded takes stay as they are. Every option stays at 30
+              frames a second so recording does not drop frames or get janky. Lower settings ask
+              the camera for a smaller picture and a smaller file.
+            </p>
+            <VideoQualityPicker
+              value={videoQuality}
+              onChange={(next) => {
+                data = { ...data, videoQuality: next }
+                void handle.update()
+                void setVideoQuality(next).catch((err) => {
+                  reportError(err, 'video-quality')
+                  void refresh()
+                })
+              }}
+            />
+          </section>
+
           <section className="about-section">
             <h2>Storage</h2>
             <p>
@@ -395,8 +435,9 @@ export function AboutPage(handle: Handle) {
                 ? `This app uses ${formatBytes(storage.usedBytes)} of the ${formatBytes(storage.quotaBytes)} the browser allows. `
                 : ''}
               Your recordings are the big consumer — delete old projects from the home screen
-              (⋯ → Delete) to free the most space. The app also keeps your latest export cached so
-              tapping Go on an unchanged project is instant.
+              (⋯ → Delete) to free the most space, or record new clips at a lower video quality
+              above. The app also keeps your latest export cached so tapping Go on an unchanged
+              project is instant.
             </p>
             <p>
               Cached export files: <strong>{formatBytes(exportCacheBytes)}</strong>

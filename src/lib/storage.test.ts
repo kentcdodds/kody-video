@@ -35,6 +35,7 @@ import {
   setProjectOrientation,
   setTourCardDismissed,
   setKeepWatermark,
+  setVideoQuality,
   toStoredBlob,
   undoDeleteLastClip,
   updateClipAudioPeak,
@@ -48,6 +49,7 @@ import {
   replaceClipMedia,
 } from './storage'
 import { markWatermarkRemoved } from './entitlement'
+import { activeVideoQuality, resetActiveVideoQualityForTests } from './video-quality'
 import {
   MAX_IMAGE_DURATION_MS,
   MAX_PROJECTS,
@@ -234,6 +236,24 @@ describe('storage layer', () => {
     expect(db.version).toBe(DB_VERSION)
     expect(db.objectStoreNames.contains('meta')).toBe(true)
     expect(db.objectStoreNames.contains('projects')).toBe(true)
+  })
+
+  it('defaults video quality to high and persists a lower preset', async () => {
+    expect((await getSettings()).videoQuality).toBeUndefined()
+    await setVideoQuality('standard')
+    expect((await getSettings()).videoQuality).toBe('standard')
+    await setVideoQuality('saver')
+    expect((await getSettings()).videoQuality).toBe('saver')
+    await setVideoQuality('high')
+    expect((await getSettings()).videoQuality).toBe('high')
+  })
+
+  it('hydrates the in-memory capture preset when settings are read', async () => {
+    await setVideoQuality('saver')
+    resetActiveVideoQualityForTests()
+    expect(activeVideoQuality()).toBe('high')
+    await getSettings()
+    expect(activeVideoQuality()).toBe('saver')
   })
 
   it('defaults keepWatermark off and persists the Plus opt-in', async () => {

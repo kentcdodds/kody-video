@@ -211,6 +211,7 @@ export function HomePage(handle: Handle) {
       ) : null
     }
     const { projects, storage, exportCacheBytes, plus } = data
+    const videoQuality = data.videoQuality ?? 'high'
     const installable = canPromptInstall()
 
     const slots = Array.from({ length: MAX_PROJECTS }, (_, index) => projects[index] ?? null)
@@ -380,7 +381,9 @@ export function HomePage(handle: Handle) {
                 {formatBytes(storage.usedBytes)} of {formatBytes(storage.quotaBytes)} used.
                 {oldestProject
                   ? ` Free space fast: delete an old project (⋯ on “${oldestProject.name}”, then Delete).`
-                  : ' Free space by clearing other site data or files on this device.'}
+                  : ' Free space by clearing other site data or files on this device.'}{' '}
+                New clips can also use less space — lower video quality below or on{' '}
+                <a href="/about#video-quality">About</a>.
               </span>
               {exportCacheBytes > 0 ? (
                 <button
@@ -516,7 +519,17 @@ export function HomePage(handle: Handle) {
               Clips stay on this phone until you share.{' '}
               <a href="/receive">Receive a project</a>
             </span>
-            {storage ? <StorageMeter storage={storage} /> : null}
+            {storage ? (
+              <StorageMeter
+                storage={storage}
+                videoQuality={videoQuality}
+                onVideoQualityChange={(next) => {
+                  data = { ...data!, videoQuality: next }
+                  lastHomeData = data
+                  void handle.update()
+                }}
+              />
+            ) : null}
           </p>
         </div>
 
