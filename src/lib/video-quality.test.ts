@@ -34,7 +34,19 @@ describe('recordingVideoBitsPerSecond', () => {
   })
 
   it('follows the live track size', () => {
-    expect(recordingVideoBitsPerSecond(720, 1280)).toBe(videoBitrateFor(720, 1280, 0.16))
+    expect(recordingVideoBitsPerSecond(720, 1280)).toBe(videoBitrateFor(1280, 720, 0.16))
+  })
+
+  it('does not bill a 1080p track at High bitrate on Standard or Saver', () => {
+    expect(recordingVideoBitsPerSecond(1080, 1920, 'standard')).toBe(
+      videoBitrateFor(1280, 720, 0.16),
+    )
+    expect(recordingVideoBitsPerSecond(1080, 1920, 'saver')).toBe(
+      videoBitrateFor(1280, 720, 0.08),
+    )
+    expect(recordingVideoBitsPerSecond(1080, 1920, 'standard')).toBeLessThan(
+      recordingVideoBitsPerSecond(1080, 1920, 'high'),
+    )
   })
 
   it('uses the saver bitrate without dropping below 30fps math', () => {

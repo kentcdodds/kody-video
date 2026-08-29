@@ -121,9 +121,15 @@ export function recordingVideoBitsPerSecond(
   quality: VideoQualityPreset = activeQuality,
 ): number {
   const preset = VIDEO_QUALITY_PRESETS[quality]
+  // Cameras often ignore `ideal` size and hand back a 1080p (or larger)
+  // track. Bill at most the preset's frame so Standard/Saver still use
+  // less bits than High — do not add mandatory `max` constraints, which
+  // can fail getUserMedia or force a software scale.
+  const trackLong = Math.max(width ?? 0, height ?? 0)
+  const trackShort = Math.min(width ?? 0, height ?? 0)
   return videoBitrateFor(
-    width ?? preset.longEdge,
-    height ?? preset.shortEdge,
+    trackLong > 0 ? Math.min(trackLong, preset.longEdge) : preset.longEdge,
+    trackShort > 0 ? Math.min(trackShort, preset.shortEdge) : preset.shortEdge,
     preset.captureBpp,
   )
 }
