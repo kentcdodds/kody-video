@@ -648,16 +648,15 @@
   }
 }
 
+/* Lives above `.about-body` (the scroller), so it already stays put.
+   Do not paint a solid `--bg` slab — the page sits on body's gradient,
+   and a flat fill reads as a mismatched bar on Receive / Unlock / About. */
 .about-top {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 12px;
   margin-bottom: 4px;
-  position: sticky;
-  top: 0;
-  z-index: 2;
-  background: var(--bg);
   padding-bottom: 8px;
 }
 
