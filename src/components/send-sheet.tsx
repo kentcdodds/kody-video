@@ -7,6 +7,7 @@ import { createSyncRoom, httpSyncSignaling, SyncSignalError } from '../lib/sync-
 import { sendBackupToPeer, SyncTransferError } from '../lib/sync-peer'
 import { getClipsForProject, getProject, getProjectAudio } from '../lib/storage'
 import { projectBackupFilename, serializeProject } from '../lib/project-transfer'
+import { pairingHint, pairingHref } from '../lib/pairing-href'
 import { formatBytes } from '../lib/storage-space'
 import { SyncQr } from './sync-qr'
 
@@ -22,7 +23,7 @@ function phaseCopy(phase: SyncPhase, error: string | null): string {
     case 'creating':
       return 'Starting a send room…'
     case 'waiting':
-      return 'Open kody.video/receive on the other device and scan or type this code. Keep both screens open.'
+      return `Open ${pairingHint('receive')} on the other device and scan or type this code. Keep both screens open.`
     case 'connecting':
       return 'Connecting to the other device…'
     case 'transferring':
@@ -105,10 +106,7 @@ export function SendSheet(handle: Handle<SendSheetProps>) {
     }
   })()
 
-  const receiveHref = () => {
-    const origin = window.location.origin
-    return code ? `${origin}/receive/${code}` : `${origin}/receive`
-  }
+  const receiveHref = () => pairingHref('receive', code)
 
   return () => {
     const { projectName, onClose, onBackupInstead } = handle.props

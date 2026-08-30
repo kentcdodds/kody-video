@@ -14,7 +14,7 @@ interface RestoreSheetProps {
 
 /**
  * Restore Kody Video Plus on a new device: paste a short code from the
- * device that already has Plus, scan its QR (opens /unlocked?code=), or
+ * device that already has Plus, scan its QR (opens /unlocked/:code), or
  * paste a checkout session id.
  */
 export function RestoreSheet(handle: Handle<RestoreSheetProps>) {

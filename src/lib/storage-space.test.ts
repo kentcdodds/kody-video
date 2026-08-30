@@ -1,5 +1,14 @@
 import { describe, expect, it } from 'vitest'
-import { formatBytes, formatStoragePercent, storageSeverity } from './storage-space'
+import {
+  availableBytes,
+  backupFitsStorage,
+  backupTooLargeMessage,
+  formatBytes,
+  formatStoragePercent,
+  IMPORT_SLACK_BYTES,
+  importNeedBytes,
+  storageSeverity,
+} from './storage-space'
 
 describe('storageSeverity', () => {
   it('is ok below 80%', () => {
@@ -39,5 +48,39 @@ describe('formatBytes', () => {
 describe('formatStoragePercent', () => {
   it('rounds to whole percent', () => {
     expect(formatStoragePercent(0.876)).toBe('88%')
+  })
+})
+
+describe('availableBytes / backupFitsStorage', () => {
+  const space = { usedBytes: 5 * 1024 * 1024, quotaBytes: 10 * 1024 * 1024 * 1024, ratio: 0 }
+
+  it('reports remaining quota', () => {
+    expect(availableBytes(space)).toBe(space.quotaBytes - space.usedBytes)
+    expect(availableBytes(null)).toBe(0)
+  })
+
+  it('lets a ~1GB backup through when 10GB is mostly free', () => {
+    expect(backupFitsStorage(918.7 * 1024 * 1024, space)).toBe(true)
+  })
+
+  it('refuses when the remaining quota cannot hold the file plus slack', () => {
+    const tight = { usedBytes: 90, quotaBytes: 100, ratio: 0.9 }
+    expect(backupFitsStorage(50, tight)).toBe(false)
+    expect(backupFitsStorage(1, { usedBytes: 0, quotaBytes: IMPORT_SLACK_BYTES + 2, ratio: 0 })).toBe(
+      true,
+    )
+  })
+
+  it('skips the gate when the estimate is missing', () => {
+    expect(backupFitsStorage(1e12, null)).toBe(true)
+  })
+
+  it('names both the file size and the room the import needs', () => {
+    const tight = { usedBytes: 90, quotaBytes: 100, ratio: 0.9 }
+    const message = backupTooLargeMessage(50, tight)
+    expect(message).toContain(formatBytes(50))
+    expect(message).toContain(formatBytes(availableBytes(tight)))
+    expect(message).toContain(formatBytes(importNeedBytes(50)))
+    expect(importNeedBytes(50)).toBe(50 + IMPORT_SLACK_BYTES)
   })
 })

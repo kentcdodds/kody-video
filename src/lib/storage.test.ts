@@ -40,6 +40,7 @@ import {
   StorageQuotaExceededError,
   isQuotaExceededError,
   throwMappedStorageWriteError,
+  copyBlobForStorage,
   toStoredBlob,
   undoDeleteLastClip,
   updateClipAudioPeak,
@@ -797,6 +798,16 @@ describe('storage layer', () => {
     expect(copy).not.toBe(original)
     expect(copy.type).toBe('video/webm')
     expect(await copy.text()).toBe('recorder-bytes')
+  })
+
+  it('copyBlobForStorage copies large blobs in chunks without losing bytes', async () => {
+    const payload = 'ABCDEFGHIJ'
+    const original = new Blob([payload], { type: 'video/mp4' })
+    const copy = await copyBlobForStorage(original, 'video/mp4', 3)
+    expect(copy).not.toBe(original)
+    expect(copy.type).toBe('video/mp4')
+    expect(copy.size).toBe(original.size)
+    expect(await copy.text()).toBe(payload)
   })
 
   it('toStoredBlob falls back to the clip mime when Blob.type is empty', async () => {

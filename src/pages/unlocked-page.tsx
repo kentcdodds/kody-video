@@ -8,15 +8,20 @@ import {
   type VerifyResult,
 } from '../lib/entitlement'
 
+interface UnlockedPageProps {
+  /** Path segment from /unlocked/:code — same shape as /receive/:code. */
+  code?: string
+}
+
 /**
  * Stripe's Payment Link redirects here after checkout with
  * ?session_id={CHECKOUT_SESSION_ID}. A Plus device can also mint a short
- * code whose QR opens ?code=ABC123. Setup verifies server-side and
- * persists the entitlement before rendering the result.
+ * code whose QR opens /unlocked/ABC123 (legacy ?code= still works). Setup
+ * verifies server-side and persists the entitlement before rendering.
  */
-async function verifyFromLocation(): Promise<VerifyResult> {
+async function verifyFromLocation(pathCode?: string): Promise<VerifyResult> {
   const params = new URL(window.location.href).searchParams
-  const raw = params.get('session_id') ?? params.get('code') ?? ''
+  const raw = params.get('session_id') ?? params.get('code') ?? pathCode ?? ''
   const token = extractRestoreToken(raw)
   if (!token) {
     return {
@@ -27,11 +32,11 @@ async function verifyFromLocation(): Promise<VerifyResult> {
   return verifyPurchase(token)
 }
 
-export function UnlockedPage(handle: Handle) {
+export function UnlockedPage(handle: Handle<UnlockedPageProps>) {
   let result: VerifyResult | null = null
   let sharing = false
 
-  void verifyFromLocation().then((verified) => {
+  void verifyFromLocation(handle.props.code).then((verified) => {
     if (handle.signal.aborted) return
     result = verified
     void handle.update()

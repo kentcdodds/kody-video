@@ -4,11 +4,18 @@ import {
   addProjectAudioTrack,
   createProject,
   deleteProject,
+  isQuotaExceededError,
+  StorageQuotaExceededError,
   throwMappedStorageWriteError,
   updateClipTrim,
   updateProjectAudioTrack,
 } from './storage'
-import { requestPersistentStorage } from './storage-space'
+import {
+  backupFitsStorage,
+  backupTooLargeMessage,
+  estimateStorageSpace,
+  requestPersistentStorage,
+} from './storage-space'
 import {
   clampImageDurationMs,
   type ClipRecord,
@@ -354,17 +361,58 @@ function assertImportableClip(clip: ParsedBackup['clips'][number]): void {
 }
 
 /**
+ * Refuse an import when the remaining origin quota cannot hold the file.
+ * Missing estimates skip the gate (the write still has a quota catch).
+ */
+export async function assertBackupFitsStorage(backupBytes: number): Promise<void> {
+  await requestPersistentStorage()
+  const space = await estimateStorageSpace()
+  if (backupFitsStorage(backupBytes, space)) return
+  throw new StorageQuotaExceededError(backupTooLargeMessage(backupBytes, space))
+}
+
+/**
+ * QuotaExceededError during a giant File copy is often a RAM allocation
+ * refusal, not a full disk. If the estimate still shows room for the
+ * backup, say that instead of "Device storage is full".
+ */
+async function throwImportWriteError(error: unknown, backupBytes: number): Promise<never> {
+  if (isQuotaExceededError(error) || error instanceof StorageQuotaExceededError) {
+    const space = await estimateStorageSpace()
+    if (space && backupFitsStorage(backupBytes, space)) {
+      throw new BackupCopyError(
+        'The browser could not copy this backup into on-device storage. Try again, or import on a computer (Chrome works best).',
+      )
+    }
+    if (error instanceof StorageQuotaExceededError) throw error
+    throw new StorageQuotaExceededError()
+  }
+  throwMappedStorageWriteError(error)
+}
+
+/**
+ * A write failed even though the disk estimate still has room — usually a
+ * huge in-memory copy the browser refused. Expected; not a crash report.
+ */
+export class BackupCopyError extends Error {
+  override readonly name = 'BackupCopyError'
+}
+
+/**
  * Parse a backup file and persist it as a new project. Requests persistent
- * storage on success (same as the About picker / drop import paths).
+ * storage first so a large write is less likely to hit a temporary quota.
  */
 export async function importKodyVideoBackupFile(
   file: File,
   onProgress?: (doneClips: number, totalClips: number) => void,
 ): Promise<Project> {
+  await assertBackupFitsStorage(file.size)
   const parsed = await parseProjectBackup(file)
-  const project = await importProjectBackup(parsed, onProgress)
-  requestPersistentStorage()
-  return project
+  try {
+    return await importProjectBackup(parsed, onProgress)
+  } catch (error) {
+    return await throwImportWriteError(error, file.size)
+  }
 }
 
 /** Create a fresh project (new ids) from a parsed backup. */
@@ -390,16 +438,13 @@ async function persistImportedProject(
     onProgress?.(0, parsed.clips.length)
     for (const clip of parsed.clips) {
       assertImportableClip(clip)
-      // CRITICAL: materialize the media bytes. The parsed blob is a lazy
-      // slice of the picked backup File; persisting that into IndexedDB
-      // stores a reference to the underlying file, which goes stale (esp.
-      // Android content URIs) and leaves clips unreadable. Reading it here
-      // both copies the bytes and proves the file is intact.
-      const bytes = await clip.blob.arrayBuffer()
+      // Pass the File.slice straight to addClip — toStoredBlob copies it
+      // in chunks so a ~1GB clip never needs one giant ArrayBuffer (that
+      // throw was remapped to "Device storage is full" even with room).
       const isImage = clip.kind === 'image'
       const added = await addClip({
         projectId: project.id,
-        blob: new Blob([bytes], { type: clip.mimeType }),
+        blob: clip.blob,
         mimeType: clip.mimeType,
         kind: clip.kind,
         // Photo durations re-clamp into the supported range on the way in.
@@ -436,10 +481,9 @@ async function persistImportedProject(
     // rollback below never leaves half the music behind.
     if (parsed.audio && plus) {
       for (const track of parsed.audio.tracks) {
-        const bytes = await track.blob.arrayBuffer()
         const record = await addProjectAudioTrack({
           projectId: project.id,
-          blob: new Blob([bytes], { type: track.mimeType }),
+          blob: track.blob,
           mimeType: track.mimeType,
           durationMs: track.durationMs,
           name: track.name,
@@ -469,8 +513,6 @@ async function persistImportedProject(
   } catch (error) {
     // Never leave a half-imported project behind.
     await deleteProject(project.id).catch(() => undefined)
-    // arrayBuffer() / IDB puts can throw bare QuotaExceededError with an
-    // empty message (KODY-VIDEO-12) — remap before surfacing to the UI.
-    throwMappedStorageWriteError(error)
+    throw error
   }
 }

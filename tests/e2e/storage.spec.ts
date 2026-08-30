@@ -125,6 +125,7 @@ test.describe('storage management', () => {
     )
 
     await page.getByRole('link', { name: 'More on About' }).click()
+    await expect(page.getByRole('link', { name: 'Back to projects' })).toBeInViewport()
     await expect(page.locator('#video-quality').getByRole('radio', { name: 'Saver' })).toHaveAttribute(
       'aria-checked',
       'true',
@@ -201,6 +202,8 @@ test.describe('storage management', () => {
   test('about page shows cache size and clears it', async ({ page }) => {
     await seedReferencedExportCache(page, 5 * 1024 * 1024)
     await page.goto('/about')
+    const backups = page.locator('.about-section', { hasText: 'Import a backup' })
+    await expect(backups.locator('.about-import-space')).toContainText(/available/)
     const section = page.locator('.about-section', { hasText: 'Cached export files' })
     await expect(section).toContainText('5 MB')
     await section.getByRole('button', { name: 'Clear' }).click()

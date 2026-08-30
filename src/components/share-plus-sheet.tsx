@@ -1,6 +1,7 @@
 import type { Handle } from 'remix/ui'
 import { on, ref } from 'remix/ui'
 import { attachSheetModal } from '../lib/sheet-modal'
+import { pairingHint, pairingHref } from '../lib/pairing-href'
 import { formatRoomCode } from '../lib/sync-protocol'
 import { getPurchaseSessionId, mintRestoreCode } from '../lib/entitlement'
 import { SyncQr } from './sync-qr'
@@ -49,10 +50,7 @@ export function SharePlusSheet(handle: Handle<SharePlusSheetProps>) {
 
   void load()
 
-  const unlockHref = () => {
-    const origin = window.location.origin
-    return code ? `${origin}/unlocked?code=${encodeURIComponent(code)}` : `${origin}/unlocked`
-  }
+  const unlockHref = () => pairingHref('unlocked', code)
 
   return () => {
     const { onClose } = handle.props
@@ -81,7 +79,7 @@ export function SharePlusSheet(handle: Handle<SharePlusSheetProps>) {
             {error ??
               (busy
                 ? 'Making a short code…'
-                : 'On the new device, open kody.video and tap Already paid? Type this code, or scan the QR. It expires in 30 minutes.')}
+                : `Open ${pairingHint('unlocked')} on the other device and scan or type this code. It expires in 30 minutes.`)}
           </p>
           {code ? (
             <div className="sync-code-block">

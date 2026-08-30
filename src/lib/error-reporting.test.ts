@@ -220,6 +220,12 @@ describe('isExpectedUserError / reportError', () => {
     expect(isExpectedUserError(new Error('Export failed'))).toBe(false)
   })
 
+  it('recognizes BackupCopyError as expected import guidance', () => {
+    const error = new Error('The browser could not copy this backup')
+    error.name = 'BackupCopyError'
+    expect(isExpectedUserError(error)).toBe(true)
+  })
+
   it('reportError stays silent for StorageQuotaExceededError and raw QuotaExceededError', () => {
     expect(() => reportError(new StorageQuotaExceededError(), 'import')).not.toThrow()
     expect(() =>

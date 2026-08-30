@@ -2,11 +2,13 @@ import type { Handle } from 'remix/ui'
 import { on } from 'remix/ui'
 import { reportError } from '../lib/error-reporting'
 import {
+  BackupCopyError,
   BackupFormatError,
   dataTransferHasFiles,
   importKodyVideoBackupFile,
   kodyVideoBackupFilesFromList,
 } from '../lib/project-transfer'
+import { ProjectLimitError, StorageQuotaExceededError } from '../lib/storage'
 import { navigate } from '../router'
 
 /**
@@ -46,7 +48,14 @@ export function BackupDropOverlay(handle: Handle) {
         })
         navigate(`/project/${project.id}`)
       } catch (err) {
-        if (!(err instanceof BackupFormatError)) reportError(err, 'import-drop')
+        if (
+          !(err instanceof BackupFormatError) &&
+          !(err instanceof BackupCopyError) &&
+          !(err instanceof StorageQuotaExceededError) &&
+          !(err instanceof ProjectLimitError)
+        ) {
+          reportError(err, 'import-drop')
+        }
         error = err instanceof Error ? err.message : 'Could not import that file'
       } finally {
         progress = null

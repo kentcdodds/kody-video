@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it } from 'vitest'
 import {
   __resetProjectTransferForTests,
+  assertBackupFitsStorage,
   BackupFormatError,
   dataTransferHasFiles,
   importKodyVideoBackupFile,
@@ -17,6 +18,7 @@ import {
   getProjectAudio,
   listProjects,
   ProjectLimitError,
+  StorageQuotaExceededError,
 } from './storage'
 import { markWatermarkRemoved } from './entitlement'
 import type { ClipRecord, Project, ProjectAudioRecord } from './types'
@@ -368,6 +370,24 @@ describe('project backup round trip', () => {
       false,
     )
     expect(dataTransferHasFiles(null)).toBe(false)
+  })
+
+  it('refuses an import when the remaining quota cannot hold the file', async () => {
+    const estimate = navigator.storage.estimate.bind(navigator.storage)
+    Object.defineProperty(navigator.storage, 'estimate', {
+      configurable: true,
+      value: async () => ({ usage: 90, quota: 100 }),
+    })
+    try {
+      await expect(assertBackupFitsStorage(50)).rejects.toBeInstanceOf(StorageQuotaExceededError)
+      await expect(assertBackupFitsStorage(50)).rejects.toThrow(/free/i)
+      await expect(assertBackupFitsStorage(50)).rejects.toThrow(/imports need/i)
+    } finally {
+      Object.defineProperty(navigator.storage, 'estimate', {
+        configurable: true,
+        value: estimate,
+      })
+    }
   })
 
   it('imports a backup file through the shared picker/drop helper', async () => {
