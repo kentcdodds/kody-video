@@ -160,6 +160,7 @@ simply lack the data and degrade gracefully.
 - Phones prefer **hardware H.264** (`video/mp4`/`h264` MediaRecorder types) over software VP9 — software encoding is what makes previews and clips drop frames on Android.
 - Capture stays at **30fps** (no dropped-frame shortcuts). About → **Video quality** picks the size/bitrate for *new* clips. Without Plus the default is **Standard** (720p). **High** (1080p, about 10 Mbps) is a Plus perk; **Saver** is 720p at a smaller bitrate. Already-saved clips are left alone. Bitrate still scales with the actual track size.
 - A live MediaRecorder is armed on the record screen so the hardware encoder is already past its ~170ms startup hole when the user presses; the take adopts that session and trims the pre-roll.
+- During a take the live viewfinder stays on screen; the extra thumb-mirror `<video>` is attached only at lift so the hold has two video sinks (overlay + encoder clone), not three. Record clones get `contentHint: motion`, and the encoder is not sliced every 250ms.
 - Clip duration is measured from the encoded media after stop (wall-clock time includes encoder startup latency and corrupts trim/export math).
 - The elapsed timer is a leaf component mutating its text node directly from a 10Hz boundary-aligned timer (a per-frame rAF loop would force 60 main-thread frames/s), so the ticking readout never re-renders the page during capture.
 - A screen wake lock is held while recording.

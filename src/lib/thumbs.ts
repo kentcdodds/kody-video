@@ -142,6 +142,68 @@ export async function generateImageThumbs(blob: Blob): Promise<GeneratedThumbs> 
  * (the post-take black flash). The frame is drawn synchronously; only the
  * JPEG encode is async. Returns null when the preview has no frame to give.
  */
+/** How long a lift-time thumb mirror may wait for its first frame. */
+const LIVE_THUMB_FRAME_MS = 400
+
+/**
+ * Resolve once `video` has a paintable frame, or when `timeoutMs` elapses.
+ * Used by the lift-time thumb mirror so we never read back the on-screen
+ * preview (that blinks Android's overlay path).
+ */
+export function waitForVideoFrame(
+  video: HTMLVideoElement,
+  timeoutMs = LIVE_THUMB_FRAME_MS,
+): Promise<boolean> {
+  const hasFrame = () => video.readyState >= 2 && video.videoWidth > 0
+  if (hasFrame()) return Promise.resolve(true)
+  return new Promise((resolve) => {
+    let settled = false
+    const finish = (ok: boolean) => {
+      if (settled) return
+      settled = true
+      window.clearTimeout(timer)
+      video.removeEventListener('loadeddata', onReady)
+      video.removeEventListener('canplay', onReady)
+      resolve(ok)
+    }
+    const onReady = () => {
+      if (hasFrame()) finish(true)
+    }
+    const timer = window.setTimeout(() => finish(hasFrame()), timeoutMs)
+    video.addEventListener('loadeddata', onReady)
+    video.addEventListener('canplay', onReady)
+    if ('requestVideoFrameCallback' in video) {
+      video.requestVideoFrameCallback(() => finish(true))
+    }
+    void video.play().catch(() => undefined)
+  })
+}
+
+/**
+ * One detached <video> on the live camera, only for the stop beat.
+ * Keeping a mirror for the whole take added a third video sink beside
+ * the overlay preview and the MediaRecorder clone. Attach here, wait
+ * for a frame (the stop-grace window usually covers it), draw, detach.
+ */
+export async function captureLiveThumbsFromStream(
+  stream: MediaStream | null | undefined,
+  timeoutMs = LIVE_THUMB_FRAME_MS,
+): Promise<GeneratedThumbs | null> {
+  const track = stream?.getVideoTracks().find((item) => item.readyState === 'live')
+  if (!track) return null
+  const video = document.createElement('video')
+  video.muted = true
+  video.playsInline = true
+  video.srcObject = new MediaStream([track])
+  try {
+    const ready = await waitForVideoFrame(video, timeoutMs)
+    if (!ready) return null
+    return await captureLiveThumbs(video)
+  } finally {
+    video.srcObject = null
+  }
+}
+
 export async function captureLiveThumbs(
   video: HTMLVideoElement | null,
 ): Promise<GeneratedThumbs | null> {

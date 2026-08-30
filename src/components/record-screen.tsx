@@ -19,7 +19,7 @@ import {
   type ScreenRecordingSession,
 } from '../lib/screen-recorder'
 import { setLocationTaggingEnabled } from '../lib/storage'
-import { captureLiveThumbs } from '../lib/thumbs'
+import { captureLiveThumbs, captureLiveThumbsFromStream } from '../lib/thumbs'
 import { formatZoomLabel, nearestZoomLevel, zoomChipLevels } from '../lib/zoom-chips'
 import {
   formatStoragePercent,
@@ -102,7 +102,7 @@ export function RecordScreen(handle: Handle<RecordScreenProps>) {
    * stray pointer events must not end the take or reset drag-zoom state. */
   let keyboardTake = false
   let beginInFlight = false
-  let endInFlight = false
+  let endInFlight: Promise<void> | null = null
   let countdownTimer = 0
   let wakeLock: WakeLockSentinel | null = null
   let wakeLockGen = 0
@@ -189,37 +189,21 @@ export function RecordScreen(handle: Handle<RecordScreenProps>) {
   }
 
   /**
-   * Thumbnail capture mirror: a DETACHED video element fed by the same
-   * camera stream for the take's duration. Post-take thumbs are drawn from
-   * it instead of the on-screen preview — reading back the on-screen
-   * element kicks it out of Android's zero-copy overlay compositing path
-   * for a frame, which is the post-take black flash. A detached element
-   * was never in the compositor, so its readback can't blink anything.
+   * Post-take thumbs come from a DETACHED video, never the on-screen
+   * preview (readback kicks Android off the zero-copy overlay path —
+   * the post-take black flash). The mirror is attached only at lift so
+   * the hold itself has two video sinks (overlay + encoder clone), not
+   * three. Stop-grace usually covers the first-frame wait. A miss leaves
+   * the clip without live thumbs (ensureClipThumbs later) instead of
+   * flashing the overlay. flushNow (app hide) is the one path that
+   * draws the on-screen element: the stream is about to die and the
+   * user is already leaving.
    */
-  let thumbMirror: HTMLVideoElement | null = null
-  const stopThumbMirror = () => {
-    const mirror = thumbMirror
-    thumbMirror = null
-    if (mirror) {
-      mirror.srcObject = null
+  const captureTakeThumbs = (options?: { immediate?: boolean }) => {
+    if (options?.immediate) {
+      return captureLiveThumbs(camera.getVideoElement())
     }
-  }
-  const startThumbMirror = (stream: MediaStream) => {
-    stopThumbMirror()
-    const mirror = document.createElement('video')
-    mirror.muted = true
-    mirror.playsInline = true
-    mirror.srcObject = stream
-    void mirror.play().catch(() => undefined)
-    thumbMirror = mirror
-  }
-  const captureTakeThumbs = async () => {
-    const mirror = thumbMirror
-    const fromMirror = mirror ? await captureLiveThumbs(mirror) : null
-    // Ultra-short takes can end before the mirror got its first frame —
-    // the on-screen element is the (blink-risking) fallback, still better
-    // than the loader decoding the fresh blob behind the live preview.
-    return fromMirror ?? captureLiveThumbs(camera.getVideoElement())
+    return captureLiveThumbsFromStream(camera.getStream())
   }
 
   // Live zoom readout: updated imperatively (no component update) so
@@ -431,7 +415,6 @@ export function RecordScreen(handle: Handle<RecordScreenProps>) {
       if (props.plus && locationTagging) {
         pendingFix = getLocationFix()
       }
-      startThumbMirror(stream)
       acquireWakeLock()
       // Watch the live mic level: users must learn about a dead mic while
       // holding, not after sharing a silent video (Sentry: near-zero clip
@@ -485,8 +468,13 @@ export function RecordScreen(handle: Handle<RecordScreenProps>) {
     }
     // One end per take: stop() resolves asynchronously (duration is
     // measured), so a second caller (e.g. hide + return in quick
-    // succession) must not re-enter and double-save the clip.
-    if (endInFlight) return
+    // succession) waits for the in-flight flush instead of double-saving.
+    // During stop-grace, `recording` is already false but the encoder is
+    // still live — must not start a second stop() (that overwrites
+    // onstop and loses the lift's takeWallMs). A successor take that
+    // started during the prior save has `recording` true again and
+    // still needs its own flush.
+    if (endInFlight && !recording) return endInFlight
     if (!recorder.isRecording && !recording) {
       // Pointer released while mic grant was still in flight. Keep the
       // just-acquired mic warm — an aborted press is usually followed by
@@ -496,7 +484,7 @@ export function RecordScreen(handle: Handle<RecordScreenProps>) {
       camera.releaseMic({ keepWarm: true })
       return
     }
-    endInFlight = true
+    const run = (async () => {
     pointerId = null
     keyboardTake = false
     recording = false
@@ -505,15 +493,12 @@ export function RecordScreen(handle: Handle<RecordScreenProps>) {
     // Detach this take's fix before any await so a quick next hold can own it.
     const pendingForThisTake = pendingFix
     pendingFix = null
-    // Grab the poster/thumb from the detached mirror NOW (synchronous
-    // draw at finger-lift) — decoding the recorded blob for thumbnails
-    // while the preview runs blanks it on many Androids, and reading
-    // back the on-screen element blinks its overlay path.
-    const capturedThumbs = captureTakeThumbs().catch(() => null)
+    // Lift-time detached mirror (or a sync on-screen draw when flushNow
+    // is about to kill the camera). Runs beside stop-grace.
+    const capturedThumbs = captureTakeThumbs({ immediate: options?.flushNow }).catch(() => null)
     try {
-      // flushNow: the caller is about to tear the camera (and the
-      // recorder's live mic track) down — the stop-grace tail must be
-      // skipped and the encoder flushed synchronously inside this call.
+      // flushNow: skip the stop-grace tail so MediaRecorder.stop() runs
+      // in this turn (hide then stops the tracks on the same turn).
       const result = await recorder.stop(options?.flushNow ? { graceMs: 0 } : undefined)
       if (!result) {
         props.showToast('Hold a bit longer')
@@ -544,7 +529,6 @@ export function RecordScreen(handle: Handle<RecordScreenProps>) {
       reportError(err, 'save-clip')
       props.showToast(err instanceof Error ? err.message : 'Save failed')
     } finally {
-      endInFlight = false
       // stop() resolves only after the blob's duration is measured, so a
       // quick next hold may already be recording (or acquiring the mic) by
       // now — never strip the mic, monitor, or wake lock from that newer
@@ -558,11 +542,15 @@ export function RecordScreen(handle: Handle<RecordScreenProps>) {
         // fresh acquisition's silent ramp-up at its head.
         camera.releaseMic({ keepWarm: true })
         releaseWakeLock()
-        // A quick next hold already replaced the mirror via
-        // startThumbMirror — only tear it down when this take is the last.
-        stopThumbMirror()
         armEncoderIfPossible()
       }
+    }
+    })()
+    endInFlight = run
+    try {
+      await run
+    } finally {
+      if (endInFlight === run) endInFlight = null
     }
   }
 
@@ -662,7 +650,6 @@ export function RecordScreen(handle: Handle<RecordScreenProps>) {
     micMonitor?.stop()
     micMonitor = null
     recorder.cancel()
-    stopThumbMirror()
     // Leaving the screen mustn't lose an active screen take — save it.
     void finishScreenRecord()
     releaseWakeLock()
@@ -719,10 +706,11 @@ export function RecordScreen(handle: Handle<RecordScreenProps>) {
       micSilent = false
       void handle.update()
       if (recorder.isRecording || recording) {
-        // flushNow makes MediaRecorder.stop() run synchronously inside
-        // endRecord (no stop-grace), so the encoder has flushed by the time
-        // the tracks are stopped below; the save itself continues in the
-        // background.
+        // flushNow makes MediaRecorder.stop() run in this turn (no
+        // stop-grace), so the encoder has been asked to flush before
+        // the tracks die below. The save itself continues in the
+        // background. Awaiting the full save here let a resume restart
+        // the camera, then this handler stopped it again.
         void endRecord(undefined, { flushNow: true })
       }
       recorder.disarm()

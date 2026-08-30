@@ -53,6 +53,12 @@ export function takeTrimStartMs(trimEndMs: number, takeWallMs: number): number {
   return Math.max(0, trimEndMs - takeWallMs)
 }
 
+/** Tell the encoder this clone is camera motion — not a slideshow —
+ * so it spends bits on movement instead of still-image sharpness. */
+export function hintVideoTrackMotion(track: MediaStreamTrack): void {
+  if ('contentHint' in track) track.contentHint = 'motion'
+}
+
 /** Blob length when media duration cannot be measured: encoder start →
  * stop (adopted pre-roll + hold + grace). Never shorter than the hold,
  * so a clock inversion cannot hide the take. */
@@ -196,6 +202,7 @@ export class HoldRecorder {
     if (!video || video.readyState !== 'live') return
     this.stopDummy()
     const clone = video.clone()
+    hintVideoTrackMotion(clone)
     const warmStream = new MediaStream([clone])
     try {
       const settings = video.getSettings()
@@ -211,7 +218,7 @@ export class HoldRecorder {
       recorder.onerror = () => {
         this.finishDummy(recorder)
       }
-      recorder.start(250)
+      recorder.start()
       window.setTimeout(() => {
         if (this.dummyRecorder === recorder && recorder.state !== 'inactive') {
           try {
@@ -476,7 +483,11 @@ export class HoldRecorder {
 
   private createSession(stream: MediaStream): RecordingSession | null {
     const settings = stream.getVideoTracks()[0]?.getSettings()
-    const clones = stream.getVideoTracks().map((track) => track.clone())
+    const clones = stream.getVideoTracks().map((track) => {
+      const clone = track.clone()
+      hintVideoTrackMotion(clone)
+      return clone
+    })
     const recordStream = new MediaStream([...clones, ...stream.getAudioTracks()])
 
     try {
@@ -495,7 +506,10 @@ export class HoldRecorder {
       recorder.ondataavailable = (event) => {
         if (event.data.size > 0) session.chunks.push(event.data)
       }
-      recorder.start(250)
+      // No timeslice: mid-take Blob events on the main thread are extra
+      // work during the hold. Clips and 1.5s warm sessions fit in memory;
+      // the muxed file arrives once, on stop.
+      recorder.start()
       return session
     } catch {
       // Constructor/start can throw (unsupported params, dead tracks) —
