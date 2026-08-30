@@ -524,8 +524,10 @@ export function RecordScreen(handle: Handle<RecordScreenProps>) {
       )
       props.refresh()
     } catch (err) {
-      // Real store failures (quota, bad blob) must still reach Sentry as
-      // handled exceptions — without the twin unhandled AbortError from tx.done.
+      // Store failures surface in-app (toast). Quota is an expected device
+      // gate (StorageQuotaExceededError / reportError no-op); other write
+      // failures still reach Sentry as handled exceptions — without the twin
+      // unhandled AbortError from tx.done.
       reportError(err, 'save-clip')
       props.showToast(err instanceof Error ? err.message : 'Save failed')
     } finally {
