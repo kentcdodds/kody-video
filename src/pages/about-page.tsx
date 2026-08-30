@@ -25,7 +25,6 @@ import {
 } from '../lib/project-transfer'
 import {
   availableBytes,
-  backupFitsStorage,
   estimateStorageSpace,
   formatBytes,
   type StorageSpace,
@@ -239,12 +238,6 @@ export function AboutPage(handle: Handle) {
 
   const importBackup = (file: File) => {
     void (async () => {
-      if (!backupFitsStorage(file.size, data.storage)) {
-        const free = availableBytes(data.storage)
-        importError = `This backup is ${formatBytes(file.size)} and this device has ${formatBytes(free)} free. Delete a project or clear cached exports, then try again.`
-        void handle.update()
-        return
-      }
       importing = true
       importError = null
       importProgress = 'Reading backup…'

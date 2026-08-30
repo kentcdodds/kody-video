@@ -381,6 +381,7 @@ describe('project backup round trip', () => {
     try {
       await expect(assertBackupFitsStorage(50)).rejects.toBeInstanceOf(StorageQuotaExceededError)
       await expect(assertBackupFitsStorage(50)).rejects.toThrow(/free/i)
+      await expect(assertBackupFitsStorage(50)).rejects.toThrow(/imports need/i)
     } finally {
       Object.defineProperty(navigator.storage, 'estimate', {
         configurable: true,

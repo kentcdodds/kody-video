@@ -49,6 +49,12 @@ export function availableBytes(space: StorageSpace | null | undefined): number {
  */
 export const IMPORT_SLACK_BYTES = 32 * 1024 * 1024
 
+/** Bytes an import of this backup should leave free (file + thumbs slack). */
+export function importNeedBytes(backupBytes: number): number {
+  if (!Number.isFinite(backupBytes) || backupBytes <= 0) return IMPORT_SLACK_BYTES
+  return backupBytes + IMPORT_SLACK_BYTES
+}
+
 /** True when a backup of `backupBytes` should fit in the remaining quota. */
 export function backupFitsStorage(
   backupBytes: number,
@@ -56,7 +62,16 @@ export function backupFitsStorage(
 ): boolean {
   if (!space) return true
   if (!Number.isFinite(backupBytes) || backupBytes <= 0) return true
-  return availableBytes(space) >= backupBytes + IMPORT_SLACK_BYTES
+  return availableBytes(space) >= importNeedBytes(backupBytes)
+}
+
+/** User-facing copy when a backup does not fit the remaining quota. */
+export function backupTooLargeMessage(
+  backupBytes: number,
+  space: StorageSpace | null | undefined,
+): string {
+  const free = availableBytes(space)
+  return `This backup is ${formatBytes(backupBytes)} and this device has ${formatBytes(free)} free (imports need about ${formatBytes(importNeedBytes(backupBytes))}). Delete a project or clear cached exports, then try again.`
 }
 
 export function formatStoragePercent(ratio: number): string {

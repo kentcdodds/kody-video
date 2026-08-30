@@ -749,10 +749,15 @@ export async function copyBlobForStorage(
     const buffer = await blob.arrayBuffer()
     return new Blob([buffer], { type })
   }
-  const parts: ArrayBuffer[] = []
+  // Read one chunk at a time and wrap it immediately. Holding every
+  // ArrayBuffer until the end would keep peak RAM at the full file size
+  // (the allocation that phones refuse). File.slice parts would not copy,
+  // so IndexedDB can still fail on ephemeral picker / MediaRecorder blobs.
+  const parts: Blob[] = []
   for (let offset = 0; offset < blob.size; offset += size) {
     const end = Math.min(offset + size, blob.size)
-    parts.push(await blob.slice(offset, end).arrayBuffer())
+    const buffer = await blob.slice(offset, end).arrayBuffer()
+    parts.push(new Blob([buffer]))
   }
   return new Blob(parts, { type })
 }

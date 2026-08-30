@@ -2,9 +2,11 @@ import { describe, expect, it } from 'vitest'
 import {
   availableBytes,
   backupFitsStorage,
+  backupTooLargeMessage,
   formatBytes,
   formatStoragePercent,
   IMPORT_SLACK_BYTES,
+  importNeedBytes,
   storageSeverity,
 } from './storage-space'
 
@@ -71,5 +73,14 @@ describe('availableBytes / backupFitsStorage', () => {
 
   it('skips the gate when the estimate is missing', () => {
     expect(backupFitsStorage(1e12, null)).toBe(true)
+  })
+
+  it('names both the file size and the room the import needs', () => {
+    const tight = { usedBytes: 90, quotaBytes: 100, ratio: 0.9 }
+    const message = backupTooLargeMessage(50, tight)
+    expect(message).toContain(formatBytes(50))
+    expect(message).toContain(formatBytes(availableBytes(tight)))
+    expect(message).toContain(formatBytes(importNeedBytes(50)))
+    expect(importNeedBytes(50)).toBe(50 + IMPORT_SLACK_BYTES)
   })
 })

@@ -11,10 +11,9 @@ import {
   updateProjectAudioTrack,
 } from './storage'
 import {
-  availableBytes,
   backupFitsStorage,
+  backupTooLargeMessage,
   estimateStorageSpace,
-  formatBytes,
   requestPersistentStorage,
 } from './storage-space'
 import {
@@ -369,10 +368,7 @@ export async function assertBackupFitsStorage(backupBytes: number): Promise<void
   await requestPersistentStorage()
   const space = await estimateStorageSpace()
   if (backupFitsStorage(backupBytes, space)) return
-  const free = availableBytes(space)
-  throw new StorageQuotaExceededError(
-    `This backup is ${formatBytes(backupBytes)} and this device has ${formatBytes(free)} free. Delete a project or clear cached exports, then try again.`,
-  )
+  throw new StorageQuotaExceededError(backupTooLargeMessage(backupBytes, space))
 }
 
 /**
@@ -383,7 +379,7 @@ export async function assertBackupFitsStorage(backupBytes: number): Promise<void
 async function throwImportWriteError(error: unknown, backupBytes: number): Promise<never> {
   if (isQuotaExceededError(error) || error instanceof StorageQuotaExceededError) {
     const space = await estimateStorageSpace()
-    if (space && availableBytes(space) > backupBytes) {
+    if (space && backupFitsStorage(backupBytes, space)) {
       throw new BackupCopyError(
         'The browser could not copy this backup into on-device storage. Try again, or import on a computer (Chrome works best).',
       )
