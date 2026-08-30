@@ -121,8 +121,18 @@ function extractCodeFromText(text: string): string | null {
     const url = new URL(trimmed)
     const fromQuery = normalizeRoomCode(url.searchParams.get('code') ?? '')
     if (fromQuery) return fromQuery
+    const pathMatch = url.pathname.match(/\/unlocked\/([A-Za-z0-9-]+)/i)
+    if (pathMatch?.[1]) {
+      const fromPath = normalizeRoomCode(pathMatch[1])
+      if (fromPath) return fromPath
+    }
   } catch {
     // Pasted text is often a bare code, not an absolute URL.
+  }
+  const pathMatch = trimmed.match(/\/unlocked\/([A-Za-z0-9-]+)(?:[/?#]|$)/i)
+  if (pathMatch?.[1]) {
+    const fromPath = normalizeRoomCode(pathMatch[1])
+    if (fromPath) return fromPath
   }
   const queryMatch = trimmed.match(/[?&]code=([A-Za-z0-9-]+)/i)
   if (queryMatch?.[1]) {

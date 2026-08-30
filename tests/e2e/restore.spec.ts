@@ -36,7 +36,12 @@ test.describe('Plus restore codes', () => {
       )
       expect(scheduleUpdateErrors).toEqual([])
 
-      await receiver.goto(`/unlocked?code=${code}`)
+      await expect(sheet.getByText(/kody\.video\/unlocked/)).toBeVisible()
+      await expect(sheet.locator('img.sync-qr')).toBeVisible()
+      const qrSrc = await sheet.locator('img.sync-qr').getAttribute('src')
+      expect(qrSrc ?? '').toMatch(/^data:image\/svg\+xml/)
+
+      await receiver.goto(`/unlocked/${code}`)
       await expect(receiver.getByRole('heading', { name: /Plus unlocked/ })).toBeVisible({
         timeout: 15_000,
       })

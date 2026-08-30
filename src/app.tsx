@@ -65,6 +65,7 @@ export function App(handle: Handle) {
             <ProjectPage projectId={params.projectId ?? ''} />
           ),
           '/unlocked': () => <UnlockedPage />,
+          '/unlocked/:code': (params) => <UnlockedPage code={params.code ?? ''} />,
           '/about': () => <AboutPage />,
           '/privacy': () => <PrivacyPage />,
           '/terms': () => <TermsPage />,

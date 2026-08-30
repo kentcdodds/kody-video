@@ -17,7 +17,7 @@ Kody Video has **no accounts**.
 
 Plus is a one-time $0.99 [Stripe Payment Link](https://buy.stripe.com/00wfZi71ibU30rk9hU2Ry07). After checkout, Stripe redirects to `/unlocked?session_id=<CHECKOUT_SESSION_ID>`. `/api/verify-purchase` checks that session server-side; the entitlement is then stored on the device. 100%-off promotion codes use the same verification.
 
-Restore on another device from the device that already has Plus: About → **Use Plus on another device** shows a short code and QR. The new device types the code under **Already paid?** or opens `/unlocked?code=`. That mints a short-lived mapping to the same Stripe session — not a password. A checkout session id still works if you have one. Stripe receipt URLs do not include that session id.
+Restore on another device from the device that already has Plus: About → **Use Plus on another device** shows a short code and QR. The new device opens `/unlocked` (same path shape as `/receive`) and types or scans the code — `/unlocked/ABC234`. Legacy `/unlocked?code=` links still work. That mints a short-lived mapping to the same Stripe session — not a password. A checkout session id still works if you have one. Stripe receipt URLs do not include that session id.
 
 ## Other network calls
 

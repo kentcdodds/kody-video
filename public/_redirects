@@ -14,6 +14,7 @@
 # and Stripe's return to /unlocked when this was first attempted).
 /project/*    /app    200
 /unlocked     /app    200
+/unlocked/*   /app    200
 /about        /app    200
 /privacy      /app    200
 /terms        /app    200

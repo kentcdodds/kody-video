@@ -31,6 +31,18 @@ describe('extractRestoreToken', () => {
       kind: 'code',
       value: 'ABC234',
     })
+    expect(extractRestoreToken('https://kody.video/unlocked/ABC234')).toEqual({
+      kind: 'code',
+      value: 'ABC234',
+    })
+    expect(extractRestoreToken('https://kody.video/unlocked/ABC-234')).toEqual({
+      kind: 'code',
+      value: 'ABC234',
+    })
+    expect(extractRestoreToken('kody.video/unlocked/ABC234')).toEqual({
+      kind: 'code',
+      value: 'ABC234',
+    })
   })
 
   it('does not treat a Stripe receipt URL as a session id', () => {
