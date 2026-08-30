@@ -66,12 +66,19 @@ let activeDb: IDBPDatabase<ClipsDB> | null = null
  * `tx.done` together keeps that rejection in the same catch path (see
  * jakearchibald/idb#320). Otherwise Sentry sees `AbortError: AbortError`
  * via `unhandledrejection` as a twin of the real store error.
+ *
+ * QuotaExceededError (KODY-VIDEO-12) is remapped to StorageQuotaExceededError
+ * so callers get actionable copy even when the browser leaves message empty.
  */
 async function completeTransaction(
   ops: Array<Promise<unknown>>,
   tx: { done: Promise<void> },
 ): Promise<void> {
-  await Promise.all([...ops, tx.done])
+  try {
+    await Promise.all([...ops, tx.done])
+  } catch (error) {
+    throwMappedStorageWriteError(error)
+  }
 }
 
 /**
@@ -161,6 +168,40 @@ export class IndexedDbUnavailableError extends Error {
   }
 }
 
+/** Actionable copy when IndexedDB / Cache rejects a write for quota. */
+export const STORAGE_QUOTA_MESSAGE =
+  'Device storage is full. Delete a project or clear cached exports, then try again.'
+
+/**
+ * Soft storage-full gate (KODY-VIDEO-12). Browser QuotaExceededError often has
+ * an empty message ("No error message" in Sentry); wrap so in-app surfaces
+ * guide the user. Expected device constraint, never a crash report.
+ */
+export class StorageQuotaExceededError extends Error {
+  override readonly name = 'StorageQuotaExceededError'
+
+  constructor(message = STORAGE_QUOTA_MESSAGE) {
+    super(message)
+  }
+}
+
+/**
+ * True when the browser rejected a write because the origin quota is full.
+ * Match by `error.name` — Chromium often leaves `message` empty.
+ */
+export function isQuotaExceededError(error: unknown): boolean {
+  if (error instanceof StorageQuotaExceededError) return true
+  if (!(error instanceof DOMException) && !(error instanceof Error)) return false
+  return error.name === 'QuotaExceededError'
+}
+
+/** Remap raw quota DOMExceptions; rethrow everything else unchanged. */
+export function throwMappedStorageWriteError(error: unknown): never {
+  if (error instanceof StorageQuotaExceededError) throw error
+  if (isQuotaExceededError(error)) throw new StorageQuotaExceededError()
+  throw error
+}
+
 /**
  * True when an IndexedDB failure looks environmental — the connection or the
  * backing store gave out mid-operation (iOS Safari closing IDB under memory
@@ -172,6 +213,7 @@ export class IndexedDbUnavailableError extends Error {
 export function isRetriableIdbFailure(error: unknown): boolean {
   if (isStaleConnectionError(error)) return true
   if (isIndexedDbBackingStoreOpenFailure(error)) return true
+  if (isQuotaExceededError(error)) return false
   if (!(error instanceof DOMException)) return false
   return (
     error.name === 'AbortError' ||
@@ -450,7 +492,11 @@ export async function createProject(
   // caller-chosen name is meaningful and must never be auto-deleted.
   if (!chosenName) project.nameIsDefault = true
   if (options?.orientation === 'landscape') project.orientation = 'landscape'
-  await db.put('projects', project)
+  try {
+    await db.put('projects', project)
+  } catch (error) {
+    throwMappedStorageWriteError(error)
+  }
   await setLastOpenedProjectId(project.id)
   return project
 }

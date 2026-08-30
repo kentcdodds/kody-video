@@ -4,7 +4,7 @@ import { IconBack } from '../components/icons'
 import { BrandMark } from '../components/brand-mark'
 import { reportError } from '../lib/error-reporting'
 import { BackupFormatError, importKodyVideoBackupFile } from '../lib/project-transfer'
-import { ProjectLimitError } from '../lib/storage'
+import { ProjectLimitError, StorageQuotaExceededError } from '../lib/storage'
 import { formatBytes } from '../lib/storage-space'
 import { formatRoomCode, normalizeRoomCode, type SyncPhase } from '../lib/sync-protocol'
 import { httpSyncSignaling, SyncSignalError } from '../lib/sync-signaling'
@@ -65,7 +65,8 @@ export function ReceivePage(handle: Handle<ReceivePageProps>) {
       !(err instanceof SyncSignalError) &&
       !(err instanceof SyncTransferError) &&
       !(err instanceof BackupFormatError) &&
-      !(err instanceof ProjectLimitError)
+      !(err instanceof ProjectLimitError) &&
+      !(err instanceof StorageQuotaExceededError)
     ) {
       reportError(err, 'sync-receive')
     }

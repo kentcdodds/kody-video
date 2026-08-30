@@ -36,6 +36,10 @@ import {
   setTourCardDismissed,
   setKeepWatermark,
   setVideoQuality,
+  STORAGE_QUOTA_MESSAGE,
+  StorageQuotaExceededError,
+  isQuotaExceededError,
+  throwMappedStorageWriteError,
   toStoredBlob,
   undoDeleteLastClip,
   updateClipAudioPeak,
@@ -137,6 +141,29 @@ describe('storage layer', () => {
       false,
     )
     expect(isStaleConnectionError(new Error('nope'))).toBe(false)
+  })
+
+  it('maps QuotaExceededError to StorageQuotaExceededError (KODY-VIDEO-12)', () => {
+    // Chromium often leaves the message empty — Sentry shows "No error message".
+    expect(isQuotaExceededError(new DOMException('', 'QuotaExceededError'))).toBe(true)
+    expect(isQuotaExceededError(new DOMException('Quota exceeded', 'QuotaExceededError'))).toBe(
+      true,
+    )
+    expect(isQuotaExceededError(new StorageQuotaExceededError())).toBe(true)
+    expect(isQuotaExceededError(new DOMException('nope', 'UnknownError'))).toBe(false)
+
+    expect(() =>
+      throwMappedStorageWriteError(new DOMException('', 'QuotaExceededError')),
+    ).toThrow(StorageQuotaExceededError)
+    try {
+      throwMappedStorageWriteError(new DOMException('', 'QuotaExceededError'))
+    } catch (error) {
+      expect(error).toBeInstanceOf(StorageQuotaExceededError)
+      expect((error as Error).message).toBe(STORAGE_QUOTA_MESSAGE)
+    }
+    expect(() => throwMappedStorageWriteError(new Error('Clip not found'))).toThrow(
+      'Clip not found',
+    )
   })
 
   it('recognizes Chromium IndexedDB backing-store open failures (KODY-VIDEO-Y)', () => {
@@ -1086,6 +1113,8 @@ describe('storage layer', () => {
     expect(isRetriableIdbFailure(new DOMException('Quota exceeded', 'QuotaExceededError'))).toBe(
       false,
     )
+    expect(isRetriableIdbFailure(new DOMException('', 'QuotaExceededError'))).toBe(false)
+    expect(isRetriableIdbFailure(new StorageQuotaExceededError())).toBe(false)
     expect(isRetriableIdbFailure(new Error('Clip not found'))).toBe(false)
   })
 

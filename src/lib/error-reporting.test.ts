@@ -8,13 +8,18 @@ import {
   isMonitoringSelfTestEvent,
   isProjectLimitEvent,
   isReportingHostname,
+  isStorageQuotaExceededEvent,
   isTranslatorDomMutationNoiseEvent,
   isViteCssPreloadError,
   isWebKitEmptyRangesNoiseEvent,
   reportComponentError,
   reportError,
 } from './error-reporting'
-import { IndexedDbUnavailableError, ProjectLimitError } from './storage'
+import {
+  IndexedDbUnavailableError,
+  ProjectLimitError,
+  StorageQuotaExceededError,
+} from './storage'
 
 describe('isMonitoringSelfTestEvent', () => {
   it('drops the setup-agent synthetic exception signature', () => {
@@ -114,6 +119,56 @@ describe('isProjectLimitEvent', () => {
   })
 })
 
+describe('isStorageQuotaExceededEvent (KODY-VIDEO-12)', () => {
+  it('drops bare QuotaExceededError even with an empty message', () => {
+    expect(
+      isStorageQuotaExceededEvent({
+        exception: {
+          values: [{ type: 'QuotaExceededError', value: '' }],
+        },
+      }),
+    ).toBe(true)
+    expect(
+      isStorageQuotaExceededEvent({
+        exception: {
+          values: [{ type: 'QuotaExceededError', value: 'No error message' }],
+        },
+      }),
+    ).toBe(true)
+  })
+
+  it('drops the wrapped StorageQuotaExceededError type', () => {
+    expect(
+      isStorageQuotaExceededEvent({
+        exception: {
+          values: [
+            {
+              type: 'StorageQuotaExceededError',
+              value:
+                'Device storage is full. Delete a project or clear cached exports, then try again.',
+            },
+          ],
+        },
+      }),
+    ).toBe(true)
+  })
+
+  it('keeps unrelated storage errors', () => {
+    expect(
+      isStorageQuotaExceededEvent({
+        exception: {
+          values: [
+            {
+              type: 'UnknownError',
+              value: 'Error preparing Blob/File data to be stored in object store',
+            },
+          ],
+        },
+      }),
+    ).toBe(false)
+  })
+})
+
 describe('isExpectedUserError / reportError', () => {
   it('recognizes ProjectLimitError instances', () => {
     expect(isExpectedUserError(new ProjectLimitError('capped'))).toBe(true)
@@ -153,6 +208,22 @@ describe('isExpectedUserError / reportError', () => {
   it('reportError stays silent for missing IndexedDB ReferenceError (KODY-VIDEO-10)', () => {
     expect(() =>
       reportError(new ReferenceError('indexedDB is not defined'), 'load-home'),
+    ).not.toThrow()
+  })
+
+  it('recognizes quota-full errors (KODY-VIDEO-12)', () => {
+    expect(isExpectedUserError(new StorageQuotaExceededError())).toBe(true)
+    expect(isExpectedUserError(new DOMException('', 'QuotaExceededError'))).toBe(true)
+    expect(isExpectedUserError(new DOMException('Quota exceeded', 'QuotaExceededError'))).toBe(
+      true,
+    )
+    expect(isExpectedUserError(new Error('Export failed'))).toBe(false)
+  })
+
+  it('reportError stays silent for StorageQuotaExceededError and raw QuotaExceededError', () => {
+    expect(() => reportError(new StorageQuotaExceededError(), 'import')).not.toThrow()
+    expect(() =>
+      reportError(new DOMException('', 'QuotaExceededError'), 'save-clip'),
     ).not.toThrow()
   })
 })

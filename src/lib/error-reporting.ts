@@ -87,6 +87,24 @@ export function isProjectLimitEvent(event: FilterableSentryEvent): boolean {
 }
 
 /**
+ * Device storage quota full (KODY-VIDEO-12). Expected environmental gate —
+ * in-app copy guides delete/clear; not a triage-worthy crash.
+ * Match by exception type only: message is often empty in Chromium.
+ */
+export function isStorageQuotaExceededEvent(event: FilterableSentryEvent): boolean {
+  const exceptionValues = event.exception?.values ?? []
+  for (const value of exceptionValues) {
+    if (
+      value.type === 'QuotaExceededError' ||
+      value.type === 'StorageQuotaExceededError'
+    ) {
+      return true
+    }
+  }
+  return false
+}
+
+/**
  * Chromium LevelDB open failure (KODY-VIDEO-Y). Keep in sync with
  * `isIndexedDbBackingStoreOpenFailure` in storage.ts — message-only here so
  * this module stays free of an idb import.
@@ -427,6 +445,7 @@ function loadSentry(): Promise<SentryLike> | null {
         if (isMonitoringSelfTestEvent(event)) return null
         if (isCloudflareInsightsBeaconEvent(event)) return null
         if (isProjectLimitEvent(event)) return null
+        if (isStorageQuotaExceededEvent(event)) return null
         if (isIndexedDbBackingStoreOpenEvent(event)) return null
         if (isBrowserExtensionHostObjectNoiseEvent(event)) return null
         if (isViteCssPreloadError(event)) return null
@@ -473,6 +492,9 @@ export function isExpectedUserError(error: unknown): boolean {
   if (!(error instanceof Error)) return false
   if (error.name === 'ProjectLimitError') return true
   if (error.name === 'IndexedDbUnavailableError') return true
+  // Device quota full (KODY-VIDEO-12) — wrapped or raw Chromium DOMException.
+  if (error.name === 'StorageQuotaExceededError') return true
+  if (error.name === 'QuotaExceededError') return true
   // Raw Chromium open failure if something reports before storage wraps it.
   if (isIndexedDbBackingStoreOpenText(error.name, error.message)) return true
   // Missing IndexedDB global (KODY-VIDEO-10) before storage wraps it.

@@ -4,6 +4,7 @@ import {
   addProjectAudioTrack,
   createProject,
   deleteProject,
+  throwMappedStorageWriteError,
   updateClipTrim,
   updateProjectAudioTrack,
 } from './storage'
@@ -468,6 +469,8 @@ async function persistImportedProject(
   } catch (error) {
     // Never leave a half-imported project behind.
     await deleteProject(project.id).catch(() => undefined)
-    throw error
+    // arrayBuffer() / IDB puts can throw bare QuotaExceededError with an
+    // empty message (KODY-VIDEO-12) — remap before surfacing to the UI.
+    throwMappedStorageWriteError(error)
   }
 }
