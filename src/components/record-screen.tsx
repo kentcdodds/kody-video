@@ -469,9 +469,12 @@ export function RecordScreen(handle: Handle<RecordScreenProps>) {
     // One end per take: stop() resolves asynchronously (duration is
     // measured), so a second caller (e.g. hide + return in quick
     // succession) waits for the in-flight flush instead of double-saving.
-    // A successor take that started during that save must still flush
-    // now — waiting would let hide disarm/stop the camera unsaved.
-    if (endInFlight && !recorder.isRecording && !recording) return endInFlight
+    // During stop-grace, `recording` is already false but the encoder is
+    // still live — must not start a second stop() (that overwrites
+    // onstop and loses the lift's takeWallMs). A successor take that
+    // started during the prior save has `recording` true again and
+    // still needs its own flush.
+    if (endInFlight && !recording) return endInFlight
     if (!recorder.isRecording && !recording) {
       // Pointer released while mic grant was still in flight. Keep the
       // just-acquired mic warm — an aborted press is usually followed by
