@@ -42,9 +42,17 @@ function phaseCopy(phase: SyncPhase, error: string | null, hasCode: boolean): st
 
 /** Free: accept a Plus send and import it as a new project. */
 export function ReceivePage(handle: Handle<ReceivePageProps>) {
+  // Normalize once so mount can paint the right state without a sync
+  // handle.update() (Remix only wires scheduleUpdate after first commit).
+  const propCode = handle.props.code ? normalizeRoomCode(handle.props.code) : null
   let typed = handle.props.code ?? ''
-  let phase: SyncPhase = handle.props.code ? 'waiting' : 'creating'
-  let error: string | null = null
+  let phase: SyncPhase = propCode
+    ? 'waiting'
+    : handle.props.code
+      ? 'failed'
+      : 'creating'
+  let error: string | null =
+    handle.props.code && !propCode ? 'That is not a valid send code.' : null
   let progress = ''
   const abort = new AbortController()
 
@@ -74,10 +82,15 @@ export function ReceivePage(handle: Handle<ReceivePageProps>) {
       void handle.update()
       return
     }
+    // Remix wires scheduleUpdate only after the first render commits. Calling
+    // handle.update() synchronously from setup (before any await) rejects with
+    // "scheduleUpdate not implemented". Mount with a code already starts in
+    // waiting / clean error, so skip that paint; form submit still needs it.
+    const needsWaitingPaint = phase !== 'waiting' || error !== null || progress !== ''
     phase = 'waiting'
     error = null
     progress = ''
-    void handle.update()
+    if (needsWaitingPaint) void handle.update()
     void (async () => {
       try {
         const received = await receiveBackupFromPeer(
@@ -111,7 +124,7 @@ export function ReceivePage(handle: Handle<ReceivePageProps>) {
     })()
   }
 
-  if (handle.props.code) receive(handle.props.code)
+  if (propCode) receive(propCode)
 
   return () => (
     <div className="screen about-screen receive-screen">
