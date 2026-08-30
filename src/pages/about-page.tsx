@@ -18,8 +18,19 @@ import { buildDateLabel, COMMIT_SHA, commitUrl, shortVersion } from '../lib/buil
 import { reportError } from '../lib/error-reporting'
 import { clearExportCache, estimateExportCacheBytes } from '../lib/export/export-cache'
 import { listRearCameras } from '../lib/media'
-import { BackupFormatError, importKodyVideoBackupFile } from '../lib/project-transfer'
-import { estimateStorageSpace, formatBytes, type StorageSpace } from '../lib/storage-space'
+import {
+  BackupCopyError,
+  BackupFormatError,
+  importKodyVideoBackupFile,
+} from '../lib/project-transfer'
+import {
+  availableBytes,
+  backupFitsStorage,
+  estimateStorageSpace,
+  formatBytes,
+  type StorageSpace,
+} from '../lib/storage-space'
+import { ProjectLimitError, StorageQuotaExceededError } from '../lib/storage'
 import { getSettings, setVideoQuality } from '../lib/storage'
 import { resolveVideoQuality, type VideoQualityPreset } from '../lib/video-quality'
 import { navigate } from '../router'
@@ -228,6 +239,12 @@ export function AboutPage(handle: Handle) {
 
   const importBackup = (file: File) => {
     void (async () => {
+      if (!backupFitsStorage(file.size, data.storage)) {
+        const free = availableBytes(data.storage)
+        importError = `This backup is ${formatBytes(file.size)} and this device has ${formatBytes(free)} free. Delete a project or clear cached exports, then try again.`
+        void handle.update()
+        return
+      }
       importing = true
       importError = null
       importProgress = 'Reading backup…'
@@ -240,8 +257,15 @@ export function AboutPage(handle: Handle) {
         // Land directly in the imported project — unambiguous success.
         navigate(`/project/${project.id}`)
       } catch (err) {
-        // Wrong/damaged file picked = expected user input, not a crash.
-        if (!(err instanceof BackupFormatError)) reportError(err, 'import')
+        // Wrong/damaged file, plan cap, or a full disk = expected guidance.
+        if (
+          !(err instanceof BackupFormatError) &&
+          !(err instanceof BackupCopyError) &&
+          !(err instanceof StorageQuotaExceededError) &&
+          !(err instanceof ProjectLimitError)
+        ) {
+          reportError(err, 'import')
+        }
         importError = err instanceof Error ? err.message : 'Could not import that file'
       } finally {
         importProgress = null
@@ -292,7 +316,16 @@ export function AboutPage(handle: Handle) {
     if (!hashScrolled && location.hash === '#video-quality') {
       hashScrolled = true
       queueMicrotask(() => {
-        document.getElementById('video-quality')?.scrollIntoView({ block: 'start' })
+        const section = document.getElementById('video-quality')
+        const scroller = document.querySelector('.about-screen .about-body')
+        if (section && scroller instanceof HTMLElement) {
+          const top =
+            section.getBoundingClientRect().top -
+            scroller.getBoundingClientRect().top +
+            scroller.scrollTop
+          scroller.scrollTo({ top: Math.max(0, top - 8) })
+        }
+        window.scrollTo(0, 0)
       })
     }
     const version = <code>{shortVersion()}</code>
@@ -321,7 +354,9 @@ export function AboutPage(handle: Handle) {
               <h2>Kody Video Plus</h2>
               <p>
                 This device is unlocked. To use Plus on a second phone or computer, show a short
-                code and QR the new device can type or scan — no Stripe receipt required.
+                code and QR — the other device opens{' '}
+                <a href="/unlocked">kody.video/unlocked</a> (same idea as{' '}
+                <a href="/receive">kody.video/receive</a>). No Stripe receipt required.
               </p>
               <button
                 type="button"
@@ -500,21 +535,28 @@ export function AboutPage(handle: Handle) {
               <a href="/receive">kody.video/receive</a>). Restore a backup here, or drop the file
               anywhere in the app:
             </p>
-            <label className={`btn btn-ghost about-import${importing ? ' is-disabled' : ''}`}>
-              Import a backup
-              <input
-                type="file"
-                accept=".kodyvideo,application/octet-stream"
-                className="visually-hidden"
-                disabled={importing}
-                mix={on('change', (event) => {
-                  const input = event.currentTarget as HTMLInputElement
-                  const file = input.files?.[0]
-                  input.value = ''
-                  if (file) importBackup(file)
-                })}
-              />
-            </label>
+            <div className="about-import-row">
+              <label className={`btn btn-ghost about-import${importing ? ' is-disabled' : ''}`}>
+                Import a backup
+                <input
+                  type="file"
+                  accept=".kodyvideo,application/octet-stream"
+                  className="visually-hidden"
+                  disabled={importing}
+                  mix={on('change', (event) => {
+                    const input = event.currentTarget as HTMLInputElement
+                    const file = input.files?.[0]
+                    input.value = ''
+                    if (file) importBackup(file)
+                  })}
+                />
+              </label>
+              {storage ? (
+                <p className="about-import-space">
+                  {formatBytes(availableBytes(storage))} available
+                </p>
+              ) : null}
+            </div>
             {importProgress ? (
               <p role="status" aria-live="polite">
                 {importProgress} Keep this tab open.

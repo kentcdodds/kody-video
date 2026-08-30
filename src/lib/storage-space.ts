@@ -37,6 +37,28 @@ export function formatBytes(bytes: number): string {
   return `${Math.max(1, Math.round(mb))} MB`
 }
 
+/** Bytes the origin can still write (0 when the estimate is missing). */
+export function availableBytes(space: StorageSpace | null | undefined): number {
+  if (!space) return 0
+  return Math.max(0, space.quotaBytes - space.usedBytes)
+}
+
+/**
+ * Headroom for IndexedDB overhead and generated thumbs so a backup that
+ * *just* fits the remaining quota does not fail midway.
+ */
+export const IMPORT_SLACK_BYTES = 32 * 1024 * 1024
+
+/** True when a backup of `backupBytes` should fit in the remaining quota. */
+export function backupFitsStorage(
+  backupBytes: number,
+  space: StorageSpace | null | undefined,
+): boolean {
+  if (!space) return true
+  if (!Number.isFinite(backupBytes) || backupBytes <= 0) return true
+  return availableBytes(space) >= backupBytes + IMPORT_SLACK_BYTES
+}
+
 export function formatStoragePercent(ratio: number): string {
   return `${Math.round(ratio * 100)}%`
 }
@@ -46,9 +68,9 @@ export function formatStoragePercent(ratio: number): string {
  * can't be silently evicted under storage pressure. Chromium grants it
  * without any prompt for engaged/installed origins; fire-and-forget.
  */
-export function requestPersistentStorage(): void {
+export async function requestPersistentStorage(): Promise<void> {
   try {
-    void navigator.storage?.persist?.().catch(() => undefined)
+    await navigator.storage?.persist?.()
   } catch {
     // Older browsers: nothing to do.
   }

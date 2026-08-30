@@ -728,12 +728,37 @@ export function insertClipIdAfter(
  * with UnknownError ("Error preparing Blob/File data to be stored…") when
  * the original backing store is ephemeral or already released.
  *
+ * Large clips are copied in chunks: a single `arrayBuffer()` of a ~1GB
+ * File (or File.slice) throws QuotaExceededError on many phones even when
+ * disk quota is fine — the browser is refusing a giant RAM allocation, not
+ * reporting a full disk. Chunked reads keep peak allocation small.
+ *
  * Prefer `mimeType` when the source Blob's type is empty so Safari does not
  * later reject an `application/octet-stream` object URL at export.
  */
+export const STORED_BLOB_CHUNK_BYTES = 8 * 1024 * 1024
+
+export async function copyBlobForStorage(
+  blob: Blob,
+  mimeType?: string,
+  chunkBytes: number = STORED_BLOB_CHUNK_BYTES,
+): Promise<Blob> {
+  const type = blob.type || mimeType || 'application/octet-stream'
+  const size = chunkBytes > 0 ? chunkBytes : STORED_BLOB_CHUNK_BYTES
+  if (blob.size <= size) {
+    const buffer = await blob.arrayBuffer()
+    return new Blob([buffer], { type })
+  }
+  const parts: ArrayBuffer[] = []
+  for (let offset = 0; offset < blob.size; offset += size) {
+    const end = Math.min(offset + size, blob.size)
+    parts.push(await blob.slice(offset, end).arrayBuffer())
+  }
+  return new Blob(parts, { type })
+}
+
 export async function toStoredBlob(blob: Blob, mimeType?: string): Promise<Blob> {
-  const buffer = await blob.arrayBuffer()
-  return new Blob([buffer], { type: blob.type || mimeType || 'application/octet-stream' })
+  return copyBlobForStorage(blob, mimeType)
 }
 
 export async function addClip(input: AddClipInput): Promise<ClipRecord> {

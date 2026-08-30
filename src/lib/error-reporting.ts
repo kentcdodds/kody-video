@@ -495,6 +495,8 @@ export function isExpectedUserError(error: unknown): boolean {
   // Device quota full (KODY-VIDEO-12) — wrapped or raw Chromium DOMException.
   if (error.name === 'StorageQuotaExceededError') return true
   if (error.name === 'QuotaExceededError') return true
+  // Large-file copy refused in RAM even though disk still has room.
+  if (error.name === 'BackupCopyError') return true
   // Raw Chromium open failure if something reports before storage wraps it.
   if (isIndexedDbBackingStoreOpenText(error.name, error.message)) return true
   // Missing IndexedDB global (KODY-VIDEO-10) before storage wraps it.
