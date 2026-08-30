@@ -30,12 +30,10 @@ function missingTokenMessage(raw: string): string {
   return 'Enter the short code from the other device, or a checkout session id starting with “cs_”.'
 }
 
-function phaseCopy(phase: UnlockPhase, error: string | null, hasDeepLink: boolean): string {
+function phaseCopy(phase: UnlockPhase, error: string | null): string {
   switch (phase) {
     case 'enter':
-      return hasDeepLink
-        ? 'That is not a valid unlock code.'
-        : 'Type the code from the other device, or open the link / QR it showed.'
+      return 'Type the code from the other device, or open the link / QR it showed.'
     case 'checking':
       return 'Checking your purchase…'
     case 'unlocked':
@@ -60,7 +58,7 @@ export function UnlockedPage(handle: Handle<UnlockedPageProps>) {
   const initialRaw = rawTokenFromLocation(handle.props.code)
   const initialToken = extractRestoreToken(initialRaw)
   let typed = handle.props.code ?? ''
-  let phase: UnlockPhase = initialToken ? 'checking' : 'enter'
+  let phase: UnlockPhase = initialToken ? 'checking' : initialRaw ? 'failed' : 'enter'
   let result: VerifyResult | null = initialToken
     ? null
     : initialRaw
@@ -127,7 +125,7 @@ export function UnlockedPage(handle: Handle<UnlockedPageProps>) {
           <>
             <h1>{phase === 'checking' ? 'One moment' : 'Unlock Plus'}</h1>
             <p className="muted">
-              {phaseCopy(phase, result?.error ?? null, Boolean(handle.props.code))}
+              {phaseCopy(phase, result?.error ?? null)}
             </p>
           </>
         )}

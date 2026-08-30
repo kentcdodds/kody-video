@@ -58,6 +58,14 @@ test.describe('Plus restore codes', () => {
     }
   })
 
+  test('an invalid /unlocked path still offers the code form', async ({ page }) => {
+    await page.goto('/unlocked/nope')
+    await expect(page.getByRole('heading', { name: 'Unlock Plus' })).toBeVisible()
+    await expect(page.getByText(/Enter the short code from the other device/)).toBeVisible()
+    await expect(page.getByLabel('Plus code')).toBeVisible()
+    await expect(page.getByRole('button', { name: 'Unlock' })).toBeVisible()
+  })
+
   test('a QR / path code still redeems on /unlocked/:code', async ({ page, browser, baseURL }) => {
     const receiverContext = await browser.newContext({ baseURL })
     const receiver = await receiverContext.newPage()
