@@ -1,11 +1,11 @@
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { createElement, createRoot, type Handle } from 'remix/ui'
 
 /**
- * Regression for Sentry 7700116197: Remix only wires scheduleUpdate after the
- * first render commits. A sync handle.update() kicked from ReceivePage setup
- * (deep-link code → receive() before any await) rejects with
- * "scheduleUpdate not implemented".
+ * Regression for Sentry 7700116197: a sync handle.update() kicked from
+ * ReceivePage setup (deep-link code → receive() before any await) is ignored
+ * with a console warning, and one that lands before the initial render
+ * commits throws "Cannot call handle.update()".
  *
  * Mirrors ReceivePage's mount path: start in waiting with a code, skip the
  * sync waiting paint, then update after the first await when connected.
@@ -55,23 +55,25 @@ describe('ReceivePage setup receive', () => {
     dispose = undefined
   })
 
-  it('does not reject scheduleUpdate when receive starts during setup', async () => {
+  it('does not warn or reject when receive starts during setup', async () => {
     const rejections: string[] = []
     const onRejection = (event: PromiseRejectionEvent) => {
       const msg =
         event.reason instanceof Error ? event.reason.message : String(event.reason ?? '')
-      if (msg.includes('scheduleUpdate')) {
+      if (msg.includes('handle.update()') || msg.includes('scheduleUpdate')) {
         rejections.push(msg)
         event.preventDefault()
       }
     }
     window.addEventListener('unhandledrejection', onRejection)
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
 
     const host = document.createElement('div')
     document.body.appendChild(host)
     const root = createRoot(host)
     dispose = () => {
       window.removeEventListener('unhandledrejection', onRejection)
+      warn.mockRestore()
       root.dispose()
       host.remove()
     }
@@ -86,6 +88,9 @@ describe('ReceivePage setup receive', () => {
     })
 
     expect(rejections).toEqual([])
+    expect(
+      warn.mock.calls.filter(([msg]) => String(msg).includes('handle.update()')),
+    ).toEqual([])
   })
 })
 

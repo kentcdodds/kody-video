@@ -74,10 +74,9 @@ export function UnlockedPage(handle: Handle<UnlockedPageProps>) {
       void handle.update()
       return
     }
-    // Remix wires scheduleUpdate only after the first render commits. Calling
-    // handle.update() synchronously from setup (before any await) rejects with
-    // "scheduleUpdate not implemented". Mount with a token already starts in
-    // checking, so skip that paint; form submit still needs it.
+    // handle.update() during setup is ignored with a console warning (the
+    // initial render already includes setup state). Mount with a token already
+    // starts in checking, so skip that paint; form submit still needs it.
     const needsCheckingPaint = phase !== 'checking' || result !== null
     phase = 'checking'
     result = null
