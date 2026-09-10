@@ -43,7 +43,7 @@ function phaseCopy(phase: SyncPhase, error: string | null, hasCode: boolean): st
 /** Free: accept a Plus send and import it as a new project. */
 export function ReceivePage(handle: Handle<ReceivePageProps>) {
   // Normalize once so mount can paint the right state without a sync
-  // handle.update() (Remix only wires scheduleUpdate after first commit).
+  // handle.update() (ignored during setup; the initial render covers it).
   const propCode = handle.props.code ? normalizeRoomCode(handle.props.code) : null
   let typed = handle.props.code ?? ''
   let phase: SyncPhase = propCode
@@ -83,10 +83,10 @@ export function ReceivePage(handle: Handle<ReceivePageProps>) {
       void handle.update()
       return
     }
-    // Remix wires scheduleUpdate only after the first render commits. Calling
-    // handle.update() synchronously from setup (before any await) rejects with
-    // "scheduleUpdate not implemented". Mount with a code already starts in
-    // waiting / clean error, so skip that paint; form submit still needs it.
+    // handle.update() during setup is ignored with a console warning (the
+    // initial render already includes setup state). Mount with a code already
+    // starts in waiting / clean error, so skip that paint; form submit still
+    // needs it.
     const needsWaitingPaint = phase !== 'waiting' || error !== null || progress !== ''
     phase = 'waiting'
     error = null
