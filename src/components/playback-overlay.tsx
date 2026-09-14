@@ -24,6 +24,7 @@ import {
   type ProjectAudioRecord,
 } from '../lib/types'
 import { clipCanvasFit } from '../lib/clip-fit'
+import { isAtKeptWindowEnd, restartSeekHasLanded } from '../lib/preview-window'
 import { BlobImage } from './blob-image'
 import { IconPlay } from './icons'
 import { isInteractiveTarget } from '../lib/keyboard'
@@ -68,6 +69,9 @@ export function PlaybackOverlay(handle: Handle<PlaybackOverlayProps>) {
   /** Index whose media has actually loaded — gates stale timeupdate/ended
    * events from the previous clip that fire before the new source is ready. */
   let loadedIndex = -1
+  /** True after a seek back to the segment start, until it lands — a
+   * stale timeupdate at the previous end must not skip/close the preview. */
+  let restartingFromStart = false
 
   // Photo segments have no media clock — a wall-clock timer drives their
   // progress, their music position, and the advance to the next segment.
@@ -489,6 +493,7 @@ export function PlaybackOverlay(handle: Handle<PlaybackOverlayProps>) {
     advancedFor = -1
     segmentProgress = 0
     needsTap = false
+    restartingFromStart = false
     if (nextIndex === index) {
       if (currentIsImage()) {
         // Restart the photo from its first moment, like the video seek.
@@ -503,7 +508,11 @@ export function PlaybackOverlay(handle: Handle<PlaybackOverlayProps>) {
         // Without music there is no per-frame tick — apply the clip's own
         // level (and normalization) at each start.
         if (!props.audio) video.volume = clipElementVolumeNow()
-        video.currentTime = startSec()
+        const start = startSec()
+        if (Math.abs(video.currentTime - start) > 0.02) {
+          restartingFromStart = true
+          video.currentTime = start
+        }
         void video
           .play()
           .then(() => playMusic())
@@ -527,6 +536,7 @@ export function PlaybackOverlay(handle: Handle<PlaybackOverlayProps>) {
   const advance = () => {
     if (advancedFor === index) return
     advancedFor = index
+    restartingFromStart = false
     if (index >= resolveSegments().length - 1) {
       props.onClose()
       return
@@ -544,7 +554,11 @@ export function PlaybackOverlay(handle: Handle<PlaybackOverlayProps>) {
     // Without music there is no per-frame tick — apply the clip's own
     // level (and normalization) at each segment start.
     if (!props.audio) video.volume = clipElementVolumeNow()
-    video.currentTime = startSec()
+    const start = startSec()
+    if (Math.abs(video.currentTime - start) > 0.02) {
+      restartingFromStart = true
+      video.currentTime = start
+    }
     void video
       .play()
       .then(() => {
@@ -738,13 +752,29 @@ export function PlaybackOverlay(handle: Handle<PlaybackOverlayProps>) {
               if (loadedIndex !== index) return
               advance()
             }),
+            on('seeked', (event) => {
+              const video = event.currentTarget as HTMLVideoElement
+              if (restartingFromStart && restartSeekHasLanded(video.currentTime, startSec())) {
+                restartingFromStart = false
+              }
+            }),
             on('timeupdate', (event) => {
               if (loadedIndex !== index) return
               const video = event.currentTarget as HTMLVideoElement
+              if (restartingFromStart) {
+                if (video.seeking || !restartSeekHasLanded(video.currentTime, startSec())) return
+                restartingFromStart = false
+              }
               const elapsed = video.currentTime - startSec()
               segmentProgress = segmentMs() > 0 ? Math.min(1, (elapsed * 1000) / segmentMs()) : 0
               void handle.update()
-              if (video.currentTime >= endSec() - 0.03) {
+              if (
+                isAtKeptWindowEnd(video.currentTime, endSec(), {
+                  seeking: video.seeking,
+                  restarting: restartingFromStart,
+                  epsilon: 0.03,
+                })
+              ) {
                 video.pause()
                 advance()
               }
