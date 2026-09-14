@@ -520,9 +520,9 @@ export function EditorClipPreview(handle: Handle<EditorClipPreviewProps>) {
     // Start the bed inside the same gesture — a promise continuation is too
     // late for WebKit's user-activation window.
     playMusic()
+    setPlaying(true)
     void video
       .play()
-      .then(() => setPlaying(true))
       .catch(() => {
         pauseMusic()
         setPlaying(false)
@@ -571,7 +571,7 @@ export function EditorClipPreview(handle: Handle<EditorClipPreviewProps>) {
             }),
             on('seeked', (event) => {
               const video = event.currentTarget as HTMLVideoElement
-              if (restartingFromStart && restartSeekHasLanded(video.currentTime, startSec)) {
+              if (restartingFromStart && restartSeekHasLanded(video.currentTime, startSec, endSec)) {
                 restartingFromStart = false
               }
               if (pendingSeekSec !== null) {
@@ -587,7 +587,7 @@ export function EditorClipPreview(handle: Handle<EditorClipPreviewProps>) {
             on('timeupdate', (event) => {
               const video = event.currentTarget as HTMLVideoElement
               if (restartingFromStart) {
-                if (video.seeking || !restartSeekHasLanded(video.currentTime, startSec)) return
+                if (video.seeking || !restartSeekHasLanded(video.currentTime, startSec, endSec)) return
                 restartingFromStart = false
               }
               if (

@@ -754,7 +754,7 @@ export function PlaybackOverlay(handle: Handle<PlaybackOverlayProps>) {
             }),
             on('seeked', (event) => {
               const video = event.currentTarget as HTMLVideoElement
-              if (restartingFromStart && restartSeekHasLanded(video.currentTime, startSec())) {
+              if (restartingFromStart && restartSeekHasLanded(video.currentTime, startSec(), endSec())) {
                 restartingFromStart = false
               }
             }),
@@ -762,7 +762,7 @@ export function PlaybackOverlay(handle: Handle<PlaybackOverlayProps>) {
               if (loadedIndex !== index) return
               const video = event.currentTarget as HTMLVideoElement
               if (restartingFromStart) {
-                if (video.seeking || !restartSeekHasLanded(video.currentTime, startSec())) return
+                if (video.seeking || !restartSeekHasLanded(video.currentTime, startSec(), endSec())) return
                 restartingFromStart = false
               }
               const elapsed = video.currentTime - startSec()

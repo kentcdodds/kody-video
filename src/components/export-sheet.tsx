@@ -157,7 +157,10 @@ export function ExportSheet(handle: Handle<ExportSheetProps>) {
               {showFallbackHint
                 ? fallbackHint({
                     busy,
-                    onSaveBackup,
+                    onSaveBackup: () => {
+                      flushName()
+                      onSaveBackup()
+                    },
                     onDismiss: () => {
                       fallbackHintDismissed = true
                       void handle.update()
@@ -219,7 +222,10 @@ export function ExportSheet(handle: Handle<ExportSheetProps>) {
                   type="button"
                   className="link-button"
                   disabled={busy}
-                  mix={on('click', () => onReExport())}
+                  mix={on('click', () => {
+                    flushName()
+                    onReExport()
+                  })}
                 >
                   Re-export from scratch
                 </button>
@@ -313,7 +319,10 @@ export function ExportSheet(handle: Handle<ExportSheetProps>) {
               {showFallbackHint
                 ? fallbackHint({
                     busy,
-                    onSaveBackup,
+                    onSaveBackup: () => {
+                      flushName()
+                      onSaveBackup()
+                    },
                     onDismiss: () => {
                       fallbackHintDismissed = true
                       void handle.update()

@@ -23,8 +23,10 @@ describe('isAtKeptWindowEnd', () => {
 
 describe('restartSeekHasLanded', () => {
   it('clears once currentTime is near the trim start', () => {
-    expect(restartSeekHasLanded(0.5, 0.5)).toBe(true)
-    expect(restartSeekHasLanded(0.55, 0.5)).toBe(true)
-    expect(restartSeekHasLanded(2.9, 0.5)).toBe(false)
+    expect(restartSeekHasLanded(0.5, 0.5, 3)).toBe(true)
+    expect(restartSeekHasLanded(0.55, 0.5, 3)).toBe(true)
+    expect(restartSeekHasLanded(2.9, 0.5, 3)).toBe(false)
+    expect(restartSeekHasLanded(0.1, 0, 0.1)).toBe(false)
+    expect(restartSeekHasLanded(0, 0, 0.1)).toBe(true)
   })
 })

@@ -479,6 +479,11 @@ a {
   font-size: 1.4rem;
 }
 
+.sheet-lede {
+  margin: 0;
+  line-height: 1.45;
+}
+
 .export-filename-hint {
   margin: 0;
   font-size: 0.85rem;

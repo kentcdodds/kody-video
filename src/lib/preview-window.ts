@@ -11,7 +11,14 @@ export function isAtKeptWindowEnd(
 }
 
 /** True when currentTime has landed back in the kept window's start after
- * a restart seek, so the restarting flag can clear even if `seeked` is late. */
-export function restartSeekHasLanded(currentTime: number, startSec: number): boolean {
+ * a restart seek, so the restarting flag can clear even if `seeked` is late.
+ * Must not treat a stale playhead still at the kept end as landed — short
+ * clips can be shorter than the start-proximity slack. */
+export function restartSeekHasLanded(
+  currentTime: number,
+  startSec: number,
+  endSec: number,
+): boolean {
+  if (currentTime >= endSec - 0.02) return false
   return Math.abs(currentTime - startSec) <= 0.12
 }
