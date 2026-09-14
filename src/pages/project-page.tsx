@@ -32,8 +32,10 @@ import {
 } from '../lib/platform'
 import { hydrateProjectClips, loadProjectPage, type ProjectLoaderData } from '../lib/project-actions'
 import { projectBackupFilename, serializeProject } from '../lib/project-transfer'
+import { reuseAudioMediaBlobs, reuseClipMediaBlobs } from '../lib/reuse-media-blobs'
 import {
   createProject,
+  renameProject,
   setIncludeLocationInExports,
   setKeepWatermark,
   setOnboardingDismissed,
@@ -147,7 +149,13 @@ export function ProjectPage(handle: Handle<ProjectPageProps>) {
           await loadTail
           return
         }
-        data = loaded
+        const sameProject = data?.project?.id === loaded.project?.id
+        const clips = reuseClipMediaBlobs(sameProject && data ? data.clips : [], loaded.clips)
+        data = {
+          ...loaded,
+          clips,
+          audio: reuseAudioMediaBlobs(sameProject ? (data?.audio ?? null) : null, loaded.audio),
+        }
         if (!onboardingInitialized) {
           onboardingInitialized = true
           onboardingOpen = !loaded.onboardingDismissed
@@ -162,11 +170,11 @@ export function ProjectPage(handle: Handle<ProjectPageProps>) {
         const hydratedProjectId = loaded.project.id
         // Thumbs/peaks can finish after the first paint — callers of
         // refresh() only need the persisted clip list before Go/Play.
-        void hydrateProjectClips(loaded.clips)
+        void hydrateProjectClips(clips)
           .then((hydrated) => {
             if (handle.signal.aborted || version !== loadVersion) return
             if (data && data.project?.id === hydratedProjectId) {
-              data = { ...data, clips: hydrated }
+              data = { ...data, clips: reuseClipMediaBlobs(data.clips, hydrated) }
               void handle.update()
             }
           })
@@ -605,6 +613,20 @@ export function ProjectPage(handle: Handle<ProjectPageProps>) {
     })
   }
 
+  const persistProjectName = (name: string) => {
+    const project = data?.project
+    if (!project) return
+    const trimmed = name.trim()
+    if (!trimmed || trimmed === project.name) return
+    const next = { ...project, name: trimmed }
+    delete next.nameIsDefault
+    data = { ...data!, project: next }
+    void handle.update()
+    void renameProject(project.id, trimmed).catch((err) => {
+      reportError(err, 'rename-project')
+    })
+  }
+
   const setExportNotice = (notice: string) => {
     if (exportState) {
       exportState = { ...exportState, notice }
@@ -803,13 +825,18 @@ export function ProjectPage(handle: Handle<ProjectPageProps>) {
               !!exportFilename &&
               canShareFile(exportState.result.blob, exportFilename, captureTimeMs)
             }
+            projectName={project.name}
+            nameIsDefault={project.nameIsDefault === true}
             fileExtension={exportState.result?.fileExtension ?? null}
             fileSizeBytes={exportState.result?.blob.size ?? null}
+            onRename={persistProjectName}
             onShare={() => {
               const result = exportState?.result
-              if (!result || !exportFilename) return
+              if (!result || !data?.project) return
+              const filename = projectFilename(data.project.name, result.fileExtension)
+              if (!canShareFile(result.blob, filename, captureTimeMs)) return
               beginExportAction()
-              void shareFile(result.blob, exportFilename, captureTimeMs)
+              void shareFile(result.blob, filename, captureTimeMs)
                 .then((outcome) => {
                   // A cancel (AbortError → 'cancelled') is a routine user action,
                   // not something worth announcing — only confirm real shares.
@@ -822,9 +849,10 @@ export function ProjectPage(handle: Handle<ProjectPageProps>) {
             }}
             onSave={() => {
               const result = exportState?.result
-              if (!result || !exportFilename) return
+              if (!result || !data?.project) return
+              const filename = projectFilename(data.project.name, result.fileExtension)
               beginExportAction()
-              void downloadBlob(result.blob, exportFilename, captureTimeMs)
+              void downloadBlob(result.blob, filename, captureTimeMs)
                 .then(() => {
                   setExportNotice('Saved — check your downloads.')
                 })
@@ -834,12 +862,16 @@ export function ProjectPage(handle: Handle<ProjectPageProps>) {
                 .finally(endExportAction)
             }}
             onSaveClips={() => {
+              const liveProject = data?.project
+              if (!liveProject) return
               beginExportAction()
               setExportNotice(
                 `Zipping ${clips.length} clip${clips.length === 1 ? '' : 's'}… keep this open.`,
               )
               void buildClipsZip(clips)
-                .then((zip) => downloadBlob(zip, projectFilename(`${project.name} clips`, 'zip')))
+                .then((zip) =>
+                  downloadBlob(zip, projectFilename(`${liveProject.name} clips`, 'zip')),
+                )
                 .then(() => {
                   setExportNotice('Clips zipped — check your downloads.')
                 })
@@ -849,6 +881,8 @@ export function ProjectPage(handle: Handle<ProjectPageProps>) {
                 .finally(endExportAction)
             }}
             onSaveBackup={() => {
+              const liveProject = data?.project
+              if (!liveProject) return
               beginExportAction()
               setExportNotice('Building project backup… keep this open.')
               void (async () => {
@@ -856,8 +890,8 @@ export function ProjectPage(handle: Handle<ProjectPageProps>) {
                   if (clips.length === 0) {
                     throw new Error('Nothing to back up — this project has no clips.')
                   }
-                  const backup = serializeProject(project, clips, data!.audio)
-                  const filename = projectBackupFilename(project.name)
+                  const backup = serializeProject(liveProject, clips, data!.audio)
+                  const filename = projectBackupFilename(liveProject.name)
                   const sizeLabel = formatBytes(backup.size)
                   if (backup.size > SHARE_BACKUP_LIMIT_BYTES) {
                     await downloadBlob(backup, filename)

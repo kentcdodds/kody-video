@@ -33,6 +33,10 @@ test.describe('Go / export', () => {
 
     const sheet = page.locator('.export-sheet')
     await expect(sheet).toContainText(/(MP4|WebM) · .+MB/i)
+    const nameField = sheet.locator('#export-project-name')
+    await expect(nameField).toHaveValue('Project 1')
+    await expect(sheet).toContainText(/Saves as project-1\.(mp4|webm)/i)
+
     // Watermark upsell shows before purchase.
     await expect(sheet).toContainText(/Get Plus/)
     await expect(
@@ -43,7 +47,7 @@ test.describe('Go / export', () => {
     const downloadPromise = page.waitForEvent('download')
     await sheet.getByRole('button', { name: 'Save', exact: true }).click()
     const download = await downloadPromise
-    expect(download.suggestedFilename()).toMatch(/\.(mp4|webm)$/)
+    expect(download.suggestedFilename()).toMatch(/^project-1\.(mp4|webm)$/)
     await expect(sheet).toContainText('Saved — check your downloads.')
 
     // Clips ZIP from the ready sheet.
@@ -57,6 +61,25 @@ test.describe('Go / export', () => {
     await expect(sheet).toBeHidden()
     await page.locator('.go-button').click()
     await expect(page.getByText(/Restored your last export/)).toBeVisible({ timeout: 8_000 })
+
+    // Rename on the ready sheet so Share/Save use a better filename than
+    // project-1. The file itself is unchanged until Re-export.
+    const restoredSheet = page.locator('.export-sheet')
+    const renameField = restoredSheet.locator('#export-project-name')
+    await expect(renameField).toHaveValue('Project 1')
+    await renameField.fill('Beach day')
+    await expect(restoredSheet).toContainText(/Saves as beach-day\.(mp4|webm)/i)
+    const renamedDownload = page.waitForEvent('download')
+    await restoredSheet.getByRole('button', { name: 'Save', exact: true }).click()
+    expect((await renamedDownload).suggestedFilename()).toMatch(/^beach-day\.(mp4|webm)$/)
+    await expect
+      .poll(() =>
+        page.evaluate(async () => {
+          const storage = await import('/src/lib/storage.ts')
+          return (await storage.listProjects())[0]?.name ?? null
+        }),
+      )
+      .toBe('Beach day')
 
     // Re-export from scratch renders fresh (no restore notice). The old
     // ready sheet must actually give way to the new encode first — without

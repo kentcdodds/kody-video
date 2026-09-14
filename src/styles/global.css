@@ -479,9 +479,10 @@ a {
   font-size: 1.4rem;
 }
 
-.sheet-lede {
+.export-filename-hint {
   margin: 0;
-  line-height: 1.45;
+  font-size: 0.85rem;
+  color: var(--ink-muted);
 }
 
 .sheet-lede.is-error {
