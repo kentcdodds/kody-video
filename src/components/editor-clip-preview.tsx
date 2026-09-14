@@ -16,6 +16,7 @@ import {
   trackMusicGain,
 } from '../lib/preview-music-bed'
 import { clipCanvasFit } from '../lib/clip-fit'
+import { isAtKeptWindowEnd, restartSeekHasLanded } from '../lib/preview-window'
 import { BlobImage } from './blob-image'
 import { BlobVideo } from './blob-video'
 import { IconInfo, IconPause, IconPlay } from './icons'
@@ -48,16 +49,6 @@ interface EditorClipPreviewProps {
   apiRef?: { current: EditorClipPreviewHandle | null }
   /** Timeline view: open the clip info sheet from the preview corner. */
   onInfoClick?: () => void
-}
-
-function nudgeFrame(video: HTMLVideoElement): void {
-  if (!video.paused || video.readyState < 2) return
-  void video
-    .play()
-    .then(() => {
-      video.pause()
-    })
-    .catch(() => undefined)
 }
 
 /**
@@ -113,6 +104,30 @@ export function EditorClipPreview(handle: Handle<EditorClipPreviewProps>) {
    * drag would paint no frames until the pointer rests; instead the newest
    * target waits for `seeked` and is applied then. */
   let pendingSeekSec: number | null = null
+  /** Bumped to cancel a pending nudgeFrame pause so it cannot stop a play
+   * the user just started. */
+  let frameNudge = 0
+  /** True after Play seeks back to trim start, until that seek lands — a
+   * stale timeupdate still sitting at the old trim end must not pause. */
+  let restartingFromStart = false
+
+  const cancelFrameNudge = () => {
+    frameNudge += 1
+  }
+
+  /** Briefly play-then-pause a still frame so a seek paints. Cancelled when
+   * the user starts real playback so the deferred pause cannot stop them. */
+  const nudgeFrame = (video: HTMLVideoElement): void => {
+    if (!video.paused || video.readyState < 2) return
+    const token = ++frameNudge
+    void video
+      .play()
+      .then(() => {
+        if (token !== frameNudge) return
+        video.pause()
+      })
+      .catch(() => undefined)
+  }
 
   // Music bed under the clip. Plain element volumes carry the export's
   // normalization scales (see preview-audio-normalization.ts) — the music
@@ -449,6 +464,8 @@ export function EditorClipPreview(handle: Handle<EditorClipPreviewProps>) {
         const el = media
         if (!el) return
         explicitSeek = true
+        cancelFrameNudge()
+        restartingFromStart = false
         el.pause()
         setPlaying(false)
         applySeek(el, Math.max(0, Math.min(timeMs, props.clip.durationMs)) / 1000)
@@ -456,6 +473,8 @@ export function EditorClipPreview(handle: Handle<EditorClipPreviewProps>) {
       pause: () => {
         const el = media
         if (!el) return
+        cancelFrameNudge()
+        restartingFromStart = false
         el.pause()
         setPlaying(false)
       },
@@ -474,7 +493,12 @@ export function EditorClipPreview(handle: Handle<EditorClipPreviewProps>) {
     const video = media
     if (!video) return
 
-    if (!video.paused) {
+    cancelFrameNudge()
+
+    // Use the UI playing intent, not video.paused: nudgeFrame briefly
+    // unpauses to paint a frame, and treating that as "user is playing"
+    // would make the first Play tap stop immediately.
+    if (playing) {
       video.pause()
       setPlaying(false)
       return
@@ -485,7 +509,10 @@ export function EditorClipPreview(handle: Handle<EditorClipPreviewProps>) {
     const atEnd = video.currentTime >= endSec - 0.04
     const beforeStart = video.currentTime < startSec - 0.04
     if (atEnd || beforeStart) {
-      video.currentTime = startSec
+      if (Math.abs(video.currentTime - startSec) > 0.02) {
+        restartingFromStart = true
+        video.currentTime = startSec
+      }
     }
     // A stale scrub target must not yank playback once it starts.
     pendingSeekSec = null
@@ -493,9 +520,9 @@ export function EditorClipPreview(handle: Handle<EditorClipPreviewProps>) {
     // Start the bed inside the same gesture — a promise continuation is too
     // late for WebKit's user-activation window.
     playMusic()
+    setPlaying(true)
     void video
       .play()
-      .then(() => setPlaying(true))
       .catch(() => {
         pauseMusic()
         setPlaying(false)
@@ -544,6 +571,9 @@ export function EditorClipPreview(handle: Handle<EditorClipPreviewProps>) {
             }),
             on('seeked', (event) => {
               const video = event.currentTarget as HTMLVideoElement
+              if (restartingFromStart && restartSeekHasLanded(video.currentTime, startSec, endSec)) {
+                restartingFromStart = false
+              }
               if (pendingSeekSec !== null) {
                 const sec = pendingSeekSec
                 pendingSeekSec = null
@@ -556,7 +586,17 @@ export function EditorClipPreview(handle: Handle<EditorClipPreviewProps>) {
             }),
             on('timeupdate', (event) => {
               const video = event.currentTarget as HTMLVideoElement
-              if (!video.paused && video.currentTime >= endSec - 0.02) {
+              if (restartingFromStart) {
+                if (video.seeking || !restartSeekHasLanded(video.currentTime, startSec, endSec)) return
+                restartingFromStart = false
+              }
+              if (
+                isAtKeptWindowEnd(video.currentTime, endSec, {
+                  seeking: video.seeking,
+                  restarting: restartingFromStart,
+                }) &&
+                !video.paused
+              ) {
                 video.pause()
                 video.currentTime = endSec
                 setPlaying(false)
@@ -571,7 +611,6 @@ export function EditorClipPreview(handle: Handle<EditorClipPreviewProps>) {
               pauseMusic()
               setPlaying(false)
             }),
-            on('play', () => setPlaying(true)),
             on('click', togglePlayback),
           ]}
         />

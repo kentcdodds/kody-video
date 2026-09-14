@@ -316,4 +316,39 @@ test.describe('preview playback', () => {
     await expect(overlay).toBeHidden()
     await expect(page.locator('.record-stage')).toBeVisible()
   })
+
+  test('clip preview keeps playing after Play (does not stop a half-second in)', async ({
+    page,
+  }) => {
+    await openEditorWithClips(page, 1, 4000)
+    const preview = page.locator('.editor-clip-preview')
+    await page.getByRole('button', { name: 'Play clip preview' }).click()
+    await expect
+      .poll(() => preview.evaluate((el) => !(el as HTMLVideoElement).paused))
+      .toBe(true)
+    // Filmstrip refine used to reload the blob ~500ms in and pause playback.
+    await page.waitForTimeout(1200)
+    expect(await preview.evaluate((el) => (el as HTMLVideoElement).paused)).toBe(false)
+    expect(await preview.evaluate((el) => (el as HTMLVideoElement).currentTime)).toBeGreaterThan(
+      0.7,
+    )
+  })
+
+  test('replaying a clip parked at the trim end does not stop immediately', async ({ page }) => {
+    await openEditorWithClips(page, 1, 2500)
+    const preview = page.locator('.editor-clip-preview')
+    await page.getByRole('button', { name: 'Play clip preview' }).click()
+    await expect
+      .poll(() => preview.evaluate((el) => (el as HTMLVideoElement).paused), { timeout: 15_000 })
+      .toBe(true)
+    const parkedAt = await preview.evaluate((el) => (el as HTMLVideoElement).currentTime)
+    expect(parkedAt).toBeGreaterThan(1.5)
+
+    await page.getByRole('button', { name: 'Play clip preview' }).click()
+    await expect
+      .poll(() => preview.evaluate((el) => !(el as HTMLVideoElement).paused))
+      .toBe(true)
+    await page.waitForTimeout(800)
+    expect(await preview.evaluate((el) => (el as HTMLVideoElement).paused)).toBe(false)
+  })
 })

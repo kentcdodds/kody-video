@@ -484,6 +484,12 @@ a {
   line-height: 1.45;
 }
 
+.export-filename-hint {
+  margin: 0;
+  font-size: 0.85rem;
+  color: var(--ink-muted);
+}
+
 .sheet-lede.is-error {
   color: var(--danger-ink);
 }

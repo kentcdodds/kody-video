@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
   fileFromBlob,
   pickRecordingMimeType,
+  projectFilename,
   resetRecordingMimeTypeForTests,
   shareFile,
 } from './media'
@@ -74,6 +75,14 @@ describe('fileFromBlob', () => {
     expect(fileFromBlob(new Blob(['x'], { type: 'video/mp4' }), 'x.mp4', 0).lastModified).toBeGreaterThanOrEqual(
       before,
     )
+  })
+})
+
+describe('projectFilename', () => {
+  it('slugifies the project name for Share and Save', () => {
+    expect(projectFilename('Project 1', 'mp4')).toBe('project-1.mp4')
+    expect(projectFilename('Beach day', 'webm')).toBe('beach-day.webm')
+    expect(projectFilename('   ', 'mp4')).toBe('project.mp4')
   })
 })
 

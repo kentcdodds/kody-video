@@ -1,5 +1,6 @@
 import type { Handle } from 'remix/ui'
 import { on, ref } from 'remix/ui'
+import { projectFilename } from '../lib/media'
 import { attachSheetModal } from '../lib/sheet-modal'
 import { BrandMark } from './brand-mark'
 
@@ -37,6 +38,11 @@ interface ExportSheetProps {
   usedFallback: boolean
   /** A share/save is in flight — dismissal would drop its result notice. */
   busy: boolean
+  /** Live project name — used for the Share/Save filename. */
+  projectName: string
+  /** True when the name is still the generated "Project N". */
+  nameIsDefault: boolean
+  onRename: (name: string) => void
   onKeepWatermarkChange: (keep: boolean) => void
   onIncludeLocationChange: (include: boolean) => void
   onShare: () => void
@@ -59,6 +65,12 @@ interface ExportSheetProps {
 export function ExportSheet(handle: Handle<ExportSheetProps>) {
   const { props } = handle
   let fallbackHintDismissed = false
+  let name = handle.props.projectName
+
+  const flushName = () => {
+    const trimmed = name.trim()
+    if (trimmed) handle.props.onRename(trimmed)
+  }
 
   return () => {
     const {
@@ -76,6 +88,7 @@ export function ExportSheet(handle: Handle<ExportSheetProps>) {
       hasTaggedClips,
       usedFallback,
       busy,
+      nameIsDefault,
       onKeepWatermarkChange,
       onIncludeLocationChange,
       onShare,
@@ -117,10 +130,37 @@ export function ExportSheet(handle: Handle<ExportSheetProps>) {
                 {formatFileInfo(fileExtension, fileSizeBytes)} — it stays on this device until you
                 share it.
               </p>
+              <div className="field export-name-field">
+                <label htmlFor="export-project-name">
+                  {nameIsDefault ? 'Name this video' : 'Name'}
+                </label>
+                <input
+                  id="export-project-name"
+                  type="text"
+                  value={name}
+                  maxLength={48}
+                  disabled={busy}
+                  mix={[
+                    on('input', (event) => {
+                      name = (event.currentTarget as HTMLInputElement).value
+                      void handle.update()
+                    }),
+                    on('change', () => flushName()),
+                  ]}
+                />
+                {fileExtension ? (
+                  <p className="muted export-filename-hint">
+                    Saves as {projectFilename(name.trim() || handle.props.projectName, fileExtension)}
+                  </p>
+                ) : null}
+              </div>
               {showFallbackHint
                 ? fallbackHint({
                     busy,
-                    onSaveBackup,
+                    onSaveBackup: () => {
+                      flushName()
+                      onSaveBackup()
+                    },
                     onDismiss: () => {
                       fallbackHintDismissed = true
                       void handle.update()
@@ -134,7 +174,10 @@ export function ExportSheet(handle: Handle<ExportSheetProps>) {
                     type="button"
                     className="btn btn-primary"
                     disabled={busy}
-                    mix={on('click', () => onShare())}
+                    mix={on('click', () => {
+                      flushName()
+                      onShare()
+                    })}
                   >
                     Share
                   </button>
@@ -143,7 +186,10 @@ export function ExportSheet(handle: Handle<ExportSheetProps>) {
                   type="button"
                   className={`btn ${canShare ? 'btn-secondary' : 'btn-primary'}`}
                   disabled={busy}
-                  mix={on('click', () => onSave())}
+                  mix={on('click', () => {
+                    flushName()
+                    onSave()
+                  })}
                 >
                   Save
                 </button>
@@ -151,7 +197,10 @@ export function ExportSheet(handle: Handle<ExportSheetProps>) {
                   type="button"
                   className="btn btn-ghost"
                   disabled={busy}
-                  mix={on('click', () => onClose())}
+                  mix={on('click', () => {
+                    flushName()
+                    onClose()
+                  })}
                 >
                   Done
                 </button>
@@ -161,7 +210,10 @@ export function ExportSheet(handle: Handle<ExportSheetProps>) {
                   type="button"
                   className="link-button"
                   disabled={busy}
-                  mix={on('click', () => onSaveClips())}
+                  mix={on('click', () => {
+                    flushName()
+                    onSaveClips()
+                  })}
                 >
                   Save original clips (.zip)
                 </button>{' '}
@@ -170,7 +222,10 @@ export function ExportSheet(handle: Handle<ExportSheetProps>) {
                   type="button"
                   className="link-button"
                   disabled={busy}
-                  mix={on('click', () => onReExport())}
+                  mix={on('click', () => {
+                    flushName()
+                    onReExport()
+                  })}
                 >
                   Re-export from scratch
                 </button>
@@ -264,7 +319,10 @@ export function ExportSheet(handle: Handle<ExportSheetProps>) {
               {showFallbackHint
                 ? fallbackHint({
                     busy,
-                    onSaveBackup,
+                    onSaveBackup: () => {
+                      flushName()
+                      onSaveBackup()
+                    },
                     onDismiss: () => {
                       fallbackHintDismissed = true
                       void handle.update()
