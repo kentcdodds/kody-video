@@ -44,6 +44,16 @@ if (
   fail('production boot recovery probes the origin before wiping caches')
 }
 
+{
+  const recoverAt = indexHtml.indexOf('sessionStorage.setItem(AT_KEY')
+  const probeAt = indexHtml.indexOf('fetch("/version.json"')
+  if (recoverAt > 0 && probeAt > 0 && recoverAt > probeAt) {
+    pass('boot-recover cooldown is stamped only after a successful origin probe')
+  } else {
+    fail('boot-recover cooldown is stamped only after a successful origin probe')
+  }
+}
+
 if (indexHtml.includes('background-color: #2f3e46')) {
   pass('shell HTML paints a non-white page color before CSS/JS')
 } else {

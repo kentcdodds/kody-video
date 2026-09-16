@@ -87,7 +87,6 @@ export default defineConfig({
                 try {
                   const last = Number(sessionStorage.getItem(AT_KEY) ?? "0");
                   if (Date.now() - last < COOLDOWN_MS) return;
-                  sessionStorage.setItem(AT_KEY, String(Date.now()));
                 } catch { return; }
                 if (navigator.onLine === false) return;
                 try {
@@ -97,6 +96,11 @@ export default defineConfig({
                   ]);
                   if (!probe || !probe.ok) return;
                 } catch { return; }
+                // Stamp the cooldown only once we can actually recover.
+                // An airplane-mode miss must not burn the 45s window — the
+                // next online reload still needs to reprime retired hashes.
+                try { sessionStorage.setItem(AT_KEY, String(Date.now())); }
+                catch { return; }
                 try {
                   const regs = await (navigator.serviceWorker?.getRegistrations?.() ?? []);
                   await Promise.all(regs.map((reg) => reg.unregister()));
