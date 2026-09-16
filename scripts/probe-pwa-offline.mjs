@@ -35,6 +35,15 @@ if (indexHtml.includes('if (navigator.onLine === false) return')) {
   fail('production boot recovery refuses to wipe caches while offline')
 }
 
+if (
+  indexHtml.includes('fetch("/version.json"') &&
+  indexHtml.includes('if (!probe || !probe.ok) return')
+) {
+  pass('production boot recovery probes the origin before wiping caches')
+} else {
+  fail('production boot recovery probes the origin before wiping caches')
+}
+
 if (indexHtml.includes('background-color: #2f3e46')) {
   pass('shell HTML paints a non-white page color before CSS/JS')
 } else {

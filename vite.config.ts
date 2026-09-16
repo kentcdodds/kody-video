@@ -91,6 +91,13 @@ export default defineConfig({
                 } catch { return; }
                 if (navigator.onLine === false) return;
                 try {
+                  const probe = await Promise.race([
+                    fetch("/version.json", { cache: "no-store", headers: { accept: "application/json" } }),
+                    new Promise((_, reject) => setTimeout(() => reject(new Error("probe")), 2500)),
+                  ]);
+                  if (!probe || !probe.ok) return;
+                } catch { return; }
+                try {
                   const regs = await (navigator.serviceWorker?.getRegistrations?.() ?? []);
                   await Promise.all(regs.map((reg) => reg.unregister()));
                   const keys = await (self.caches?.keys?.() ?? []);
