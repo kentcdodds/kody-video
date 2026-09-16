@@ -1,7 +1,24 @@
 # Service worker + version must revalidate. A cached sw.js is how a phone
 # can sit on a retired shell while About says it is already up to date.
+#
+# HTML is different: Cloudflare Pages defaults HTML to
+# `max-age=0, must-revalidate`, which makes iOS standalone wait on the
+# network before painting (white splash, even with a service worker that
+# has not claimed the first navigation). Last-known HTML + hashed assets
+# is the installed-app first paint. Updates arrive via the in-app toast
+# (new worker + /version.json), never by blocking launch on the edge.
 /
+  Cache-Control: public, max-age=86400, stale-while-revalidate=604800
   Link: </sitemap.xml>; rel="describedby"; type="application/xml", </about>; rel="about", </auth.md>; rel="describedby"; type="text/markdown"
+
+/index.html
+  Cache-Control: public, max-age=86400, stale-while-revalidate=604800
+
+/app
+  Cache-Control: public, max-age=86400, stale-while-revalidate=604800
+
+/app.html
+  Cache-Control: public, max-age=86400, stale-while-revalidate=604800
 
 /sw.js
   Cache-Control: public, max-age=0, must-revalidate
@@ -11,9 +28,3 @@
 
 /version.json
   Cache-Control: no-store
-
-/index.html
-  Cache-Control: public, max-age=0, must-revalidate
-
-/app.html
-  Cache-Control: public, max-age=0, must-revalidate

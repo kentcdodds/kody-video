@@ -7,6 +7,9 @@
       name="viewport"
       content="width=device-width, initial-scale=1.0, viewport-fit=cover, interactive-widget=resizes-content"
     />
+    <!-- Default first: older iOS ignores media on theme-color and otherwise
+         falls back to white chrome behind a hung splash. -->
+    <meta name="theme-color" content="#2F3E46" />
     <meta name="theme-color" media="(prefers-color-scheme: dark)" content="#2F3E46" />
     <meta name="theme-color" media="(prefers-color-scheme: light)" content="#EEF5F1" />
     <!-- iOS home-screen apps only draw under the status bar when asked:
@@ -65,6 +68,7 @@
       href="/art/kody-holding-camera-192.webp"
       type="image/webp"
       fetchpriority="high"
+      media="not (display-mode: standalone)"
     />
     <!-- Critical first-paint styles for the permanent boot hero. Lives outside
          #app so SPA boot cannot destroy it; that was lantern's multi-second
@@ -109,6 +113,9 @@
         /* Reserve scrollbar space so desktop overflow:auto cannot shift the
            centered #root when the SPA paints taller content. */
         scrollbar-gutter: stable;
+        /* Solid color first so a standalone launch never shows the UA
+           default white page while the gradient/image assets settle. */
+        background-color: #2f3e46;
       }
       html,
       body,
@@ -128,8 +135,17 @@
           radial-gradient(120% 80% at 10% -10%, var(--glow-accent), transparent 55%),
           radial-gradient(90% 70% at 100% 0%, var(--glow-mist), transparent 50%),
           linear-gradient(180deg, var(--bg) 0%, var(--bg-deep) 58%, var(--bg-bottom) 100%);
+        /* After the shorthand so a missing/hung gradient cannot fall through
+           to the UA white page (iOS standalone splash). */
+        background-color: #2f3e46;
         -webkit-font-smoothing: antialiased;
         overflow: hidden;
+      }
+      @media (prefers-color-scheme: light) {
+        html,
+        body {
+          background-color: #eef5f1;
+        }
       }
       #root {
         position: relative;
@@ -178,7 +194,12 @@
         font-size: 0.86rem;
         line-height: 1.3;
       }
-      html[data-route='app'] #boot-hero {
+      /* Hide the HTML boot hero only once a route has painted real chrome.
+         data-route=app used to flip at navigation time and left a blank
+         #app over a hidden hero (installed PWAs looked empty while the
+         lazy chunk and IndexedDB caught up). */
+      html:has(.project-screen) #boot-hero,
+      html:has(.about-screen) #boot-hero {
         display: none;
       }
       /* Landscape viewports (turned phones, desktop-ish windows): the SPA

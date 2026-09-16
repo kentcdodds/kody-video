@@ -1,6 +1,7 @@
 import type { Handle, RemixNode } from 'remix/ui'
 import { on } from 'remix/ui'
 import { reportError } from '../lib/error-reporting'
+import { canPurgeCachesOnRecover } from '../lib/pwa-boot'
 
 type PageComponent = (handle: Handle<any>) => () => RemixNode
 
@@ -59,6 +60,7 @@ export function lazyPage(
     const message = err instanceof Error ? err.message : String(err)
     const chunkUrl = message.match(/https?:\/\/\S+\/assets\/\S+?\.js/)?.[0]
     const recover = (async () => {
+      if (!(await canPurgeCachesOnRecover())) return
       try {
         const regs = await (navigator.serviceWorker?.getRegistrations?.() ?? [])
         await Promise.all(regs.map((reg) => reg.unregister()))

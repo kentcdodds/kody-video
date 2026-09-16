@@ -4,18 +4,13 @@
  * decides when nudging about that is actually useful.
  */
 
-import { isIosBrowser } from './platform'
+import { isIosBrowser, isStandaloneDisplay } from './platform'
 
 const DISMISSED_KEY = 'kody-video:install-hint-dismissed'
 
-function isStandalone(): boolean {
-  if (window.matchMedia('(display-mode: standalone)').matches) return true
-  return (navigator as { standalone?: boolean }).standalone === true
-}
-
 export function shouldShowIosInstallHint(): boolean {
   if (!isIosBrowser()) return false
-  if (isStandalone()) return false
+  if (isStandaloneDisplay()) return false
   // Bare WKWebViews (X, Instagram, …) have no Share → Add to Home Screen and
   // omit the "Safari" UA token that real browsers (Safari/CriOS/FxiOS) keep.
   if (!/Safari/i.test(navigator.userAgent)) return false

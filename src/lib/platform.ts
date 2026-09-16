@@ -96,3 +96,10 @@ export function isIosBrowser(): boolean {
   // iPadOS masquerades as macOS but is the only "Mac" with touch points.
   return navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1
 }
+
+/** Home-screen / installed app, including iOS `navigator.standalone`. */
+export function isStandaloneDisplay(): boolean {
+  if (typeof window === 'undefined') return false
+  if (window.matchMedia('(display-mode: standalone)').matches) return true
+  return (navigator as { standalone?: boolean }).standalone === true
+}

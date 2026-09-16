@@ -204,12 +204,15 @@ export function HomePage(handle: Handle) {
 
   return () => {
     if (!data) {
-      // Load failure must not leave a silent blank screen.
-      return error ? (
-        <div className="screen home-screen">
-          <div className="error-banner">{error}</div>
+      // Load failure must not leave a silent blank screen. While IndexedDB
+      // is opening, still paint the home chrome so the HTML boot hero is
+      // not the only thing on screen (and so landscape, which hides that
+      // hero, is never an empty #app).
+      return (
+        <div className="screen home-screen" aria-busy={error ? undefined : 'true'}>
+          {error ? <div className="error-banner">{error}</div> : null}
         </div>
-      ) : null
+      )
     }
     const { projects, storage, exportCacheBytes, plus } = data
     const videoQuality = data.videoQuality ?? 'standard'

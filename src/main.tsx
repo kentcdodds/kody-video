@@ -5,6 +5,8 @@ import { App } from './app'
 import { stripUpdateNavigationMark } from './lib/app-update'
 import { initErrorReporting, reportComponentError } from './lib/error-reporting'
 import { sweepExportCache } from './lib/export/export-cache'
+import { isStandaloneDisplay } from './lib/platform'
+import { shouldAwaitStylesBeforePaint } from './lib/pwa-boot'
 import { onNavigate } from './router'
 import './lib/install-prompt'
 
@@ -18,12 +20,15 @@ const appEl = document.getElementById('app')
 if (!appEl) throw new Error('#app mount point missing')
 
 /**
- * Per-route document chrome: hide the HTML boot hero on non-home routes,
- * and keep the shell-layout attribute (see index.html's pre-paint script)
- * in step with navigation. Home and static pages are 'adaptive' (wide on
- * landscape viewports); project pages own the attribute themselves — the
- * width there depends on the project's locked orientation, which only the
- * project page knows.
+ * Per-route document chrome: keep the shell-layout attribute (see
+ * index.html's pre-paint script) in step with navigation. Home and static
+ * pages are 'adaptive' (wide on landscape viewports); project pages own
+ * the attribute themselves — the width there depends on the project's
+ * locked orientation, which only the project page knows.
+ *
+ * The HTML boot hero is hidden with :has(.project-screen / .about-screen)
+ * once those routes paint, not via data-route — flipping data-route at
+ * navigation time blanked the shell while a lazy chunk loaded.
  */
 function syncRouteChrome(): void {
   const path = window.location.pathname
@@ -42,7 +47,18 @@ function syncRouteChrome(): void {
 // Styles load before the first SPA paint so we do not flash an unstyled
 // tree (that was a large desktop CLS). Vite keeps them out of index.html
 // (see lcp-first-paint plugin); the boot hero already painted via inline CSS.
-await Promise.all([import('./styles/global.css'), import('./styles/home.css')])
+// Installed PWAs must not wait: a CSS import() that hits the network holds
+// the iOS white splash until it resolves. Inline critical CSS is enough to
+// paint the shell; the full sheets apply when the cached import settles.
+const stylesReady = Promise.all([
+  import('./styles/global.css'),
+  import('./styles/home.css'),
+])
+if (shouldAwaitStylesBeforePaint(isStandaloneDisplay())) {
+  await stylesReady
+} else {
+  void stylesReady.catch(() => undefined)
+}
 
 const root = createRoot(appEl)
 root.addEventListener('error', (event) => {

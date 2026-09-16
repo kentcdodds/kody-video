@@ -199,10 +199,13 @@ Database name: `kody-video`. Blobs never leave the device unless the user explic
 
 `vite-plugin-pwa` generates a service worker that precaches the app shell (`html/js/css/icons`). After the first successful visit:
 
-1. Airplane mode still loads the SPA from Cache Storage.
+1. Airplane mode still loads the SPA from Cache Storage (and from HTTP cache of the last-known HTML — installed PWAs must not wait on the network to paint).
 2. Project/clip data continues to come from IndexedDB.
+3. A newer deploy never replaces the open UI with a blank/loading screen; the existing "Update available" toast (or About → check) applies it on demand.
 
-Verified approach: `npm run build && npm run preview`, load once online, then DevTools → Network → Offline (or OS airplane mode) and reload.
+Installed / standalone launches (iOS especially) keep the last-known shell on screen from the first paint. The default iOS splash is white; the document itself must paint the app chrome immediately so that splash cannot stick. Recovery paths that drop the service worker are skipped while offline — wiping the only cached copy is the white screen of death.
+
+Verified approach: `npm run build && node scripts/probe-pwa-offline.mjs` (load once online, then block the network and reload, including a simulated standalone display-mode). Or `npm run preview`, load once, then DevTools → Network → Offline (or OS airplane mode) and reload.
 
 ## Browser limits
 
@@ -352,6 +355,7 @@ under `/api/` so no service worker or cached shell can interfere:
 | `node scripts/probe-fast-export.mjs` | Decode-driven export beats realtime (MP4 clips) |
 | `node scripts/probe-mic-monitor.mjs`  | Silent-mic warning fires (and clears) correctly |
 | `node scripts/probe-install-hint.mjs` | iOS install hint shows/dismisses per user agent (needs `npm run build`) |
+| `node scripts/probe-pwa-offline.mjs` | Installed-PWA cold start: offline / standalone still paints the shell, never a white document (needs `npm run build`) |
 | `node scripts/probe-deployed-remix.mjs` | Live smoke against a deployed origin (defaults to remix.kody.video) |
 | `node scripts/probe-screen-record.mjs` | Desktop screen recording lands as a clip |
 | `node scripts/probe-touch-timeline.mjs` | Touch timeline gestures (scroll, long-press lift) |
