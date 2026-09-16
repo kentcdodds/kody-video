@@ -49,6 +49,12 @@ jobs:
       - name: E2E tests
         run: npm run test:e2e
 
+      - name: Production build
+        run: npm run build
+
+      - name: PWA offline / standalone first-paint probe
+        run: node scripts/probe-pwa-offline.mjs
+
       - name: Upload Playwright traces on failure
         if: failure()
         uses: actions/upload-artifact@v4

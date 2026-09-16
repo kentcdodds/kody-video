@@ -163,6 +163,14 @@ see the README) — plain `http://<lan-ip>` fails in most browsers.
 - [ ] Hard refresh restores projects and clip media
 - [ ] Airplane mode after first visit still loads the app shell; offline,
   projects open and clips play
+- [ ] **iOS installed PWA cold start:** kill the app, enable airplane mode,
+  reopen from the home screen. First paint is the real app chrome (dark
+  shell + Kody hero / project slots / last screen) — never a blank white
+  "loading" page under the status bar. Same check on Android standalone.
+- [ ] While online, a new deploy shows the "Update available" toast (or
+  About → check for updates). Tapping Update reloads into the new build;
+  the UI is never replaced with a blank loading screen while the toast is
+  up or while the new worker installs.
 - [ ] iOS installed app fills the whole screen: background paints behind the
   status bar clock, no content under the Dynamic Island
 - [ ] Opening /og-image.png directly (service worker active) shows the image,

@@ -41,6 +41,12 @@ The e2e suite runs with a fake camera/mic, so it does not need real hardware.
 See [manual-camera-testing.md](./manual-camera-testing.md) for driving the
 camera/record/export flow manually in a headless environment.
 
+Installed-PWA offline first paint (production service worker) is covered by
+`npm run build && node scripts/probe-pwa-offline.mjs`. That is the automated
+stand-in for "airplane mode, reopen the home-screen app": it asserts the
+cached shell paints and the document is never blank white. Real iOS/Android
+standalone remains on [manual-test-checklist.md](../../manual-test-checklist.md).
+
 ## CLA checker
 
 `node tools/ci/check-cla.mjs --self-test` verifies the inbound CLA allowlist and signer rules.
