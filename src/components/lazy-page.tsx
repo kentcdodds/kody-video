@@ -1,6 +1,7 @@
 import type { Handle, RemixNode } from 'remix/ui'
 import { on } from 'remix/ui'
 import { reportError } from '../lib/error-reporting'
+import { shouldPurgeCachesOnRecover } from '../lib/pwa-boot'
 
 type PageComponent = (handle: Handle<any>) => () => RemixNode
 
@@ -59,17 +60,19 @@ export function lazyPage(
     const message = err instanceof Error ? err.message : String(err)
     const chunkUrl = message.match(/https?:\/\/\S+\/assets\/\S+?\.js/)?.[0]
     const recover = (async () => {
-      try {
-        const regs = await (navigator.serviceWorker?.getRegistrations?.() ?? [])
-        await Promise.all(regs.map((reg) => reg.unregister()))
-        const keys = await (self.caches?.keys?.() ?? [])
-        await Promise.all(keys.map((key) => caches.delete(key)))
-      } catch {
-        // storage access blocked — the reload below is still worth trying
+      if (shouldPurgeCachesOnRecover(navigator.onLine)) {
+        try {
+          const regs = await (navigator.serviceWorker?.getRegistrations?.() ?? [])
+          await Promise.all(regs.map((reg) => reg.unregister()))
+          const keys = await (self.caches?.keys?.() ?? [])
+          await Promise.all(keys.map((key) => caches.delete(key)))
+        } catch {
+          // storage access blocked — the reload below is still worth trying
+        }
+        await Promise.allSettled(
+          ['/', ...(chunkUrl ? [chunkUrl] : [])].map((url) => fetch(url, { cache: 'reload' })),
+        )
       }
-      await Promise.allSettled(
-        ['/', ...(chunkUrl ? [chunkUrl] : [])].map((url) => fetch(url, { cache: 'reload' })),
-      )
     })()
     void Promise.race([recover, new Promise((resolve) => setTimeout(resolve, 4000))]).then(() => {
       location.reload()

@@ -94,6 +94,12 @@ body,
   height: 100%;
 }
 
+html {
+  /* Match index.html critical CSS: never the UA white page behind the
+     gradient (installed PWA splash / first paint). */
+  background-color: var(--bg);
+}
+
 /* Keep the frame centered: must mirror the index.html critical CSS — this
    stylesheet loads after it, and the margin: 0 reset above would otherwise
    win over the critical margin auto and pin the app to the left. */
@@ -111,6 +117,7 @@ body {
     radial-gradient(120% 80% at 10% -10%, var(--glow-accent), transparent 55%),
     radial-gradient(90% 70% at 100% 0%, var(--glow-mist), transparent 50%),
     linear-gradient(180deg, var(--bg) 0%, var(--bg-deep) 58%, var(--bg-bottom) 100%);
+  background-color: var(--bg);
   -webkit-font-smoothing: antialiased;
   text-rendering: optimizeLegibility;
   overflow: hidden;

@@ -69,10 +69,17 @@ export default defineConfig({
           // timestamp cooldown (not a one-shot flag) keeps deploy-window
           // failures from hot-looping while still retrying a bit later.
           // lazy-page.tsx applies the same idea to route chunks.
+          //
+          // Installed / standalone: boot on this turn (no two-rAF LCP
+          // delay) and never wipe the worker while offline — that is the
+          // iOS white splash that never dismisses.
           `<script type="module">
             const src = "$1";
             const AT_KEY = "kody:boot-recover-at";
             const COOLDOWN_MS = 45000;
+            const standalone =
+              window.matchMedia("(display-mode: standalone)").matches ||
+              navigator.standalone === true;
             const boot = () => {
               import(src).then(() => {
                 try { sessionStorage.removeItem(AT_KEY); } catch {}
@@ -82,6 +89,7 @@ export default defineConfig({
                   if (Date.now() - last < COOLDOWN_MS) return;
                   sessionStorage.setItem(AT_KEY, String(Date.now()));
                 } catch { return; }
+                if (navigator.onLine === false) return;
                 try {
                   const regs = await (navigator.serviceWorker?.getRegistrations?.() ?? []);
                   await Promise.all(regs.map((reg) => reg.unregister()));
@@ -110,7 +118,8 @@ export default defineConfig({
                 location.reload();
               });
             };
-            requestAnimationFrame(() => requestAnimationFrame(boot));
+            if (standalone) boot();
+            else requestAnimationFrame(() => requestAnimationFrame(boot));
           </script>`,
         )
       },
@@ -169,6 +178,13 @@ export default defineConfig({
         // `controllerchange` never fires, the update button appears to do
         // nothing, and the toast sticks until a full app restart.
         clientsClaim: true,
+        // Navigations must come from the precache (navigateFallback), never
+        // from a network preload that holds the iOS splash until the edge
+        // answers. Updates still install in the background and toast.
+        navigationPreload: false,
+        // applyWaitingUpdate navigates with ?_sw= to bust iOS in-place
+        // document reuse; the precache lookup must ignore that mark.
+        ignoreURLParametersMatching: [/^utm_/, /^fbclid$/, /^_sw$/],
         globPatterns: ['**/*.{js,css,html,ico,png,svg,webp,woff2}'],
         // Not part of the app shell: the social card is for link scrapers
         // and the icon master is only the source for generated icons.
