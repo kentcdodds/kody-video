@@ -259,7 +259,11 @@ test.describe('home & app shell', () => {
       'black-translucent',
     )
     await expect(meta('apple-mobile-web-app-capable')).toHaveAttribute('content', 'yes')
-    await expect(page.locator('meta[name="theme-color"]')).toHaveCount(2)
+    await expect(page.locator('meta[name="theme-color"]')).toHaveCount(3)
+    await expect(page.locator('meta[name="theme-color"]:not([media])')).toHaveAttribute(
+      'content',
+      '#2F3E46',
+    )
     await expect(meta('og:image', 'property')).toHaveAttribute(
       'content',
       'https://kody.video/og-image.png',

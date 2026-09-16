@@ -48,12 +48,17 @@ test.describe('project orientation', () => {
     const viewport = page.viewportSize()!
     await page.setViewportSize({ width: viewport.height, height: viewport.width })
     await expect(page.locator('.orientation-hint')).toBeHidden()
-    const dock = await page.locator('.record-dock').boundingBox()
-    const shell = await page.locator('.project-screen').boundingBox()
-    expect(dock).not.toBeNull()
-    expect(shell).not.toBeNull()
-    expect(dock!.height).toBeGreaterThan(dock!.width)
-    expect(dock!.x + dock!.width).toBeGreaterThan(shell!.x + shell!.width - 8)
+    // Polled: the dock snaps to the right-hand rail after the viewport
+    // flip, and a single bounding-box read can still see the portrait
+    // bottom bar (or a mid-layout frame ~16px short of the shell edge).
+    await expect
+      .poll(async () => {
+        const dock = await page.locator('.record-dock').boundingBox()
+        const shell = await page.locator('.project-screen').boundingBox()
+        if (!dock || !shell) return false
+        return dock.height > dock.width && dock.x + dock.width > shell.x + shell.width - 8
+      })
+      .toBe(true)
 
     // The editor, sideways, puts the player beside the panel. Polled: the
     // stage mounts with a brief scale-in animation that inflates its
