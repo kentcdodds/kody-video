@@ -226,6 +226,21 @@ describe('isSendCancelledAbortEvent (KODY-VIDEO-13)', () => {
     ).toBe(true)
   })
 
+  it('keeps AbortError messages that only mention the cancel copy in passing', () => {
+    expect(
+      isSendCancelledAbortEvent({
+        exception: {
+          values: [
+            {
+              type: 'AbortError',
+              value: 'Send cancelled because the peer connection failed.',
+            },
+          ],
+        },
+      }),
+    ).toBe(false)
+  })
+
   it('keeps unrelated AbortError', () => {
     expect(
       isSendCancelledAbortEvent({

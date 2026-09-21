@@ -108,11 +108,11 @@ export function isStorageQuotaExceededEvent(event: FilterableSentryEvent): boole
  * Exact copy thrown by sync abortError() / sync-signaling when the user
  * cancels Plus send or receive. Optional period: Sentry sometimes drops it.
  */
-const SEND_CANCELLED_PHRASE = /Send cancelled\.?/i
+const SEND_CANCELLED_PHRASE = /^Send cancelled\.?$/i
 const WRAPPED_SEND_CANCELLED = /^AbortError:\s*Send cancelled\.?$/i
 
 function mentionsSendCancelled(text: string | undefined): boolean {
-  return typeof text === 'string' && SEND_CANCELLED_PHRASE.test(text)
+  return typeof text === 'string' && SEND_CANCELLED_PHRASE.test(text.trim())
 }
 
 function isWrappedSendCancelled(text: string | undefined): boolean {

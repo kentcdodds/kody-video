@@ -218,23 +218,29 @@ export async function openReceiverChannel(
       return null
     },
   )
-  const offer = await signaling.waitForOffer(signal)
-  await pc.setRemoteDescription({ type: 'offer', sdp: normalizeSdp(offer) })
-  const answer = await pc.createAnswer()
-  await pc.setLocalDescription(answer)
-  await waitForIceGathering(pc, signal)
-  const local = pc.localDescription?.sdp
-  if (!local) throw new SyncTransferError('Could not build a connection answer.')
-  await signaling.publishAnswer(normalizeSdp(local))
-  const channel = await incoming
-  if (!channel) {
-    throw incomingFailure instanceof Error
-      ? incomingFailure
-      : new SyncTransferError('Could not receive the project.')
+  try {
+    const offer = await signaling.waitForOffer(signal)
+    await pc.setRemoteDescription({ type: 'offer', sdp: normalizeSdp(offer) })
+    const answer = await pc.createAnswer()
+    await pc.setLocalDescription(answer)
+    await waitForIceGathering(pc, signal)
+    const local = pc.localDescription?.sdp
+    if (!local) throw new SyncTransferError('Could not build a connection answer.')
+    await signaling.publishAnswer(normalizeSdp(local))
+    const channel = await incoming
+    if (!channel) {
+      throw incomingFailure instanceof Error
+        ? incomingFailure
+        : new SyncTransferError('Could not receive the project.')
+    }
+    channel.binaryType = 'arraybuffer'
+    await waitForOpen(channel, pc, signal)
+    return { pc, channel }
+  } catch (error) {
+    // Caller closes the connection only after a successful return.
+    pc.close()
+    throw error
   }
-  channel.binaryType = 'arraybuffer'
-  await waitForOpen(channel, pc, signal)
-  return { pc, channel }
 }
 
 async function waitForBufferedAmountLow(channel: RTCDataChannel, signal: AbortSignal): Promise<void> {
