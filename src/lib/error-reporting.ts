@@ -105,6 +105,77 @@ export function isStorageQuotaExceededEvent(event: FilterableSentryEvent): boole
 }
 
 /**
+ * Exact copy thrown by sync abortError() / sync-signaling when the user
+ * cancels Plus send or receive. Optional period: Sentry sometimes drops it.
+ */
+const SEND_CANCELLED_PHRASE = /^Send cancelled\.?$/i
+const WRAPPED_SEND_CANCELLED = /^AbortError:\s*Send cancelled\.?$/i
+
+function mentionsSendCancelled(text: string | undefined): boolean {
+  return typeof text === 'string' && SEND_CANCELLED_PHRASE.test(text.trim())
+}
+
+function isWrappedSendCancelled(text: string | undefined): boolean {
+  return typeof text === 'string' && WRAPPED_SEND_CANCELLED.test(text.trim())
+}
+
+function isSendCancelledAbortType(type: string | undefined): boolean {
+  return type === 'AbortError' || type === 'DOMException'
+}
+
+/** Sentry tags DOMException.code as a string; allow the numeric form too. */
+function taggedDomExceptionAbort(tags: FilterableSentryEvent['tags']): boolean {
+  const code = tags?.['DOMException.code']
+  return code === 20 || code === '20'
+}
+
+/**
+ * Intentional Plus send/receive cancel (KODY-VIDEO-13). The live event is an
+ * unhandled rejection wrapped as Error `AbortError: Send cancelled.` with tag
+ * DOMException.code=20, empty stack, and no `step` (not from reportError).
+ * Other AbortErrors still report — a real bug can abort.
+ */
+export function isSendCancelledAbortEvent(event: FilterableSentryEvent): boolean {
+  const abortCode = taggedDomExceptionAbort(event.tags)
+  const message = event.message
+  const values = event.exception?.values ?? []
+
+  const matches = (text: string | undefined, type: string | undefined): boolean => {
+    if (isWrappedSendCancelled(text)) return true
+    if (isSendCancelledAbortType(type) && mentionsSendCancelled(text)) return true
+    return abortCode && mentionsSendCancelled(text)
+  }
+
+  for (const value of values) {
+    if (matches(value.value, value.type)) return true
+    if (isSendCancelledAbortType(value.type) && mentionsSendCancelled(message)) {
+      return true
+    }
+  }
+  return matches(message, undefined)
+}
+
+/**
+ * Thrown sync cancel that send/receive `fail()` should swallow: no
+ * reportError, no error sheet. DOMException AbortError (existing), any
+ * error named AbortError (cross-realm / non-DOMException), or the wrapped
+ * `AbortError: Send cancelled.` message. Broader than
+ * `isSendCancelledAbortEvent` on purpose — do not use this as a global
+ * Sentry drop.
+ */
+export function isSendCancelledAbort(error: unknown): boolean {
+  if (typeof error !== 'object' || error === null) return false
+  const name = 'name' in error && typeof error.name === 'string' ? error.name : ''
+  const message =
+    'message' in error && typeof error.message === 'string' ? error.message.trim() : ''
+  // DOMException AbortError, or any error named AbortError (cross-realm /
+  // non-DOMException). The send/receive fail path already ignored DOMException
+  // AbortError, including a message of only `Send cancelled.`.
+  if (name === 'AbortError') return true
+  return isWrappedSendCancelled(message)
+}
+
+/**
  * Chromium LevelDB open failure (KODY-VIDEO-Y). Keep in sync with
  * `isIndexedDbBackingStoreOpenFailure` in storage.ts — message-only here so
  * this module stays free of an idb import.
@@ -446,6 +517,7 @@ function loadSentry(): Promise<SentryLike> | null {
         if (isCloudflareInsightsBeaconEvent(event)) return null
         if (isProjectLimitEvent(event)) return null
         if (isStorageQuotaExceededEvent(event)) return null
+        if (isSendCancelledAbortEvent(event)) return null
         if (isIndexedDbBackingStoreOpenEvent(event)) return null
         if (isBrowserExtensionHostObjectNoiseEvent(event)) return null
         if (isViteCssPreloadError(event)) return null

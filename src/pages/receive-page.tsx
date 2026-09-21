@@ -2,7 +2,7 @@ import type { Handle } from 'remix/ui'
 import { on } from 'remix/ui'
 import { IconBack } from '../components/icons'
 import { BrandMark } from '../components/brand-mark'
-import { reportError } from '../lib/error-reporting'
+import { isSendCancelledAbort, reportError } from '../lib/error-reporting'
 import { BackupFormatError, importKodyVideoBackupFile } from '../lib/project-transfer'
 import { ProjectLimitError, StorageQuotaExceededError } from '../lib/storage'
 import { formatBytes } from '../lib/storage-space'
@@ -60,7 +60,7 @@ export function ReceivePage(handle: Handle<ReceivePageProps>) {
 
   const fail = (err: unknown) => {
     if (abort.signal.aborted) return
-    if (err instanceof DOMException && err.name === 'AbortError') return
+    if (isSendCancelledAbort(err)) return
     if (
       !(err instanceof SyncSignalError) &&
       !(err instanceof SyncTransferError) &&

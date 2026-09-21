@@ -8,6 +8,8 @@ import {
   isMonitoringSelfTestEvent,
   isProjectLimitEvent,
   isReportingHostname,
+  isSendCancelledAbort,
+  isSendCancelledAbortEvent,
   isStorageQuotaExceededEvent,
   isTranslatorDomMutationNoiseEvent,
   isViteCssPreloadError,
@@ -166,6 +168,144 @@ describe('isStorageQuotaExceededEvent (KODY-VIDEO-12)', () => {
         },
       }),
     ).toBe(false)
+  })
+})
+
+describe('isSendCancelledAbortEvent (KODY-VIDEO-13)', () => {
+  it('drops the live wrapped unhandled rejection', () => {
+    expect(
+      isSendCancelledAbortEvent({
+        exception: {
+          values: [{ type: 'Error', value: 'AbortError: Send cancelled.' }],
+        },
+        tags: { 'DOMException.code': '20' },
+      }),
+    ).toBe(true)
+  })
+
+  it('drops the wrapped form even without the DOMException.code tag', () => {
+    expect(
+      isSendCancelledAbortEvent({
+        exception: {
+          values: [{ type: 'Error', value: 'AbortError: Send cancelled.' }],
+        },
+      }),
+    ).toBe(true)
+    expect(
+      isSendCancelledAbortEvent({
+        message: 'AbortError: Send cancelled',
+      }),
+    ).toBe(true)
+  })
+
+  it('drops AbortError and DOMException values that carry the product string', () => {
+    expect(
+      isSendCancelledAbortEvent({
+        exception: {
+          values: [{ type: 'AbortError', value: 'Send cancelled.' }],
+        },
+      }),
+    ).toBe(true)
+    expect(
+      isSendCancelledAbortEvent({
+        exception: {
+          values: [{ type: 'DOMException', value: 'Send cancelled' }],
+        },
+      }),
+    ).toBe(true)
+  })
+
+  it('drops Error Send cancelled when DOMException.code is 20', () => {
+    expect(
+      isSendCancelledAbortEvent({
+        exception: {
+          values: [{ type: 'Error', value: 'Send cancelled.' }],
+        },
+        tags: { 'DOMException.code': 20 },
+      }),
+    ).toBe(true)
+  })
+
+  it('keeps AbortError messages that only mention the cancel copy in passing', () => {
+    expect(
+      isSendCancelledAbortEvent({
+        exception: {
+          values: [
+            {
+              type: 'AbortError',
+              value: 'Send cancelled because the peer connection failed.',
+            },
+          ],
+        },
+      }),
+    ).toBe(false)
+  })
+
+  it('keeps unrelated AbortError', () => {
+    expect(
+      isSendCancelledAbortEvent({
+        exception: {
+          values: [{ type: 'AbortError', value: 'The operation was aborted.' }],
+        },
+        tags: { 'DOMException.code': '20' },
+      }),
+    ).toBe(false)
+  })
+
+  it('keeps SyncTransferError and ordinary Errors', () => {
+    expect(
+      isSendCancelledAbortEvent({
+        exception: {
+          values: [
+            {
+              type: 'SyncTransferError',
+              value:
+                'Could not connect to the other device. Stay on the same Wi‑Fi, or Save backup and import it there.',
+            },
+          ],
+        },
+      }),
+    ).toBe(false)
+    expect(
+      isSendCancelledAbortEvent({
+        exception: {
+          values: [{ type: 'Error', value: 'Export failed: encoder closed' }],
+        },
+      }),
+    ).toBe(false)
+    expect(
+      isSendCancelledAbortEvent({
+        exception: {
+          values: [{ type: 'Error', value: 'Send cancelled.' }],
+        },
+      }),
+    ).toBe(false)
+  })
+})
+
+describe('isSendCancelledAbort', () => {
+  it('treats DOMException AbortError and AbortError-named errors as cancel', () => {
+    expect(isSendCancelledAbort(new DOMException('Send cancelled.', 'AbortError'))).toBe(true)
+    expect(isSendCancelledAbort(new DOMException('aborted', 'AbortError'))).toBe(true)
+    const named = new Error('The operation was aborted.')
+    named.name = 'AbortError'
+    expect(isSendCancelledAbort(named)).toBe(true)
+  })
+
+  it('treats the wrapped AbortError: Send cancelled. message as cancel', () => {
+    expect(isSendCancelledAbort(new Error('AbortError: Send cancelled.'))).toBe(true)
+    expect(isSendCancelledAbort(new Error('AbortError: Send cancelled'))).toBe(true)
+  })
+
+  it('keeps SyncTransferError, plain Send cancelled, and ordinary Errors', () => {
+    const transfer = new Error(
+      'Could not connect to the other device. Stay on the same Wi‑Fi, or Save backup and import it there.',
+    )
+    transfer.name = 'SyncTransferError'
+    expect(isSendCancelledAbort(transfer)).toBe(false)
+    expect(isSendCancelledAbort(new Error('Send cancelled.'))).toBe(false)
+    expect(isSendCancelledAbort(new Error('Export failed: encoder closed'))).toBe(false)
+    expect(isSendCancelledAbort('AbortError: Send cancelled.')).toBe(false)
   })
 })
 

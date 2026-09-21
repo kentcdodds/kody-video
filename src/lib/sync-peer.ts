@@ -206,19 +206,49 @@ export async function openReceiverChannel(
 ): Promise<{ pc: RTCPeerConnection; channel: RTCDataChannel }> {
   throwIfAborted(signal)
   const pc = newPeer(signal)
-  const incoming = waitForDataChannel(pc, signal)
-  const offer = await signaling.waitForOffer(signal)
-  await pc.setRemoteDescription({ type: 'offer', sdp: normalizeSdp(offer) })
-  const answer = await pc.createAnswer()
-  await pc.setLocalDescription(answer)
-  await waitForIceGathering(pc, signal)
-  const local = pc.localDescription?.sdp
-  if (!local) throw new SyncTransferError('Could not build a connection answer.')
-  await signaling.publishAnswer(normalizeSdp(local))
-  const channel = await incoming
-  channel.binaryType = 'arraybuffer'
-  await waitForOpen(channel, pc, signal)
-  return { pc, channel }
+  // The channel wait runs beside signaling. Tie it to this attempt so a
+  // failed offer/answer drops the timer and listener, while a caller abort
+  // still cancels it. If signaling throws first, that rejection would
+  // otherwise be unhandled (KODY-VIDEO-13 — AbortError: Send cancelled.).
+  const attempt = new AbortController()
+  const abortAttempt = () => attempt.abort()
+  if (signal.aborted) abortAttempt()
+  else signal.addEventListener('abort', abortAttempt, { once: true })
+  const unlinkAttempt = () => signal.removeEventListener('abort', abortAttempt)
+  let incomingFailure: unknown
+  const incoming = waitForDataChannel(pc, attempt.signal).then(
+    (channel) => channel,
+    (error: unknown) => {
+      incomingFailure = error
+      return null
+    },
+  )
+  try {
+    const offer = await signaling.waitForOffer(signal)
+    await pc.setRemoteDescription({ type: 'offer', sdp: normalizeSdp(offer) })
+    const answer = await pc.createAnswer()
+    await pc.setLocalDescription(answer)
+    await waitForIceGathering(pc, signal)
+    const local = pc.localDescription?.sdp
+    if (!local) throw new SyncTransferError('Could not build a connection answer.')
+    await signaling.publishAnswer(normalizeSdp(local))
+    const channel = await incoming
+    if (!channel) {
+      throw incomingFailure instanceof Error
+        ? incomingFailure
+        : new SyncTransferError('Could not receive the project.')
+    }
+    channel.binaryType = 'arraybuffer'
+    await waitForOpen(channel, pc, signal)
+    unlinkAttempt()
+    return { pc, channel }
+  } catch (error) {
+    // Caller closes the connection only after a successful return.
+    unlinkAttempt()
+    attempt.abort()
+    pc.close()
+    throw error
+  }
 }
 
 async function waitForBufferedAmountLow(channel: RTCDataChannel, signal: AbortSignal): Promise<void> {
