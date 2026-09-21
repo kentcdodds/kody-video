@@ -1,7 +1,7 @@
 import type { Handle } from 'remix/ui'
 import { on, ref } from 'remix/ui'
 import { attachSheetModal } from '../lib/sheet-modal'
-import { reportError } from '../lib/error-reporting'
+import { isSendCancelledAbort, reportError } from '../lib/error-reporting'
 import { formatRoomCode, type SyncPhase } from '../lib/sync-protocol'
 import { createSyncRoom, httpSyncSignaling, SyncSignalError } from '../lib/sync-signaling'
 import { sendBackupToPeer, SyncTransferError } from '../lib/sync-peer'
@@ -54,7 +54,7 @@ export function SendSheet(handle: Handle<SendSheetProps>) {
 
   const fail = (err: unknown) => {
     if (abort.signal.aborted) return
-    if (err instanceof DOMException && err.name === 'AbortError') return
+    if (isSendCancelledAbort(err)) return
     if (!(err instanceof SyncSignalError) && !(err instanceof SyncTransferError)) {
       reportError(err, 'sync-send')
     }

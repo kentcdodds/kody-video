@@ -1,5 +1,10 @@
 import { describe, expect, it, vi } from 'vitest'
-import { normalizeSdp, receiveBackupOnChannel, sendBackupOnChannel } from './sync-peer'
+import {
+  normalizeSdp,
+  openReceiverChannel,
+  receiveBackupOnChannel,
+  sendBackupOnChannel,
+} from './sync-peer'
 import { encodeSyncHeader, STUN_ICE_SERVERS } from './sync-protocol'
 
 async function waitForIce(pc: RTCPeerConnection): Promise<void> {
@@ -71,6 +76,49 @@ async function connectedPair(): Promise<{
     },
   }
 }
+
+describe('receive cancel', () => {
+  it('does not leak an unhandled rejection when cancelled while waiting for the offer', async () => {
+    const rejections: string[] = []
+    const onRejection = (event: PromiseRejectionEvent) => {
+      const reason: unknown = event.reason
+      const message =
+        reason instanceof Error ? `${reason.name}: ${reason.message}` : String(reason)
+      rejections.push(message)
+      event.preventDefault()
+    }
+    window.addEventListener('unhandledrejection', onRejection)
+    try {
+      const controller = new AbortController()
+      const pending = openReceiverChannel(
+        {
+          async publishOffer() {},
+          async publishAnswer() {},
+          waitForOffer(signal) {
+            return new Promise((_, reject) => {
+              const fail = () => reject(new DOMException('Send cancelled.', 'AbortError'))
+              if (signal.aborted) {
+                fail()
+                return
+              }
+              signal.addEventListener('abort', fail, { once: true })
+            })
+          },
+          async waitForAnswer() {
+            throw new Error('unused')
+          },
+        },
+        controller.signal,
+      )
+      controller.abort()
+      await expect(pending).rejects.toMatchObject({ name: 'AbortError' })
+      await new Promise((resolve) => window.setTimeout(resolve, 30))
+      expect(rejections).toEqual([])
+    } finally {
+      window.removeEventListener('unhandledrejection', onRejection)
+    }
+  })
+})
 
 describe('SDP line endings', () => {
   it('rewrites LF-only SDP so Chrome will parse data-channel lines', () => {

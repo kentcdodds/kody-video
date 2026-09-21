@@ -206,7 +206,18 @@ export async function openReceiverChannel(
 ): Promise<{ pc: RTCPeerConnection; channel: RTCDataChannel }> {
   throwIfAborted(signal)
   const pc = newPeer(signal)
-  const incoming = waitForDataChannel(pc, signal)
+  // The channel promise runs beside waitForOffer. Cancel rejects both; if
+  // signaling throws first the channel rejection would be unhandled
+  // (KODY-VIDEO-13 — AbortError: Send cancelled.). Settle it into a value
+  // so the rejection is observed, and rethrow only if we get that far.
+  let incomingFailure: unknown
+  const incoming = waitForDataChannel(pc, signal).then(
+    (channel) => channel,
+    (error: unknown) => {
+      incomingFailure = error
+      return null
+    },
+  )
   const offer = await signaling.waitForOffer(signal)
   await pc.setRemoteDescription({ type: 'offer', sdp: normalizeSdp(offer) })
   const answer = await pc.createAnswer()
@@ -216,6 +227,11 @@ export async function openReceiverChannel(
   if (!local) throw new SyncTransferError('Could not build a connection answer.')
   await signaling.publishAnswer(normalizeSdp(local))
   const channel = await incoming
+  if (!channel) {
+    throw incomingFailure instanceof Error
+      ? incomingFailure
+      : new SyncTransferError('Could not receive the project.')
+  }
   channel.binaryType = 'arraybuffer'
   await waitForOpen(channel, pc, signal)
   return { pc, channel }
