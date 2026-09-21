@@ -118,6 +118,57 @@ describe('receive cancel', () => {
       window.removeEventListener('unhandledrejection', onRejection)
     }
   })
+
+  it('clears the data-channel timer when the offer wait fails', async () => {
+    const longTimers = new Set<number>()
+    const originalSet = window.setTimeout.bind(window)
+    const originalClear = window.clearTimeout.bind(window)
+    const setSpy = vi.spyOn(window, 'setTimeout').mockImplementation(((
+      handler: TimerHandler,
+      timeout?: number,
+      ...args: unknown[]
+    ) => {
+      const id = originalSet(handler, timeout, ...args)
+      if (timeout === 20_000) longTimers.add(id as unknown as number)
+      return id
+    }) as typeof window.setTimeout)
+    const clearSpy = vi.spyOn(window, 'clearTimeout').mockImplementation((id) => {
+      longTimers.delete(id as number)
+      originalClear(id)
+    })
+    const rejections: string[] = []
+    const onRejection = (event: PromiseRejectionEvent) => {
+      const reason: unknown = event.reason
+      const message =
+        reason instanceof Error ? `${reason.name}: ${reason.message}` : String(reason)
+      rejections.push(message)
+      event.preventDefault()
+    }
+    window.addEventListener('unhandledrejection', onRejection)
+    try {
+      const pending = openReceiverChannel(
+        {
+          async publishOffer() {},
+          async publishAnswer() {},
+          async waitForOffer() {
+            throw new Error('room expired')
+          },
+          async waitForAnswer() {
+            throw new Error('unused')
+          },
+        },
+        new AbortController().signal,
+      )
+      await expect(pending).rejects.toThrow('room expired')
+      await new Promise((resolve) => originalSet(resolve, 20))
+      expect(rejections).toEqual([])
+      expect(longTimers.size).toBe(0)
+    } finally {
+      setSpy.mockRestore()
+      clearSpy.mockRestore()
+      window.removeEventListener('unhandledrejection', onRejection)
+    }
+  })
 })
 
 describe('SDP line endings', () => {

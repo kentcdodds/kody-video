@@ -206,12 +206,17 @@ export async function openReceiverChannel(
 ): Promise<{ pc: RTCPeerConnection; channel: RTCDataChannel }> {
   throwIfAborted(signal)
   const pc = newPeer(signal)
-  // The channel promise runs beside waitForOffer. Cancel rejects both; if
-  // signaling throws first the channel rejection would be unhandled
-  // (KODY-VIDEO-13 — AbortError: Send cancelled.). Settle it into a value
-  // so the rejection is observed, and rethrow only if we get that far.
+  // The channel wait runs beside signaling. Tie it to this attempt so a
+  // failed offer/answer drops the timer and listener, while a caller abort
+  // still cancels it. If signaling throws first, that rejection would
+  // otherwise be unhandled (KODY-VIDEO-13 — AbortError: Send cancelled.).
+  const attempt = new AbortController()
+  const abortAttempt = () => attempt.abort()
+  if (signal.aborted) abortAttempt()
+  else signal.addEventListener('abort', abortAttempt, { once: true })
+  const unlinkAttempt = () => signal.removeEventListener('abort', abortAttempt)
   let incomingFailure: unknown
-  const incoming = waitForDataChannel(pc, signal).then(
+  const incoming = waitForDataChannel(pc, attempt.signal).then(
     (channel) => channel,
     (error: unknown) => {
       incomingFailure = error
@@ -235,9 +240,12 @@ export async function openReceiverChannel(
     }
     channel.binaryType = 'arraybuffer'
     await waitForOpen(channel, pc, signal)
+    unlinkAttempt()
     return { pc, channel }
   } catch (error) {
     // Caller closes the connection only after a successful return.
+    unlinkAttempt()
+    attempt.abort()
     pc.close()
     throw error
   }
