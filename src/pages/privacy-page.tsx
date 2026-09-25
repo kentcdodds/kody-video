@@ -14,7 +14,7 @@ export function PrivacyPage() {
 
       <div className="about-body">
         <h1>Privacy</h1>
-        <p className="legal-updated">Last updated: August 2026</p>
+        <p className="legal-updated">Last updated: September 2026</p>
 
         <section className="about-section">
           <h2>Everything stays on your device</h2>
@@ -47,6 +47,19 @@ export function PrivacyPage() {
             any account identifier, and no IP-based user profile is kept. Page-view counts, crash
             reports, and (only if you tap Send to device) a short-lived matchmaking room are the
             only data the app sends anywhere on its own.
+          </p>
+        </section>
+
+        <section className="about-section">
+          <h2>Recording health reports</h2>
+          <p>
+            To catch choppy recordings, each take keeps a small report on this device: frame
+            timings and counters read from the saved file (frame rate, missing frames, gaps),
+            how busy the app was while recording, encoder and save timings, and coarse device
+            facts (browser and OS names, CPU cores, memory size, battery level, camera
+            resolution). Reports never contain video, audio, location, or project names. They
+            stay on the device unless you share them yourself or tap Send on About → Recording
+            health, which sends that report to Sentry. Clear them there anytime.
           </p>
         </section>
 

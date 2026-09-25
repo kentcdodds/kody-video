@@ -48,10 +48,18 @@ type FilterableSentryEvent = {
   tags?: Record<string, unknown>
 }
 
+type ScopeLike = {
+  setTag: (key: string, value: string) => void
+  setContext: (name: string, context: Record<string, unknown> | null) => void
+  addAttachment: (attachment: { filename: string; data: string; contentType?: string }) => void
+}
+
 type SentryLike = {
   init: (options: Record<string, unknown>) => void
   captureException: (error: unknown, context?: Record<string, unknown>) => void
   captureMessage: (message: string, context?: Record<string, unknown>) => void
+  withScope: (callback: (scope: ScopeLike) => void) => void
+  flush: (timeoutMs?: number) => PromiseLike<boolean>
 }
 
 /** Set after the dynamic `@sentry/browser` import resolves on reporting hosts. */
@@ -493,8 +501,9 @@ function loadSentry(): Promise<SentryLike> | null {
   if (sentry) return Promise.resolve(sentry)
   if (sentryLoad) return sentryLoad
 
-  sentryLoad = import('@sentry/browser').then(({ init, captureException, captureMessage }) => {
-    const client: SentryLike = { init, captureException, captureMessage }
+  sentryLoad = import('@sentry/browser').then((sdk) => {
+    const { init, captureException, captureMessage, withScope, flush } = sdk
+    const client: SentryLike = { init, captureException, captureMessage, withScope, flush }
     client.init({
       dsn: SENTRY_DSN,
       release: COMMIT_SHA,
@@ -533,6 +542,38 @@ function loadSentry(): Promise<SentryLike> | null {
   })
 
   return sentryLoad
+}
+
+/**
+ * User-initiated only (a tap on About → Recording health): send the
+ * on-device recording-health report — timings and counters, never media,
+ * location, or names (see take-report.ts) — as one info event with the
+ * full JSON attached. Resolves false off reporting hosts or when delivery
+ * does not confirm.
+ */
+export async function sendRecordingReport(report: {
+  summary: Record<string, unknown>
+  json: string
+  filename: string
+}): Promise<boolean> {
+  const load = loadSentry()
+  if (!load) return false
+  try {
+    const client = await load
+    client.withScope((scope) => {
+      scope.setTag('step', 'recording-report')
+      scope.setContext('recording', report.summary)
+      scope.addAttachment({
+        filename: report.filename,
+        data: report.json,
+        contentType: 'application/json',
+      })
+      client.captureMessage('Recording health report', { level: 'info' })
+    })
+    return await client.flush(8000)
+  } catch {
+    return false
+  }
 }
 
 /**

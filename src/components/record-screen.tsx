@@ -11,8 +11,14 @@ import {
   type MicLevelMonitor,
 } from '../lib/mic-monitor'
 import { reportError } from '../lib/error-reporting'
+import { beginCaptureActivity } from '../lib/capture-activity'
+import { recordTakeReport } from '../lib/capture-diagnostics'
 import { appendRecording, removeClip, undoLastDelete } from '../lib/project-actions'
-import { HoldRecorder } from '../lib/recorder'
+import { HoldRecorder, type RecordingResult } from '../lib/recorder'
+import { snapshotCamera, snapshotEnvironment, watchCaptureEnvironment } from '../lib/take-environment'
+import { startTakeProbe, type LiveTakeSignals, type TakeProbe } from '../lib/take-probe'
+import { draftTakeReport, type TakeOutcome, type TakeStart } from '../lib/take-report'
+import { activeVideoQuality } from '../lib/video-quality'
 import {
   isScreenRecordingSupported,
   startScreenRecording,
@@ -111,6 +117,36 @@ export function RecordScreen(handle: Handle<RecordScreenProps>) {
   /** Live audio-level watch for the current take (silent-mic warning). */
   let micMonitor: MicLevelMonitor | null = null
 
+  // Take reports (lib/take-report.ts): live signals from press to release,
+  // then the saved file's frame cadence once capture is idle.
+  const cameraOpenedAt = performance.now()
+  const diagnosticsSessionId = Math.random().toString(36).slice(2, 10)
+  let takeIndex = 0
+  let takeProbe: TakeProbe | null = null
+  let takeStart: TakeStart | null = null
+  /** Holds optional background work off the main thread while recording. */
+  let releaseCapture: (() => void) | null = null
+  let releaseScreenCapture: (() => void) | null = null
+  const reportTake = (
+    start: TakeStart | null,
+    live: LiveTakeSignals | undefined,
+    outcome: TakeOutcome,
+    saved?: { result: RecordingResult; clipId?: string; saveMs?: number },
+  ) => {
+    if (!start || !live) return
+    void recordTakeReport(
+      draftTakeReport({
+        sessionId: diagnosticsSessionId,
+        start,
+        live,
+        outcome,
+        recording: saved?.result,
+        clipId: saved?.clipId,
+        saveMs: saved?.saveMs,
+      }),
+    )
+  }
+
   let dragZoomPressY = 0
   let dragZoomStartValue = 0
   let dragZoomStageHeight = 0
@@ -171,6 +207,7 @@ export function RecordScreen(handle: Handle<RecordScreenProps>) {
     warmMicMonitorContext()
     pickRecordingMimeType()
     warmDurationProbe()
+    watchCaptureEnvironment()
     armEncoderIfPossible()
   }
   if (typeof window.requestIdleCallback === 'function') {
@@ -302,6 +339,8 @@ export function RecordScreen(handle: Handle<RecordScreenProps>) {
     void handle.update()
     try {
       const result = await session.stop()
+      releaseScreenCapture?.()
+      releaseScreenCapture = null
       if (!result) {
         props.showToast('Screen take was too short')
         return
@@ -313,6 +352,8 @@ export function RecordScreen(handle: Handle<RecordScreenProps>) {
       reportError(err, 'screen-record')
       props.showToast('Could not save the screen recording')
     } finally {
+      releaseScreenCapture?.()
+      releaseScreenCapture = null
       screenBusy = false
     }
   }
@@ -331,7 +372,14 @@ export function RecordScreen(handle: Handle<RecordScreenProps>) {
       screenBusy = true
       try {
         const session = await startScreenRecording()
+        // Left the screen while the surface picker was open: nothing owns
+        // this capture (or its capture-activity hold) any more.
+        if (handle.signal.aborted) {
+          void session.stop().catch(() => null)
+          return
+        }
         screenSession = session
+        releaseScreenCapture = beginCaptureActivity()
         screenRecordStartedAt = performance.now()
         screenRecording = true
         void handle.update()
@@ -390,8 +438,9 @@ export function RecordScreen(handle: Handle<RecordScreenProps>) {
         camera.releaseMic({ keepWarm: true })
         return false
       }
-      // Re-check after the mic await — an overlay may have opened meanwhile.
-      if (props.interactionLocked) {
+      // Re-check after the mic await — an overlay may have opened meanwhile,
+      // or the screen unmounted (its cleanup could not see this take).
+      if (props.interactionLocked || handle.signal.aborted) {
         camera.releaseMic()
         return false
       }
@@ -430,6 +479,25 @@ export function RecordScreen(handle: Handle<RecordScreenProps>) {
           micSilent = false
           void handle.update()
         },
+      })
+      releaseCapture?.()
+      releaseCapture = beginCaptureActivity()
+      takeStart = {
+        recordedAt: Date.now(),
+        mode: nextRecordingMode,
+        quality: activeVideoQuality(),
+        mimeType: pickRecordingMimeType(),
+        camera: snapshotCamera(stream.getVideoTracks()[0]),
+        env: snapshotEnvironment({
+          cameraOpenedAt,
+          takeIndex: takeIndex++,
+          previousSaveInFlight: endInFlight !== null,
+          idleEncoder: recorder.idleEncoderUsage(),
+        }),
+      }
+      takeProbe = startTakeProbe({
+        preview: camera.getVideoElement(),
+        zoomCounts: camera.getZoomWriteCounts,
       })
       recording = true
       recordingMode = nextRecordingMode
@@ -493,14 +561,26 @@ export function RecordScreen(handle: Handle<RecordScreenProps>) {
     // Detach this take's fix before any await so a quick next hold can own it.
     const pendingForThisTake = pendingFix
     pendingFix = null
+    // Same for this take's report state and capture-activity hold.
+    const live = takeProbe?.finish()
+    takeProbe = null
+    const start = takeStart
+    takeStart = null
+    const releaseThisCapture = releaseCapture
+    releaseCapture = null
     // Lift-time detached mirror (or a sync on-screen draw when flushNow
     // is about to kill the camera). Runs beside stop-grace.
     const capturedThumbs = captureTakeThumbs({ immediate: options?.flushNow }).catch(() => null)
+    let result: RecordingResult | null = null
     try {
       // flushNow: skip the stop-grace tail so MediaRecorder.stop() runs
       // in this turn (hide then stops the tracks on the same turn).
-      const result = await recorder.stop(options?.flushNow ? { graceMs: 0 } : undefined)
+      result = await recorder.stop(options?.flushNow ? { graceMs: 0 } : undefined)
+      releaseThisCapture?.()
       if (!result) {
+        // A real hold that produced nothing is a capture failure worth a
+        // report; an accidental tap is not.
+        if ((live?.durationMs ?? 0) >= 300) reportTake(start, live, 'empty')
         props.showToast('Hold a bit longer')
         return
       }
@@ -514,7 +594,8 @@ export function RecordScreen(handle: Handle<RecordScreenProps>) {
           }),
         ])
       }
-      await appendRecording(
+      const saveStartedAt = performance.now()
+      const clip = await appendRecording(
         await props.ensureProjectId(),
         {
           ...result,
@@ -523,6 +604,11 @@ export function RecordScreen(handle: Handle<RecordScreenProps>) {
         { capturedThumbs: await capturedThumbs },
       )
       props.refresh()
+      reportTake(start, live, 'saved', {
+        result,
+        clipId: clip.id,
+        saveMs: performance.now() - saveStartedAt,
+      })
     } catch (err) {
       // Store failures surface in-app (toast). Quota is an expected device
       // gate (StorageQuotaExceededError / reportError no-op); other write
@@ -530,7 +616,9 @@ export function RecordScreen(handle: Handle<RecordScreenProps>) {
       // unhandled AbortError from tx.done.
       reportError(err, 'save-clip')
       props.showToast(err instanceof Error ? err.message : 'Save failed')
+      reportTake(start, live, 'save-failed', result ? { result } : undefined)
     } finally {
+      releaseThisCapture?.()
       // stop() resolves only after the blob's duration is measured, so a
       // quick next hold may already be recording (or acquiring the mic) by
       // now — never strip the mic, monitor, or wake lock from that newer
@@ -651,6 +739,11 @@ export function RecordScreen(handle: Handle<RecordScreenProps>) {
     cancelAnimationFrame(zoomRestoreRaf)
     micMonitor?.stop()
     micMonitor = null
+    takeProbe?.finish()
+    takeProbe = null
+    takeStart = null
+    releaseCapture?.()
+    releaseCapture = null
     recorder.cancel()
     // Leaving the screen mustn't lose an active screen take — save it.
     void finishScreenRecord()
@@ -957,6 +1050,7 @@ export function RecordScreen(handle: Handle<RecordScreenProps>) {
               // encoder (and used to blank the HUD/timer text — see the
               // zoom-hud comment above).
               camera.setZoom(next, { silent: true })
+              takeProbe?.noteZoom()
               showZoomHud(next)
             }),
             on('pointerup', (event) => {

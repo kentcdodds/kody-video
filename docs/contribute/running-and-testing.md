@@ -47,6 +47,15 @@ stand-in for "airplane mode, reopen the home-screen app": it asserts the
 cached shell paints and the document is never blank white. Real iOS/Android
 standalone remains on [manual-test-checklist.md](../../manual-test-checklist.md).
 
+## Capture smoothness probe
+
+`node scripts/probe-capture-cadence.mjs` records real hold-to-record takes
+with a fake 30fps camera and reports each saved clip's frame cadence (fps,
+missing frames, worst gap) against main-thread long tasks and lag during
+the hold, plus the app's own take report. Scenarios, flags, and how to
+read the results are in
+[`docs/recording-smoothness.md`](../recording-smoothness.md#reproducing-locally).
+
 ## CLA checker
 
 `node tools/ci/check-cla.mjs --self-test` verifies the inbound CLA allowlist and signer rules.

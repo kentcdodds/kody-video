@@ -21,6 +21,7 @@ import {
   type FacingMode,
 } from './media'
 import { isIosBrowser } from './platform'
+import { createZoomWriter, type ZoomWriter } from './zoom-writer'
 
 /**
  * iOS Safari is known to deliver muted (silent-but-live) audio tracks when
@@ -182,6 +183,9 @@ export interface Camera {
   /** The live preview element — for zero-cost frame capture at take end. */
   getVideoElement: () => HTMLVideoElement | null
   getZoom: () => CameraZoomRange | null
+  /** Cumulative zoom writes: `requested` setZoom calls vs `applied`
+   * applyConstraints actually sent (the rest were coalesced). */
+  getZoomWriteCounts: () => { requested: number; applied: number }
 }
 
 /**
@@ -213,6 +217,8 @@ export function createCamera(notify: () => void): Camera {
   /** Bumped by stop(): async opens started before a stop must not adopt. */
   let cameraEpoch = 0
   let zoomNotifyTimer = 0
+  let zoomWriter: { track: MediaStreamTrack; writer: ZoomWriter } | null = null
+  const zoomWriteCounts = { requested: 0, applied: 0 }
 
   const camera: Camera = {
     stream: null,
@@ -242,12 +248,28 @@ export function createCamera(notify: () => void): Camera {
     getStream: () => camera.stream,
     getVideoElement: () => videoEl,
     getZoom: () => camera.zoom,
+    getZoomWriteCounts: () => ({ ...zoomWriteCounts }),
   }
 
   function setZoomRange(next: CameraZoomRange | null): void {
     window.clearTimeout(zoomNotifyTimer)
     zoomNotifyTimer = 0
     camera.zoom = next
+    // A new range means a new (or no) track: never apply a stale drag's
+    // value to it.
+    zoomWriter?.writer.dispose()
+    zoomWriter = null
+  }
+
+  function zoomWriterFor(track: MediaStreamTrack): ZoomWriter {
+    if (zoomWriter?.track === track) return zoomWriter.writer
+    zoomWriter?.writer.dispose()
+    const writer = createZoomWriter((value) => {
+      zoomWriteCounts.applied += 1
+      return track.applyConstraints({ advanced: [{ zoom: value } as MediaTrackConstraintSet] })
+    })
+    zoomWriter = { track, writer }
+    return writer
   }
 
   function attachToVideo(next: MediaStream): void {
@@ -647,9 +669,8 @@ export function createCamera(notify: () => void): Camera {
     if (!track || !range) return
     const clamped = Math.min(range.max, Math.max(range.min, value))
     camera.zoom = { ...range, value: clamped }
-    void track
-      .applyConstraints({ advanced: [{ zoom: clamped } as MediaTrackConstraintSet] })
-      .catch(() => undefined)
+    zoomWriteCounts.requested += 1
+    zoomWriterFor(track).set(clamped)
     // Mid-take drag-to-zoom passes silent: the zoom chips it would sync are
     // hidden while recording, and `camera.zoom` is already current for
     // whatever re-render comes next (take end, snap-back).

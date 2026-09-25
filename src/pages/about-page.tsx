@@ -2,6 +2,7 @@ import type { Handle } from 'remix/ui'
 import { on } from 'remix/ui'
 import { IconBack } from '../components/icons'
 import { BrandMark } from '../components/brand-mark'
+import { RecordingHealthPanel } from '../components/recording-health-panel'
 import { RestoreSheet } from '../components/restore-sheet'
 import { SharePlusSheet } from '../components/share-plus-sheet'
 import { UpsellSheet } from '../components/upsell-sheet'
@@ -306,10 +307,11 @@ export function AboutPage(handle: Handle) {
 
   return () => {
     const { storage, exportCacheBytes, plus, videoQuality } = data
-    if (!hashScrolled && location.hash === '#video-quality') {
+    const hashTarget = location.hash.slice(1)
+    if (!hashScrolled && (hashTarget === 'video-quality' || hashTarget === 'recording-health')) {
       hashScrolled = true
       queueMicrotask(() => {
-        const section = document.getElementById('video-quality')
+        const section = document.getElementById(hashTarget)
         const scroller = document.querySelector('.about-screen .about-body')
         if (section && scroller instanceof HTMLElement) {
           const top =
@@ -438,7 +440,8 @@ export function AboutPage(handle: Handle) {
               something breaks, cookieless page-view counts via Fathom Analytics, the tour video
               streaming from this app&rsquo;s own domain if you tap play on it, and — only if you
               tap Send to device — a short-lived matchmaking room so two browsers can find each
-              other, and a short-lived restore code if you share Plus with another device. Clips
+              other, a short-lived restore code if you share Plus with another device, and — only
+              if you tap Send under Recording health — that counters-only recording report. Clips
               still never upload.
             </p>
           </section>
@@ -576,6 +579,8 @@ export function AboutPage(handle: Handle) {
             </p>
             {cameraReport ? <pre className="camera-report">{cameraReport}</pre> : null}
           </section>
+
+          <RecordingHealthPanel />
 
           <section className="about-section">
             <h2>Support</h2>

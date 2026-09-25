@@ -794,8 +794,58 @@
   font-size: 0.88rem;
 }
 
-#video-quality {
+#video-quality,
+#recording-health {
   scroll-margin-top: 8px;
+}
+
+.about-section .recording-health-summary {
+  margin-top: 10px;
+  color: var(--ink);
+}
+
+.recording-health-takes {
+  margin: 10px 0 0;
+  padding: 10px 12px;
+  list-style: none;
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--ink) 8%, transparent);
+  border: 1px solid var(--line);
+  font-size: 0.78rem;
+  line-height: 1.5;
+  font-variant-numeric: tabular-nums;
+}
+
+.recording-health-takes li {
+  position: relative;
+  padding-left: 14px;
+}
+
+.recording-health-takes li + li {
+  margin-top: 4px;
+}
+
+.recording-health-takes li::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 0.55em;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--ink-muted);
+}
+
+.recording-health-takes li.is-smooth::before {
+  background: var(--accent);
+}
+
+.recording-health-takes li.is-minor::before {
+  background: #e8b64c;
+}
+
+.recording-health-takes li.is-choppy::before {
+  background: var(--danger);
 }
 
 .about-import.is-disabled {

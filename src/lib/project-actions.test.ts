@@ -1,5 +1,11 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import { appendRecording, hydrateProjectClips, loadHomeProjects } from './project-actions'
+import { beginCaptureActivity, resetCaptureActivityForTests } from './capture-activity'
+import {
+  appendRecording,
+  hydrateProjectClips,
+  loadHomeProjects,
+  resetVerifiedDisplaySizesForTests,
+} from './project-actions'
 import { __resetDbForTests, addClip, createProject, deleteClip, getClip, getProject, listProjects, renameProject } from './storage'
 import { makeLabeledClipBlob } from './testing/make-test-clip'
 import { markWatermarkRemoved } from './entitlement'
@@ -166,6 +172,32 @@ describe('appendRecording orientation lock', () => {
 describe('hydrateProjectClips display size', () => {
   beforeEach(async () => {
     await __resetDbForTests()
+    resetVerifiedDisplaySizesForTests()
+    resetCaptureActivityForTests()
+  })
+
+  it('waits while a take is recording, then finishes', async () => {
+    const project = await createProject('Busy')
+    const clip = await addClip({
+      projectId: project.id,
+      blob: await makeLabeledClipBlob(640, 360),
+      mimeType: 'video/webm',
+      durationMs: 1200,
+      width: 360,
+      height: 640,
+    })
+    const release = beginCaptureActivity()
+    const hydrating = hydrateProjectClips([clip]).then((result) => result)
+    const first = await Promise.race([
+      hydrating.then(() => 'hydrated'),
+      new Promise((resolve) => setTimeout(() => resolve('waiting'), 400)),
+    ])
+    expect(first).toBe('waiting')
+    // Nothing was written behind the live take either.
+    expect((await getClip(clip.id))?.width).toBe(360)
+    release()
+    const [hydrated] = await hydrating
+    expect(hydrated.width).toBe(640)
   })
 
   it('corrects a stored size that disagrees with the file', async () => {
