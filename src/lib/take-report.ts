@@ -239,7 +239,11 @@ export function applyTakeAnalysis(
 ): TakeReport {
   const cadence = analyzeFrameCadence(stamps.videoSec, window)
   const whole = analyzeFrameCadence(stamps.videoSec)
-  const firstVideoSec = stamps.videoSec.length > 0 ? Math.min(...stamps.videoSec) : 0
+  // No spread: a long take's frame count exceeds engine argument limits.
+  const firstVideoSec = stamps.videoSec.reduce(
+    (min, timestamp) => Math.min(min, timestamp),
+    stamps.videoSec.length > 0 ? Number.POSITIVE_INFINITY : 0,
+  )
   const analyzed: TakeReport = {
     ...report,
     cadence,

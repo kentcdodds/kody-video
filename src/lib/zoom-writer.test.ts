@@ -108,6 +108,15 @@ describe('createZoomWriter', () => {
     expect(h.writes).toEqual([1.2, 1.4])
   })
 
+  it('retries a value the camera rejected when it is requested again', async () => {
+    const h = harness()
+    h.writer.set(2)
+    await h.settle(false)
+    await h.advance(50)
+    h.writer.set(2)
+    expect(h.writes).toEqual([2, 2])
+  })
+
   it('drops pending values on dispose', async () => {
     const h = harness()
     h.writer.set(1.2)

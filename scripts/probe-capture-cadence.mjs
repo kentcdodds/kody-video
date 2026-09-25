@@ -233,7 +233,7 @@ async function analyzeClips(page) {
             frames: whole.frames,
             fps: whole.fps,
             droppedFrames: whole.droppedFrames,
-            firstVideoMs: Math.round((Math.min(...stamps.videoSec) || 0) * 1000),
+            firstVideoMs: Math.round(stamps.videoSec.reduce((min, ts) => Math.min(min, ts), stamps.videoSec.length ? Infinity : 0) * 1000),
           },
           audio: cadence.analyzeAudioContinuity(stamps.audio),
         })

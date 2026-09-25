@@ -282,24 +282,32 @@ export function resetVerifiedDisplaySizesForTests(): void {
 export async function ensureClipDisplaySize(clip: ClipRecord): Promise<ClipRecord> {
   if (isImageClip(clip)) return clip
   if (verifiedDisplaySizes.get(clip.id) === displaySizeSignature(clip)) return clip
-  const settled = await reconcileClipDisplaySize(clip)
-  verifiedDisplaySizes.set(settled.id, displaySizeSignature(settled))
+  const { clip: settled, probed } = await reconcileClipDisplaySize(clip)
+  // A failed probe (transient decode/metadata error) stays eligible for
+  // the next refresh; only a size the file actually reported is trusted.
+  if (probed) verifiedDisplaySizes.set(settled.id, displaySizeSignature(settled))
   return settled
 }
 
-async function reconcileClipDisplaySize(clip: ClipRecord): Promise<ClipRecord> {
+async function reconcileClipDisplaySize(
+  clip: ClipRecord,
+): Promise<{ clip: ClipRecord; probed: boolean }> {
   const fromFile = await probeVideoFileSize(clip.blob).catch(() => null)
   if (fromFile) {
-    if (clip.width === fromFile.width && clip.height === fromFile.height) return clip
+    if (clip.width === fromFile.width && clip.height === fromFile.height) {
+      return { clip, probed: true }
+    }
     await updateClipSize(clip.id, fromFile.width, fromFile.height).catch(() => undefined)
-    return { ...clip, width: fromFile.width, height: fromFile.height }
+    return { clip: { ...clip, width: fromFile.width, height: fromFile.height }, probed: true }
   }
   const fromElement = await probeVideoElementSize(clip.blob).catch(() => null)
-  if (!fromElement) return clip
-  if (clip.width === fromElement.width && clip.height === fromElement.height) return clip
-  if (isOrientationSwap(clip, fromElement)) return clip
+  if (!fromElement) return { clip, probed: false }
+  if (clip.width === fromElement.width && clip.height === fromElement.height) {
+    return { clip, probed: true }
+  }
+  if (isOrientationSwap(clip, fromElement)) return { clip, probed: true }
   await updateClipSize(clip.id, fromElement.width, fromElement.height).catch(() => undefined)
-  return { ...clip, width: fromElement.width, height: fromElement.height }
+  return { clip: { ...clip, width: fromElement.width, height: fromElement.height }, probed: true }
 }
 
 export async function appendRecording(

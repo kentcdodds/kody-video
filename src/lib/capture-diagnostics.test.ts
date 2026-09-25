@@ -9,6 +9,7 @@ import {
   MAX_TAKE_REPORTS,
   recordTakeReport,
   saveTakeReport,
+  updateTakeReport,
 } from './capture-diagnostics'
 import { __resetDbForTests, addClip, createProject } from './storage'
 import { makeTestClipBlob } from './testing/make-test-clip'
@@ -86,6 +87,19 @@ describe('capture diagnostics store', () => {
     expect(saved?.wholeFile?.frames).toBe(saved?.cadence?.frames)
     // The 15fps fixture reads as camera-rate-limited against 30fps.
     expect(saved?.reasons).toContain('camera-rate')
+  })
+
+  it('does not resurrect a report cleared while its analysis ran', async () => {
+    const draft = report(6000, 'clip-1')
+    await saveTakeReport(draft)
+    const analyzed = { ...draft, verdict: 'smooth' as const }
+    await clearTakeReports()
+    await updateTakeReport(analyzed)
+    expect(await listTakeReports()).toEqual([])
+    // Still-stored reports do get the update.
+    await saveTakeReport(draft)
+    await updateTakeReport(analyzed)
+    expect((await listTakeReports())[0]?.verdict).toBe('smooth')
   })
 
   it('records an analysis error instead of throwing on a bad file', async () => {

@@ -62,6 +62,15 @@ export async function saveTakeReport(report: TakeReport): Promise<void> {
 }
 
 /** Newest first. */
+/** Replace a report only if it is still stored. Get + put share one
+ * transaction, so a Clear that lands while an analysis runs wins. */
+export async function updateTakeReport(report: TakeReport): Promise<void> {
+  const db = await getDb()
+  const tx = db.transaction('takes', 'readwrite')
+  if (await tx.store.get(report.id)) await tx.store.put(report)
+  await tx.done
+}
+
 export async function listTakeReports(): Promise<TakeReport[]> {
   const db = await getDb()
   const reports = await db.getAllFromIndex('takes', 'by-recorded')
@@ -124,7 +133,7 @@ async function analyzeSavedTake(report: TakeReport): Promise<boolean> {
     const clip = await getClip(clipId).catch(() => undefined)
     if (!clip) return false
     const window = { startMs: clip.trimStartMs, endMs: clip.trimEndMs }
-    await saveTakeReport(await analyzeTakeReport(report, clip.blob, window))
+    await updateTakeReport(await analyzeTakeReport(report, clip.blob, window))
     return true
   })
 }

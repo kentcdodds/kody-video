@@ -67,7 +67,10 @@ export function createZoomWriter(
       write = Promise.reject(error)
     }
     void write
-      .catch(() => undefined)
+      .catch(() => {
+        // The camera never took this value — asking for it again must write.
+        if (lastWritten === value) lastWritten = null
+      })
       .finally(() => {
         inFlight = false
         pump()
