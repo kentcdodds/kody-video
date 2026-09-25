@@ -134,22 +134,17 @@ export function RecordScreen(handle: Handle<RecordScreenProps>) {
     saved?: { result: RecordingResult; clipId?: string; saveMs?: number },
   ) => {
     if (!start || !live) return
-    const report = draftTakeReport({
-      sessionId: diagnosticsSessionId,
-      start,
-      live,
-      outcome,
-      recording: saved?.result,
-      clipId: saved?.clipId,
-      saveMs: saved?.saveMs,
-    })
-    const media = saved?.clipId
-      ? {
-          blob: saved.result.blob,
-          window: { startMs: saved.result.trimStartMs, endMs: saved.result.trimEndMs },
-        }
-      : undefined
-    void recordTakeReport(report, media)
+    void recordTakeReport(
+      draftTakeReport({
+        sessionId: diagnosticsSessionId,
+        start,
+        live,
+        outcome,
+        recording: saved?.result,
+        clipId: saved?.clipId,
+        saveMs: saved?.saveMs,
+      }),
+    )
   }
 
   let dragZoomPressY = 0

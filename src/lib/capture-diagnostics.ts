@@ -113,39 +113,43 @@ export async function analyzeTakeReport(
   }
 }
 
+/** Analyze a report's saved clip (kept range = the clip's trims) off the
+ * capture path. The clip is read from storage when the work runs, so no
+ * recording blob is held while back-to-back takes keep capture busy.
+ * Returns false when the clip is gone (deleted before analysis). */
+async function analyzeSavedTake(report: TakeReport): Promise<boolean> {
+  const clipId = report.clipId
+  if (!clipId) return false
+  return runWhenCaptureIdle('take-analysis', async () => {
+    const clip = await getClip(clipId).catch(() => undefined)
+    if (!clip) return false
+    const window = { startMs: clip.trimStartMs, endMs: clip.trimEndMs }
+    await saveTakeReport(await analyzeTakeReport(report, clip.blob, window))
+    return true
+  })
+}
+
 /**
  * Persist a finished take's report now (so a killed tab still keeps its
- * live signals), then read the file's frame timings once the browser is
- * idle and no take is recording, and update the report.
+ * live signals), then read the saved clip's frame timings once the
+ * browser is idle and no take is recording, and update the report.
  */
-export function recordTakeReport(
-  report: TakeReport,
-  media?: { blob: Blob; window: { startMs: number; endMs: number } },
-): Promise<void> {
+export function recordTakeReport(report: TakeReport): Promise<void> {
   return (async () => {
     await saveTakeReport(report)
-    if (!media) return
+    if (!report.clipId) return
     await whenBrowserIdle()
-    const analyzed = await runWhenCaptureIdle('take-analysis', () =>
-      analyzeTakeReport(report, media.blob, media.window),
-    )
-    await saveTakeReport(analyzed)
+    await analyzeSavedTake(report)
   })().catch(() => undefined)
 }
 
 /** Analyze saved takes whose analysis never ran (tab closed right after
- * the take). Reads the clip from storage; skipped for deleted clips. */
+ * the take). Skipped for deleted clips. */
 export async function backfillTakeAnalyses(): Promise<number> {
   let updated = 0
   for (const report of await listTakeReports()) {
     if (report.cadence || report.analysisError || !report.clipId) continue
-    const clip = await getClip(report.clipId).catch(() => undefined)
-    if (!clip) continue
-    const analyzed = await runWhenCaptureIdle('take-analysis', () =>
-      analyzeTakeReport(report, clip.blob, { startMs: clip.trimStartMs, endMs: clip.trimEndMs }),
-    )
-    await saveTakeReport(analyzed)
-    updated += 1
+    if (await analyzeSavedTake(report)) updated += 1
   }
   return updated
 }

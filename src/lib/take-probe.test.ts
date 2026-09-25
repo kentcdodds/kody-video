@@ -69,6 +69,17 @@ describe('startTakeProbe', () => {
     expect(signals.zoom.windows[0]!.durationMs).toBeGreaterThanOrEqual(100)
   })
 
+  it('marks a take that ended because the page was hidden', () => {
+    const probe = startTakeProbe({ preview: null, zoomCounts: () => ({ requested: 0, applied: 0 }) })
+    Object.defineProperty(document, 'hidden', { configurable: true, get: () => true })
+    try {
+      expect(probe.finish().hidden).toHaveLength(1)
+    } finally {
+      Reflect.deleteProperty(document, 'hidden')
+    }
+    expect(document.hidden).toBe(false)
+  })
+
   it('stays quiet on an idle take and is idempotent', async () => {
     const probe = startTakeProbe({ preview: null, zoomCounts: () => ({ requested: 0, applied: 0 }) })
     await wait(250)

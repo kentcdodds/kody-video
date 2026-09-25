@@ -193,7 +193,13 @@ export function startTakeProbe(options: ProbeOptions): TakeProbe {
       window.clearInterval(lagTimer)
       observer?.disconnect()
       document.removeEventListener('visibilitychange', onVisibility)
-      if (hiddenSince !== null) pushWindow(hidden, rel(hiddenSince), Math.round(endedAt - hiddenSince))
+      if (hiddenSince !== null) {
+        pushWindow(hidden, rel(hiddenSince), Math.round(endedAt - hiddenSince))
+      } else if (document.hidden) {
+        // The hide itself ended the take (the record screen flushes before
+        // this probe hears the event).
+        pushWindow(hidden, rel(endedAt), 0)
+      }
       const zoomAtEnd = options.zoomCounts()
       const previewAtEnd = readPlayback(options.preview)
       finished = {

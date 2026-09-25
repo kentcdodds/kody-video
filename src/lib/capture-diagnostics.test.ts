@@ -72,9 +72,15 @@ describe('capture diagnostics store', () => {
     expect(reports.at(-1)?.recordedAt).toBe(3)
   })
 
-  it('saves the draft, then fills in the file cadence', async () => {
-    const blob = await makeTestClipBlob(1500)
-    await recordTakeReport(report(5000), { blob, window: { startMs: 0, endMs: 1500 } })
+  it('saves the draft, then fills in the saved clip’s cadence', async () => {
+    const project = await createProject('Trip')
+    const clip = await addClip({
+      projectId: project.id,
+      blob: await makeTestClipBlob(1500),
+      mimeType: 'video/webm',
+      durationMs: 1500,
+    })
+    await recordTakeReport(report(5000, clip.id))
     const [saved] = await listTakeReports()
     expect(saved?.cadence?.frames).toBeGreaterThan(10)
     expect(saved?.wholeFile?.frames).toBe(saved?.cadence?.frames)
