@@ -122,19 +122,23 @@ export async function analyzeTakeReport(
   }
 }
 
+export const CLIP_GONE_ERROR = 'Clip was deleted before analysis'
+
 /** Analyze a report's saved clip (kept range = the clip's trims) off the
  * capture path. The clip is read from storage when the work runs, so no
  * recording blob is held while back-to-back takes keep capture busy.
- * Returns false when the clip is gone (deleted before analysis). */
-async function analyzeSavedTake(report: TakeReport): Promise<boolean> {
+ * A clip deleted first settles the report with an error, never pending. */
+async function analyzeSavedTake(report: TakeReport): Promise<void> {
   const clipId = report.clipId
-  if (!clipId) return false
-  return runWhenCaptureIdle('take-analysis', async () => {
+  if (!clipId) return
+  await runWhenCaptureIdle('take-analysis', async () => {
     const clip = await getClip(clipId).catch(() => undefined)
-    if (!clip) return false
+    if (!clip) {
+      await updateTakeReport({ ...report, analysisError: CLIP_GONE_ERROR })
+      return
+    }
     const window = { startMs: clip.trimStartMs, endMs: clip.trimEndMs }
     await updateTakeReport(await analyzeTakeReport(report, clip.blob, window))
-    return true
   })
 }
 
@@ -152,15 +156,16 @@ export function recordTakeReport(report: TakeReport): Promise<void> {
   })().catch(() => undefined)
 }
 
-/** Analyze saved takes whose analysis never ran (tab closed right after
- * the take). Skipped for deleted clips. */
+/** Settle saved takes whose analysis never ran (tab closed right after
+ * the take). Returns how many were attempted. */
 export async function backfillTakeAnalyses(): Promise<number> {
-  let updated = 0
+  let attempted = 0
   for (const report of await listTakeReports()) {
     if (report.cadence || report.analysisError || !report.clipId) continue
-    if (await analyzeSavedTake(report)) updated += 1
+    await analyzeSavedTake(report)
+    attempted += 1
   }
-  return updated
+  return attempted
 }
 
 export interface DiagnosticsExport {

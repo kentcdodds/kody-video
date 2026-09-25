@@ -4,6 +4,7 @@ import {
   backfillTakeAnalyses,
   buildDiagnosticsExport,
   clearTakeReports,
+  CLIP_GONE_ERROR,
   listTakeReports,
 } from '../lib/capture-diagnostics'
 import { isReportingHostname, sendRecordingReport } from '../lib/error-reporting'
@@ -66,6 +67,8 @@ export function takeLine(report: TakeReport): string {
     )
   } else if (report.outcome !== 'saved') {
     bits.push(report.outcome === 'empty' ? 'recorded nothing' : 'save failed')
+  } else if (report.analysisError === CLIP_GONE_ERROR) {
+    bits.push('clip deleted before analysis')
   } else {
     bits.push(report.analysisError ? 'could not analyze' : 'analyzing…')
   }
@@ -82,7 +85,15 @@ export function RecordingHealthPanel(handle: Handle) {
   let reports: TakeReport[] | null = null
   let busy = false
   let confirmingClear = false
+  let confirmTimer = 0
   let status: string | null = null
+  handle.signal.addEventListener('abort', () => window.clearTimeout(confirmTimer))
+
+  const cancelClearConfirm = () => {
+    window.clearTimeout(confirmTimer)
+    confirmTimer = 0
+    confirmingClear = false
+  }
 
   const load = async () => {
     reports = await listTakeReports()
@@ -92,9 +103,11 @@ export function RecordingHealthPanel(handle: Handle) {
     try {
       await load()
       // Takes whose analysis never ran (tab closed right after recording).
-      if ((await backfillTakeAnalyses()) > 0) await load()
+      // Reload regardless: a take's own analysis may have landed meanwhile.
+      await backfillTakeAnalyses()
+      await load()
     } catch {
-      reports = []
+      reports ??= []
       if (!handle.signal.aborted) void handle.update()
     }
   })()
@@ -103,6 +116,7 @@ export function RecordingHealthPanel(handle: Handle) {
 
   const run = (action: () => Promise<string>) => {
     if (busy) return
+    cancelClearConfirm()
     busy = true
     status = null
     void handle.update()
@@ -153,10 +167,13 @@ export function RecordingHealthPanel(handle: Handle) {
   const onClear = () => {
     if (!confirmingClear) {
       confirmingClear = true
+      confirmTimer = window.setTimeout(() => {
+        cancelClearConfirm()
+        if (!handle.signal.aborted) void handle.update()
+      }, 4000)
       void handle.update()
       return
     }
-    confirmingClear = false
     run(async () => {
       await clearTakeReports()
       await load()

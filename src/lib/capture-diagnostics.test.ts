@@ -5,6 +5,7 @@ import {
   backfillTakeAnalyses,
   buildDiagnosticsExport,
   clearTakeReports,
+  CLIP_GONE_ERROR,
   listTakeReports,
   MAX_TAKE_REPORTS,
   recordTakeReport,
@@ -121,10 +122,14 @@ describe('capture diagnostics store', () => {
     })
     await saveTakeReport(report(7000, clip.id))
     await saveTakeReport(report(8000, 'deleted-clip'))
-    expect(await backfillTakeAnalyses()).toBe(1)
+    expect(await backfillTakeAnalyses()).toBe(2)
     const reports = await listTakeReports()
     expect(reports.find((r) => r.clipId === clip.id)?.cadence).toBeDefined()
-    expect(reports.find((r) => r.clipId === 'deleted-clip')?.cadence).toBeUndefined()
+    // A deleted clip settles instead of staying "analyzing…" forever.
+    const gone = reports.find((r) => r.clipId === 'deleted-clip')
+    expect(gone?.cadence).toBeUndefined()
+    expect(gone?.analysisError).toBe(CLIP_GONE_ERROR)
+    expect(await backfillTakeAnalyses()).toBe(0)
   })
 
   it('exports a self-describing report with a summary', async () => {

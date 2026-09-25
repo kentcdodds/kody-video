@@ -372,6 +372,12 @@ export function RecordScreen(handle: Handle<RecordScreenProps>) {
       screenBusy = true
       try {
         const session = await startScreenRecording()
+        // Left the screen while the surface picker was open: nothing owns
+        // this capture (or its capture-activity hold) any more.
+        if (handle.signal.aborted) {
+          void session.stop().catch(() => null)
+          return
+        }
         screenSession = session
         releaseScreenCapture = beginCaptureActivity()
         screenRecordStartedAt = performance.now()
@@ -432,8 +438,9 @@ export function RecordScreen(handle: Handle<RecordScreenProps>) {
         camera.releaseMic({ keepWarm: true })
         return false
       }
-      // Re-check after the mic await — an overlay may have opened meanwhile.
-      if (props.interactionLocked) {
+      // Re-check after the mic await — an overlay may have opened meanwhile,
+      // or the screen unmounted (its cleanup could not see this take).
+      if (props.interactionLocked || handle.signal.aborted) {
         camera.releaseMic()
         return false
       }
