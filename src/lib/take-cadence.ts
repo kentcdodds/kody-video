@@ -172,10 +172,18 @@ export function analyzeAudioContinuity(
   packets: ReadonlyArray<{ timestampSec: number; durationSec: number }>,
 ): AudioContinuity {
   const sorted = [...packets].sort((a, b) => a.timestampSec - b.timestampSec)
+  // WebM blocks may omit their duration (reported as 0) — assume the
+  // track's usual packet length rather than calling it a gap.
+  const durations = sorted
+    .map((packet) => packet.durationSec)
+    .filter((duration) => duration > 0)
+    .sort((a, b) => a - b)
+  const typicalSec = durations[Math.floor(durations.length / 2)] ?? 0
   const found: Array<{ atMs: number; gapMs: number }> = []
   for (let i = 1; i < sorted.length; i += 1) {
     const previous = sorted[i - 1]!
-    const expectedStart = previous.timestampSec + previous.durationSec
+    const expectedStart =
+      previous.timestampSec + (previous.durationSec > 0 ? previous.durationSec : typicalSec)
     const gapMs = (sorted[i]!.timestampSec - expectedStart) * 1000
     if (gapMs > AUDIO_GAP_TOLERANCE_MS) found.push({ atMs: expectedStart * 1000, gapMs })
   }
