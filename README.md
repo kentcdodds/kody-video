@@ -167,6 +167,9 @@ simply lack the data and degrade gracefully.
 - During a take the live viewfinder stays on screen; the extra thumb-mirror `<video>` is attached only at lift so the hold has two video sinks (overlay + encoder clone), not three. Record clones get `contentHint: motion`, and the encoder is not sliced every 250ms.
 - Clip duration is measured from the encoded media after stop (wall-clock time includes encoder startup latency and corrupts trim/export math).
 - The elapsed timer is a leaf component mutating its text node directly from a 10Hz boundary-aligned timer (a per-frame rAF loop would force 60 main-thread frames/s), so the ticking readout never re-renders the page during capture.
+- Chromium's MediaRecorder drops recorded frames once the main thread stalls for ~200ms, so optional post-take work (clip hydration: container parses, audio-peak decode) waits while a take is recording (`lib/capture-activity.ts`). Saving the previous take never waits.
+- Drag-to-zoom camera writes are coalesced: one `applyConstraints` in flight, at most one per camera frame, latest value wins (`lib/zoom-writer.ts`).
+- Every take writes an on-device **recording-health report**: the saved file's real frame cadence (read from its timestamps, never its pixels), plus main-thread stalls, zoom, backgrounding, and encoder/save timings from the take. About → **Recording health** summarizes them and can share, copy, or (on kody.video) send the counters-only JSON. See [`docs/recording-smoothness.md`](docs/recording-smoothness.md) for findings and how to read a report.
 - A screen wake lock is held while recording.
 - Exports keep 1080p (long edge 1920), hold the last frame across source gaps so timestamp holes become a freeze instead of a hitch, and only drop frames closer than half a 30fps tick (jittery 30fps stays; 60fps extras go).
 

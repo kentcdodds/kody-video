@@ -440,7 +440,8 @@ export function AboutPage(handle: Handle) {
               something breaks, cookieless page-view counts via Fathom Analytics, the tour video
               streaming from this app&rsquo;s own domain if you tap play on it, and — only if you
               tap Send to device — a short-lived matchmaking room so two browsers can find each
-              other, and a short-lived restore code if you share Plus with another device. Clips
+              other, a short-lived restore code if you share Plus with another device, and — only
+              if you tap Send under Recording health — that counters-only recording report. Clips
               still never upload.
             </p>
           </section>
