@@ -14,6 +14,68 @@ export interface RecordingResult {
   trimEndMs: number
   width?: number
   height?: number
+  /** How this take's encoder ran — timings/counters for take reports. */
+  facts: RecordingSessionFacts
+}
+
+/** Frame counters from Chromium's MediaStreamTrack stats (absent elsewhere). */
+export interface TrackFrameCounts {
+  /** Frames the camera produced for this track. */
+  total: number
+  /** Frames handed to the track's sinks (the MediaRecorder). */
+  delivered: number
+  /** Frames dropped before reaching a sink. */
+  discarded: number
+}
+
+export interface RecordingSessionFacts {
+  /** Encoder age at the press. Under ~250ms the hardware encoder's startup
+   * hole can still fall inside the kept range (a cold start in practice). */
+  warmAgeMs: number
+  /** Encoder run from start to stop() (pre-roll + hold + grace). */
+  sessionMs: number
+  /** Actual stop grace (the timer can fire late under load). */
+  graceMs: number
+  /** stop() → onstop: how long the encoder took to hand back the file. */
+  flushMs: number
+  /** onstop → measured duration (container parse). */
+  measureMs: number
+  videoBitsPerSecond: number
+  /** Recorded clone's frame counters over the whole session. */
+  trackFrames?: TrackFrameCounts
+}
+
+interface TrackFrameStatsLike {
+  totalFrames?: number
+  deliveredFrames?: number
+  discardedFrames?: number
+}
+
+/** Snapshot `track.stats` (Chromium's MediaStreamTrackVideoStats). */
+export function readTrackFrameCounts(track: MediaStreamTrack | undefined): TrackFrameCounts | null {
+  try {
+    const stats = (track as { stats?: TrackFrameStatsLike } | undefined)?.stats
+    if (!stats || typeof stats.totalFrames !== 'number') return null
+    return {
+      total: stats.totalFrames,
+      delivered: stats.deliveredFrames ?? 0,
+      discarded: stats.discardedFrames ?? 0,
+    }
+  } catch {
+    return null
+  }
+}
+
+export function trackFrameCountsDelta(
+  start: TrackFrameCounts | null,
+  end: TrackFrameCounts | null,
+): TrackFrameCounts | undefined {
+  if (!start || !end) return undefined
+  return {
+    total: Math.max(0, end.total - start.total),
+    delivered: Math.max(0, end.delivered - start.delivered),
+    discarded: Math.max(0, end.discarded - start.discarded),
+  }
 }
 
 /** Ignore accidental taps shorter than this — they can't produce a real clip. */
@@ -99,6 +161,8 @@ interface RecordingSession {
   takeStartedAt?: number
   trackWidth: number | undefined
   trackHeight: number | undefined
+  videoBitsPerSecond: number
+  framesAtStart: TrackFrameCounts | null
 }
 
 function stopSessionTracks(session: RecordingSession): void {
@@ -128,6 +192,20 @@ export class HoldRecorder {
   /** Cuts a pending stop grace short — set only while a stop() is waiting
    * out its grace window (see cancel()). */
   private fireStopNow: (() => void) | null = null
+  private idleEncoders = { sessions: 0, encodeMs: 0 }
+  private dummyStartedAt = 0
+
+  /** Encoders that ran while no take was recording (warm sessions that
+   * were recycled/discarded, dummies, adopted pre-roll): how much hardware
+   * encode time the idle viewfinder costs — a heat/battery signal. */
+  idleEncoderUsage(): { sessions: number; encodeMs: number } {
+    return { ...this.idleEncoders }
+  }
+
+  private noteIdleEncode(startedAt: number): void {
+    this.idleEncoders.sessions += 1
+    this.idleEncoders.encodeMs += Math.max(0, Math.round(performance.now() - startedAt))
+  }
 
   private warmSessionIsReusable(stream: MediaStream): boolean {
     if (this.warmSource !== stream) return false
@@ -206,7 +284,10 @@ export class HoldRecorder {
     const warmStream = new MediaStream([clone])
     try {
       const settings = video.getSettings()
-      const recorder = this.makeRecorder(warmStream, settings.width, settings.height)
+      const recorder = this.makeRecorder(
+        warmStream,
+        recordingVideoBitsPerSecond(settings.width, settings.height),
+      )
       this.warming = true
       this.dummyRecorder = recorder
       this.dummyClones = [clone]
@@ -219,6 +300,7 @@ export class HoldRecorder {
         this.finishDummy(recorder)
       }
       recorder.start()
+      this.dummyStartedAt = performance.now()
       window.setTimeout(() => {
         if (this.dummyRecorder === recorder && recorder.state !== 'inactive') {
           try {
@@ -246,6 +328,7 @@ export class HoldRecorder {
     this.warm = null
     this.unbindWarmSource()
     if (!warm) return
+    this.noteIdleEncode(warm.startedAt)
     warm.recorder.ondataavailable = null
     warm.recorder.onstop = () => stopSessionTracks(warm)
     warm.recorder.onerror = () => stopSessionTracks(warm)
@@ -277,6 +360,7 @@ export class HoldRecorder {
       // 40ms tap on a 200ms-old warm session looks like a 240ms take and
       // is saved.
       adopted.takeStartedAt = performance.now()
+      this.noteIdleEncode(adopted.startedAt)
       this.session = adopted
       return true
     }
@@ -318,7 +402,10 @@ export class HoldRecorder {
        * the timer can fire late under load, and the trim-back must walk
        * back by the REAL overshoot or it would eat kept content. */
       let graceActualMs = 0
+      let stopCalledAt = 0
+      let framesAtStop: TrackFrameCounts | null = null
       session.recorder.onstop = () => {
+        const stoppedAt = performance.now()
         finishSession()
         const blob = new Blob(session.chunks, { type: session.mimeType })
         const width = session.trackWidth
@@ -327,11 +414,16 @@ export class HoldRecorder {
           resolve(null)
           return
         }
-        const fallbackMs = takeFallbackDurationMs(
-          session.startedAt,
-          performance.now(),
-          takeWallMs,
-        )
+        const fallbackMs = takeFallbackDurationMs(session.startedAt, stoppedAt, takeWallMs)
+        const facts = (): RecordingSessionFacts => ({
+          warmAgeMs: Math.max(0, Math.round(takeStartedAt - session.startedAt)),
+          sessionMs: Math.round((stopCalledAt || stoppedAt) - session.startedAt),
+          graceMs: graceActualMs,
+          flushMs: stopCalledAt ? Math.round(stoppedAt - stopCalledAt) : 0,
+          measureMs: Math.round(performance.now() - stoppedAt),
+          videoBitsPerSecond: session.videoBitsPerSecond,
+          trackFrames: trackFrameCountsDelta(session.framesAtStart, framesAtStop),
+        })
         // The blob's real duration differs from wall clock (encoder start
         // latency, stop grace, adopted pre-roll); trims and export math
         // must use the media duration.
@@ -347,6 +439,7 @@ export class HoldRecorder {
               trimEndMs,
               width,
               height,
+              facts: facts(),
             })
           })
           .catch((error) => {
@@ -367,6 +460,7 @@ export class HoldRecorder {
               trimEndMs,
               width,
               height,
+              facts: facts(),
             })
           })
       }
@@ -382,6 +476,8 @@ export class HoldRecorder {
         this.fireStopNow = null
         graceActualMs = Math.round(performance.now() - releaseAt)
         if (session.recorder.state !== 'inactive') {
+          framesAtStop = readTrackFrameCounts(session.clonedTracks[0])
+          stopCalledAt = performance.now()
           session.recorder.stop()
         }
       }
@@ -425,6 +521,7 @@ export class HoldRecorder {
 
   private finishDummy(recorder: MediaRecorder): void {
     if (this.dummyRecorder === recorder) {
+      this.noteIdleEncode(this.dummyStartedAt)
       this.dummyClones.forEach((track) => {
         track.stop()
       })
@@ -441,6 +538,7 @@ export class HoldRecorder {
     this.dummyClones = []
     this.warming = false
     if (!recorder) return
+    this.noteIdleEncode(this.dummyStartedAt)
     recorder.ondataavailable = null
     recorder.onstop = () => {
       clones.forEach((track) => {
@@ -465,13 +563,8 @@ export class HoldRecorder {
     })
   }
 
-  private makeRecorder(
-    recordStream: MediaStream,
-    width: number | undefined,
-    height: number | undefined,
-  ): MediaRecorder {
+  private makeRecorder(recordStream: MediaStream, videoBitsPerSecond: number): MediaRecorder {
     const preferredMime = pickRecordingMimeType()
-    const videoBitsPerSecond = recordingVideoBitsPerSecond(width, height)
     return preferredMime
       ? new MediaRecorder(recordStream, {
           mimeType: preferredMime,
@@ -491,7 +584,8 @@ export class HoldRecorder {
     const recordStream = new MediaStream([...clones, ...stream.getAudioTracks()])
 
     try {
-      const recorder = this.makeRecorder(recordStream, settings?.width, settings?.height)
+      const videoBitsPerSecond = recordingVideoBitsPerSecond(settings?.width, settings?.height)
+      const recorder = this.makeRecorder(recordStream, videoBitsPerSecond)
       const preferredMime = pickRecordingMimeType()
       const session: RecordingSession = {
         recorder,
@@ -502,6 +596,8 @@ export class HoldRecorder {
         startedAt: performance.now(),
         trackWidth: settings?.width,
         trackHeight: settings?.height,
+        videoBitsPerSecond,
+        framesAtStart: readTrackFrameCounts(clones[0]),
       }
       recorder.ondataavailable = (event) => {
         if (event.data.size > 0) session.chunks.push(event.data)

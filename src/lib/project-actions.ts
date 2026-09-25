@@ -29,6 +29,7 @@ import {
   type ClipVolumeSettings,
   type ProjectAudioTrackSettings,
 } from './storage'
+import { runWhenCaptureIdle } from './capture-activity'
 import { isOrientationSwap, sizeMatchingHold } from './clip-fit'
 import { probeVideoElementSize, probeVideoFileSize } from './clip-media'
 import { lockOrientationFromFirstClip } from './orientation-lock'
@@ -241,16 +242,37 @@ export async function loadProjectPage(projectId: ProjectId): Promise<ProjectLoad
  * correct stored pixel size from the file (camera track settings often
  * stay at the session-start sensor size). Serial because Android caps
  * concurrent video decoders. Safe to call after the first paint — tiles
- * already render with placeholders. */
+ * already render with placeholders.
+ *
+ * This runs after every take, behind the live camera. Each step waits
+ * while a take is recording (see capture-activity.ts): the audio-peak
+ * decode and container parses are exactly the main-thread work that must
+ * never land inside the next hold. */
 export async function hydrateProjectClips(clips: ClipRecord[]): Promise<ClipRecord[]> {
   if (clips.length === 0) return clips
   const { ensureClipThumbs } = await import('./thumbs')
   const { ensureClipAudioPeak } = await import('./clip-audio-peak')
   const hydrated: ClipRecord[] = []
   for (const clip of clips) {
-    hydrated.push(await ensureClipAudioPeak(await ensureClipThumbs(await ensureClipDisplaySize(clip))))
+    const sized = await runWhenCaptureIdle('hydrate-size', () => ensureClipDisplaySize(clip))
+    const thumbed = await runWhenCaptureIdle('hydrate-thumbs', () => ensureClipThumbs(sized))
+    hydrated.push(await runWhenCaptureIdle('hydrate-audio-peak', () => ensureClipAudioPeak(thumbed)))
   }
   return hydrated
+}
+
+/** Clips whose stored size already matched their file this session, keyed
+ * by clip id → media signature. Every refresh used to re-parse EVERY clip's
+ * container — O(project) work after each take on a long trip project. */
+const verifiedDisplaySizes = new Map<ClipId, string>()
+
+function displaySizeSignature(clip: ClipRecord): string {
+  return `${clip.blob.size}:${clip.blob.type}:${clip.width ?? '?'}x${clip.height ?? '?'}`
+}
+
+/** Test-only: forget which clips were verified this session. */
+export function resetVerifiedDisplaySizesForTests(): void {
+  verifiedDisplaySizes.clear()
 }
 
 /** Reconcile stored width/height with the file's display size. Photos
@@ -259,6 +281,13 @@ export async function hydrateProjectClips(clips: ClipRecord[]): Promise<ClipReco
  * size we already stored (Android reports the current hold, not the file). */
 export async function ensureClipDisplaySize(clip: ClipRecord): Promise<ClipRecord> {
   if (isImageClip(clip)) return clip
+  if (verifiedDisplaySizes.get(clip.id) === displaySizeSignature(clip)) return clip
+  const settled = await reconcileClipDisplaySize(clip)
+  verifiedDisplaySizes.set(settled.id, displaySizeSignature(settled))
+  return settled
+}
+
+async function reconcileClipDisplaySize(clip: ClipRecord): Promise<ClipRecord> {
   const fromFile = await probeVideoFileSize(clip.blob).catch(() => null)
   if (fromFile) {
     if (clip.width === fromFile.width && clip.height === fromFile.height) return clip
