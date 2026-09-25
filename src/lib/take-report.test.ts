@@ -153,6 +153,21 @@ describe('classifyTake', () => {
     expect(report.reasons).toContain('camera-rate')
   })
 
+  it('flags frames the camera produced that never reached the recorder', () => {
+    // The probe's main-thread jank take: 131 produced, 104 delivered.
+    const base = draft()
+    const report = applyTakeAnalysis(
+      {
+        ...base,
+        encoder: { ...base.encoder!, trackFrames: { total: 131, delivered: 104, discarded: 0 } },
+      },
+      stamps(stampsWithHole(4000, 60, 66)),
+      window,
+      12,
+    )
+    expect(report.reasons).toContain('delivery-loss')
+  })
+
   it('flags frames that reached the encoder but not the file', () => {
     const report = applyTakeAnalysis(draft(), stamps(stampsWithHole(4000, 60, 70)), window, 12)
     // 132 delivered by the track vs 109 frames in the file.

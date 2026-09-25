@@ -25,8 +25,9 @@ export type TakeVerdict = 'smooth' | 'minor' | 'choppy' | 'unknown'
 export type DropReason =
   /** The camera itself delivered < ~25fps (low-light exposure, thermal cap). */
   | 'camera-rate'
-  /** Chromium discarded frames before they reached the recorder. */
-  | 'frames-discarded'
+  /** The camera produced frames that never reached MediaRecorder
+   * (Chromium drops them at delivery while the main thread is stalled). */
+  | 'delivery-loss'
   /** Frames reached MediaRecorder but are missing from the file. */
   | 'encoder-loss'
   /** A gap lines up with a main-thread stall ≥ RISKY_STALL_MS. */
@@ -212,11 +213,14 @@ export function classifyTake(report: TakeReport): Pick<TakeReport, 'verdict' | '
   if (frames && sessionSec > 0.5 && frames.total / sessionSec < VIDEO_FPS - 4) {
     reasons.add('camera-rate')
   }
-  if (frames && frames.discarded > 1) reasons.add('frames-discarded')
+  // Healthy takes match exactly: produced = delivered = frames in the file.
+  if (frames && frames.total - frames.delivered > Math.max(2, frames.total * 0.02)) {
+    reasons.add('delivery-loss')
+  }
   const fileFrames = report.wholeFile?.frames
   if (frames && fileFrames !== undefined) {
     const lost = frames.delivered - fileFrames
-    if (lost > Math.max(3, frames.delivered * 0.02)) reasons.add('encoder-loss')
+    if (lost > Math.max(4, frames.delivered * 0.04)) reasons.add('encoder-loss')
   }
   if (report.live.hidden.length > 0) reasons.add('backgrounded')
   if (report.live.backgroundWork.length > 0) reasons.add('background-work')
@@ -295,8 +299,8 @@ export function describeReason(reason: DropReason): string {
   switch (reason) {
     case 'camera-rate':
       return 'Camera delivered under 25 fps (dim light or heat)'
-    case 'frames-discarded':
-      return 'Browser discarded frames before recording'
+    case 'delivery-loss':
+      return 'Frames never reached the recorder'
     case 'encoder-loss':
       return 'Encoder lost frames'
     case 'main-thread':

@@ -6,14 +6,20 @@
  *
  * Scenarios:
  *   baseline      one take on an idle record screen
+ *   zoom-drag     one take with a continuous drag-to-zoom sweep (zoom range
+ *                 shimmed onto the fake camera) — counts applyConstraints
  *   back-to-back  a take that starts right after another take released, in a
  *                 project that already holds many clips (post-take save +
  *                 hydrate work lands inside the second hold)
  *   jank          one take while an injected loop blocks the main thread
- *                 (does main-thread stall alone drop recorded frames?)
+ *                 (--jank=blockMs:periodMs, default 250:500) — does a
+ *                 main-thread stall alone drop recorded frames?
+ *
+ * Each take also prints the app's own take report (lib/take-report.ts),
+ * so the production telemetry can be checked against ground truth.
  *
  * Run: node scripts/probe-capture-cadence.mjs [--throttle=4] [--scenario=back-to-back]
- *      [--seed=20] [--hold=4000] [--out=/tmp/cadence.json]
+ *      [--seed=20] [--hold=4000] [--out=/tmp/cadence.json] [--base=http://127.0.0.1:5173]
  */
 import { chromium } from 'playwright'
 import { spawn } from 'node:child_process'
@@ -29,7 +35,7 @@ const args = Object.fromEntries(
 const THROTTLE = Number(args.throttle ?? 1)
 const SEED = Number(args.seed ?? 20)
 const HOLD_MS = Number(args.hold ?? 4000)
-const SCENARIOS = (args.scenario ?? 'baseline,back-to-back,jank').split(',')
+const SCENARIOS = (args.scenario ?? 'baseline,zoom-drag,back-to-back,jank').split(',')
 const PORT = Number(args.port ?? 4191)
 const BASE = `http://127.0.0.1:${PORT}`
 
@@ -94,13 +100,24 @@ function installPageProbes() {
   }
 }
 
-async function newPage(browser) {
+/** The fake camera exposes no zoom range — shim one so drag-to-zoom engages. */
+function installZoomShim() {
+  const original = MediaStreamTrack.prototype.getCapabilities
+  MediaStreamTrack.prototype.getCapabilities = function () {
+    const caps = original ? original.call(this) : {}
+    if (this.kind === 'video') caps.zoom = { min: 1, max: 8, step: 0.1 }
+    return caps
+  }
+}
+
+async function newPage(browser, options = {}) {
   const context = await browser.newContext({
     viewport: { width: 412, height: 915 },
     permissions: ['camera', 'microphone'],
   })
   const page = await context.newPage()
   await page.addInitScript(installPageProbes)
+  if (options.zoomShim) await page.addInitScript(installZoomShim)
   if (THROTTLE > 1) {
     const cdp = await context.newCDPSession(page)
     await cdp.send('Emulation.setCPUThrottlingRate', { rate: THROTTLE })
@@ -226,6 +243,39 @@ async function analyzeClips(page) {
   })
 }
 
+/** The app's own take reports (lib/capture-diagnostics.ts), once analyzed. */
+async function takeReports(page, count) {
+  for (let i = 0; i < 60; i++) {
+    // Builds without take reports (before/after comparisons) return null.
+    const reports = await page.evaluate(async () => {
+      try {
+        const diagnostics = await import('/src/lib/capture-diagnostics.ts')
+        return await diagnostics.listTakeReports()
+      } catch {
+        return null
+      }
+    })
+    if (!reports) return []
+    if (reports.filter((report) => report.cadence).length >= count) {
+      return reports.reverse().map((report) => ({
+        verdict: report.verdict,
+        reasons: report.reasons,
+        fps: report.cadence?.fps,
+        dropped: report.cadence?.droppedFrames,
+        gaps: report.gaps,
+        stalls: report.live.mainThread.stalls,
+        zoom: report.live.zoom,
+        encoder: report.encoder,
+        saveMs: report.saveMs,
+        backgroundWork: report.live.backgroundWork,
+        previousSaveInFlight: report.env.previousSaveInFlight,
+      }))
+    }
+    await sleep(500)
+  }
+  return []
+}
+
 async function waitForClips(page, count) {
   for (let i = 0; i < 80; i++) {
     if ((await clipCount(page)) >= count) return
@@ -243,8 +293,39 @@ const scenarios = {
     await sleep(1500)
     const mainThread = await mainThreadDuring(page, take)
     const clips = await analyzeClips(page)
+    const [report] = await takeReports(page, 1)
     await page.context().close()
-    return { takes: [{ mainThread, cadence: clips[0] }] }
+    return { takes: [{ mainThread, cadence: clips[0], report }] }
+  },
+
+  async 'zoom-drag'(browser) {
+    const page = await newPage(browser, { zoomShim: true })
+    await openCamera(page, '/project/new')
+    const box = await page.locator('.record-stage').boundingBox()
+    const x = box.x + box.width / 2
+    const y = box.y + box.height / 2
+    const applyBefore = await page.evaluate(() => window.__kvApplyConstraints)
+    const take = await hold(page, HOLD_MS, () => {
+      void (async () => {
+        const end = Date.now() + HOLD_MS - 300
+        let i = 0
+        while (Date.now() < end) {
+          // Sweep up and down across ~40% of the stage, like a thumb.
+          const offset = Math.sin(i / 12) * box.height * 0.2 - 30
+          await page.mouse.move(x, y + offset)
+          i += 1
+          await sleep(4)
+        }
+      })()
+    })
+    const applyDuring = (await page.evaluate(() => window.__kvApplyConstraints)) - applyBefore
+    await waitForClips(page, 1)
+    await sleep(1500)
+    const mainThread = await mainThreadDuring(page, take)
+    const clips = await analyzeClips(page)
+    const [report] = await takeReports(page, 1)
+    await page.context().close()
+    return { takes: [{ mainThread: { ...mainThread, applyConstraints: applyDuring }, cadence: clips[0], report }] }
   },
 
   async 'back-to-back'(browser) {
@@ -261,11 +342,12 @@ const scenarios = {
     const mainA = await mainThreadDuring(page, takeA)
     const mainB = await mainThreadDuring(page, takeB)
     const clips = await analyzeClips(page)
+    const [reportA, reportB] = await takeReports(page, 2)
     await page.context().close()
     return {
       takes: [
-        { label: 'A (idle screen)', mainThread: mainA, cadence: clips[0] },
-        { label: 'B (right after A)', mainThread: mainB, cadence: clips[1] },
+        { label: 'A (idle screen)', mainThread: mainA, cadence: clips[0], report: reportA },
+        { label: 'B (right after A)', mainThread: mainB, cadence: clips[1], report: reportB },
       ],
     }
   },
@@ -294,8 +376,9 @@ const scenarios = {
     await sleep(1500)
     const mainThread = await mainThreadDuring(page, take)
     const clips = await analyzeClips(page)
+    const [report] = await takeReports(page, 1)
     await page.context().close()
-    return { takes: [{ mainThread, cadence: clips[0] }] }
+    return { takes: [{ mainThread, cadence: clips[0], report }] }
   },
 }
 
@@ -327,8 +410,17 @@ try {
           `head ${kept?.headGapMs}ms`,
           `| longTasks ${take.mainThread.longTasks} (${take.mainThread.longTaskMs}ms, max ${take.mainThread.maxLongTaskMs})`,
           `maxLag ${take.mainThread.maxLagMs}ms`,
+          take.mainThread.applyConstraints !== undefined
+            ? `applyConstraints ${take.mainThread.applyConstraints}`
+            : '',
         ].join('  '),
       )
+      if (take.report) {
+        const r = take.report
+        console.log(
+          `${''.padEnd(33)}app report: ${r.verdict} [${r.reasons.join(', ')}] zoom ${r.zoom.requested} requested / ${r.zoom.applied} applied, warm ${r.encoder?.warmAgeMs}ms, flush ${r.encoder?.flushMs}ms, save ${r.saveMs}ms, track frames ${JSON.stringify(r.encoder?.trackFrames)}`,
+        )
+      }
     }
   }
   await browser.close()
