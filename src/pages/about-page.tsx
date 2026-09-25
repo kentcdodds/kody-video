@@ -2,6 +2,7 @@ import type { Handle } from 'remix/ui'
 import { on } from 'remix/ui'
 import { IconBack } from '../components/icons'
 import { BrandMark } from '../components/brand-mark'
+import { RecordingHealthPanel } from '../components/recording-health-panel'
 import { RestoreSheet } from '../components/restore-sheet'
 import { SharePlusSheet } from '../components/share-plus-sheet'
 import { UpsellSheet } from '../components/upsell-sheet'
@@ -306,10 +307,11 @@ export function AboutPage(handle: Handle) {
 
   return () => {
     const { storage, exportCacheBytes, plus, videoQuality } = data
-    if (!hashScrolled && location.hash === '#video-quality') {
+    const hashTarget = location.hash.slice(1)
+    if (!hashScrolled && (hashTarget === 'video-quality' || hashTarget === 'recording-health')) {
       hashScrolled = true
       queueMicrotask(() => {
-        const section = document.getElementById('video-quality')
+        const section = document.getElementById(hashTarget)
         const scroller = document.querySelector('.about-screen .about-body')
         if (section && scroller instanceof HTMLElement) {
           const top =
@@ -576,6 +578,8 @@ export function AboutPage(handle: Handle) {
             </p>
             {cameraReport ? <pre className="camera-report">{cameraReport}</pre> : null}
           </section>
+
+          <RecordingHealthPanel />
 
           <section className="about-section">
             <h2>Support</h2>
