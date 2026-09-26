@@ -648,11 +648,16 @@ async function deleteProjectRecords(
     // delete (exiting right as a take persists) serializes against it, so a
     // fresh clip can never survive into a half-deleted project.
     const audio = await tx.objectStore('audio').get(id)
+    // Any clip record filed under the project counts, listed or not: one
+    // missing from clipIds is footage restoreStrandedClips has yet to put
+    // back, never a reason to treat the project as empty.
+    const filedClips = await tx.objectStore('clips').index('by-project').count(id)
     // Orientation deliberately does NOT block this: it is derived from the
     // first take (not a standalone choice), so a project emptied of clips
     // is back to its default state even when a lock was once recorded.
     const pristine =
       project.clipIds.length === 0 &&
+      filedClips === 0 &&
       project.nameIsDefault === true &&
       (!audio || audio.tracks.length === 0)
     if (!pristine) {

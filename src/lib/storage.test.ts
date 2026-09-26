@@ -1384,6 +1384,16 @@ describe('clip media storage', () => {
     expect(await restoreStrandedClips()).toBe(0)
   })
 
+  it('never sweeps a default project as empty while a clip is still filed under it', async () => {
+    const project = await createProject()
+    const clip = await addClip({ projectId: project.id, blob: fakeBlob('x'), mimeType: 'video/webm', durationMs: 1000 })
+    const db = await getDb()
+    await db.put('projects', { ...(await getProject(project.id))!, clipIds: [] })
+
+    expect(await deleteProjectIfPristine(project.id)).toBe(false)
+    expect(await getClip(clip.id)).toBeTruthy()
+  })
+
   it('rejects a reorder that repeats a clip (it would drop another from the list)', async () => {
     const project = await createProject('Reorder')
     const a = await addClip({ projectId: project.id, blob: fakeBlob('a'), mimeType: 'video/webm', durationMs: 1000 })
