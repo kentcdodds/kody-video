@@ -204,12 +204,91 @@ test.describe('storage management', () => {
     await page.goto('/about')
     const backups = page.locator('.about-section', { hasText: 'Import a backup' })
     await expect(backups.locator('.about-import-space')).toContainText(/available/)
-    const section = page.locator('.about-section', { hasText: 'Cached export files' })
-    await expect(section).toContainText('5 MB')
-    await section.getByRole('button', { name: 'Clear' }).click()
+    const section = page.locator('#storage')
+    const cacheRow = section.locator('.storage-breakdown li', { hasText: 'Cached export files' })
+    await expect(cacheRow.locator('strong')).toHaveText('5 MB')
+    await cacheRow.getByRole('button', { name: 'Clear' }).click()
     await expect(section.getByText(/Freed 5 MB/)).toBeVisible()
-    await expect(section).toContainText('Cached export files: 0 MB')
+    await expect(cacheRow.locator('strong')).toHaveText('0 MB')
     await expect.poll(() => listExportCache(page)).toEqual([])
+  })
+
+  test('home cards and About show how much space each project takes', async ({ page }) => {
+    await seedProject(page, { clips: 2, name: 'Trip' })
+    const size = await page.evaluate(async () => {
+      const storage = await import('/src/lib/storage.ts')
+      const { formatBytes } = await import('/src/lib/storage-space.ts')
+      const [project] = await storage.listProjects()
+      const bytes = (await storage.measureStorage()).projectBytes.get(project!.id) ?? 0
+      return { bytes, label: formatBytes(bytes) }
+    })
+    expect(size.bytes).toBeGreaterThan(0)
+
+    await page.reload()
+    await expect(page.locator('.project-slot.filled .slot-size')).toHaveText(size.label)
+
+    await page.goto('/about')
+    const row = page.locator('#storage .storage-breakdown li', { hasText: 'Trip' })
+    await expect(row.locator('strong')).toHaveText(size.label)
+  })
+
+  test('About cleans up leftovers no project can reach', async ({ page }) => {
+    const projectId = await seedProject(page, { clips: 1, name: 'Keeper' })
+    await page.evaluate(async () => {
+      const storage = await import('/src/lib/storage.ts')
+      const db = await storage.getDb()
+      await db.put('media', {
+        clipId: 'clip_orphan',
+        blob: new Blob([new Uint8Array(3 * 1024 * 1024)], { type: 'video/webm' }),
+      })
+    })
+    await page.goto('/about')
+    const section = page.locator('#storage')
+    const row = section.locator('.storage-breakdown li', { hasText: 'Leftovers no project uses' })
+    await expect(row.locator('strong')).toHaveText('3 MB')
+    await row.getByRole('button', { name: 'Clean up' }).click()
+    await expect(section.getByText(/Cleaned up leftovers — freed 3 MB/)).toBeVisible()
+    await expect(row).toHaveCount(0)
+    const clips = await page.evaluate(async (id) => {
+      const storage = await import('/src/lib/storage.ts')
+      return (await storage.getClipsForProject(id)).length
+    }, projectId)
+    expect(clips).toBe(1)
+  })
+
+  test('clip edits do not grow on-disk usage by another copy of the video', async ({
+    playwright,
+  }, testInfo) => {
+    // A real on-disk profile: incognito contexts keep IndexedDB in memory,
+    // where superseded blob copies never show up in the quota estimate.
+    const baseURL = testInfo.project.use.baseURL!
+    const userDataDir = testInfo.outputPath('profile')
+    const context = await playwright.chromium.launchPersistentContext(userDataDir)
+    try {
+      const page = context.pages()[0] ?? (await context.newPage())
+      await page.goto(baseURL)
+      const growth = await page.evaluate(async () => {
+        const storage = await import('/src/lib/storage.ts')
+        const usage = async () => (await navigator.storage.estimate()).usage ?? 0
+        const project = await storage.createProject('Quota')
+        const clip = await storage.addClip({
+          projectId: project.id,
+          blob: new Blob([new Uint8Array(8 * 1024 * 1024).fill(3)], { type: 'video/webm' }),
+          mimeType: 'video/webm',
+          durationMs: 2000,
+        })
+        const afterAdd = await usage()
+        await storage.updateClipAudioPeak(clip.id, 0.5)
+        await storage.updateClipTrim(clip.id, 100, 1900)
+        await storage.updateClipVolumes(clip.id, { clipVolume: 0.5 })
+        await storage.updateClipFit(clip.id, 'letterbox')
+        return (await usage()) - afterAdd
+      })
+      // Each of those four writes used to add a full 8MB copy.
+      expect(growth).toBeLessThan(1024 * 1024)
+    } finally {
+      await context.close()
+    }
   })
 
   test('deleting a project drops its cached export with it', async ({ page }) => {

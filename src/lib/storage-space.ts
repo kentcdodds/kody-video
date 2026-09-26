@@ -74,6 +74,34 @@ export function backupTooLargeMessage(
   return `This backup is ${formatBytes(backupBytes)} and this device has ${formatBytes(free)} free (imports need about ${formatBytes(importNeedBytes(backupBytes))}). Delete a project or clear cached exports, then try again.`
 }
 
+export interface StorageBreakdown {
+  projectsBytes: number
+  exportCacheBytes: number
+  orphanBytes: number
+  /** Browser-reported usage none of the above explains: the app's own
+   * files, database bookkeeping, and superseded media the browser has not
+   * released yet (it frees those once nothing in the app still holds them —
+   * reliably after the app fully closes). */
+  otherBytes: number
+}
+
+export function storageBreakdown(
+  space: StorageSpace,
+  parts: { projectsBytes: number; exportCacheBytes: number; orphanBytes: number },
+): StorageBreakdown {
+  const accounted = parts.projectsBytes + parts.exportCacheBytes + parts.orphanBytes
+  return { ...parts, otherBytes: Math.max(0, space.usedBytes - accounted) }
+}
+
+/** Below this, "other" is ordinary app/database overhead — not worth a word. */
+export const NOTABLE_OTHER_BYTES = 64 * 1024 * 1024
+
+export function isOtherStorageNotable(breakdown: StorageBreakdown, space: StorageSpace): boolean {
+  return (
+    breakdown.otherBytes >= NOTABLE_OTHER_BYTES && breakdown.otherBytes >= space.usedBytes * 0.1
+  )
+}
+
 export function formatStoragePercent(ratio: number): string {
   return `${Math.round(ratio * 100)}%`
 }

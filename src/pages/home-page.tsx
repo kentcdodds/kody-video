@@ -27,6 +27,7 @@ import {
   deleteProject,
   getClipsForProject,
   getProjectAudio,
+  reclaimOrphanedStorage,
   renameProject,
   setTourCardDismissed,
   setVideoQuality,
@@ -161,6 +162,26 @@ export function HomePage(handle: Handle) {
       })
   }
 
+  const onReclaimOrphans = () => {
+    busy = true
+    error = null
+    notice = null
+    void handle.update()
+    void reclaimOrphanedStorage()
+      .then((freedBytes) => {
+        notice = `Cleaned up leftovers — freed ${formatBytes(freedBytes)}.`
+        refresh()
+      })
+      .catch((err) => {
+        reportError(err, 'reclaim-orphans')
+        error = err instanceof Error ? err.message : 'Could not clean up — try again.'
+      })
+      .finally(() => {
+        busy = false
+        void handle.update()
+      })
+  }
+
   const backupProject = (project: ProjectSummary) => {
     void (async () => {
       busy = true
@@ -214,7 +235,7 @@ export function HomePage(handle: Handle) {
         </div>
       )
     }
-    const { projects, storage, exportCacheBytes, plus } = data
+    const { projects, storage, exportCacheBytes, orphanBytes, plus } = data
     const videoQuality = data.videoQuality ?? 'standard'
     const installable = canPromptInstall()
 
@@ -387,8 +408,19 @@ export function HomePage(handle: Handle) {
                   ? ` Free space fast: delete an old project (⋯ on “${oldestProject.name}”, then Delete).`
                   : ' Free space by clearing other site data or files on this device.'}{' '}
                 New clips can also use less space — lower video quality below or on{' '}
-                <a href="/about#video-quality">About</a>.
+                <a href="/about#video-quality">About</a>. See what&rsquo;s using space on{' '}
+                <a href="/about#storage">About → Storage</a>.
               </span>
+              {orphanBytes > 0 ? (
+                <button
+                  type="button"
+                  className="btn btn-secondary storage-banner-action"
+                  disabled={busy}
+                  mix={on('click', onReclaimOrphans)}
+                >
+                  Clean up leftovers ({formatBytes(orphanBytes)})
+                </button>
+              ) : null}
               {exportCacheBytes > 0 ? (
                 <button
                   type="button"
@@ -465,6 +497,12 @@ export function HomePage(handle: Handle) {
                     <small>
                       {project.clipCount} clip{project.clipCount === 1 ? '' : 's'} ·{' '}
                       {formatDuration(project.durationMs)}
+                      {project.sizeBytes > 0 ? (
+                        <>
+                          {' · '}
+                          <span className="slot-size">{formatBytes(project.sizeBytes)}</span>
+                        </>
+                      ) : null}
                     </small>
                   </a>
                   <button
