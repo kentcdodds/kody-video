@@ -6,7 +6,7 @@ import {
   loadHomeProjects,
   resetVerifiedDisplaySizesForTests,
 } from './project-actions'
-import { __resetDbForTests, addClip, createProject, deleteClip, getClip, getProject, listProjects, renameProject } from './storage'
+import { __resetDbForTests, addClip, createProject, deleteClip, getClip, getDb, getProject, listProjects, renameProject } from './storage'
 import { makeLabeledClipBlob } from './testing/make-test-clip'
 import { markWatermarkRemoved } from './entitlement'
 import { setPlatformOverridesForTests } from './platform'
@@ -55,6 +55,19 @@ describe('loadHomeProjects', () => {
       Big: 10,
     })
     expect(orphanBytes).toBe(0)
+  })
+
+  it('puts clips that fell out of a project’s list back before the empty-project sweep', async () => {
+    const project = await createProject()
+    const clip = await addClip({ projectId: project.id, blob: fakeBlob('x'), mimeType: 'video/webm', durationMs: 700 })
+    const stored = await getProject(project.id)
+    const db = await getDb()
+    await db.put('projects', { ...stored!, clipIds: [] })
+
+    const { projects } = await loadHomeProjects()
+
+    expect(projects.map((p) => p.id)).toEqual([project.id])
+    expect((await getProject(project.id))?.clipIds).toEqual([clip.id])
   })
 
   it('keeps empty projects the user renamed', async () => {

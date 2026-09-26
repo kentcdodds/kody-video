@@ -28,6 +28,9 @@ import {
   measureStorage,
   moveClip,
   reclaimOrphanedStorage,
+  reorderClips,
+  restoreStrandedClips,
+  getProject,
   clearUndo,
   PlusRequiredError,
   removeProjectAudioTrack,
@@ -1327,10 +1330,9 @@ describe('clip media storage', () => {
     })
 
     const db = await getDb()
-    // A clip record that fell out of its project's clipIds (what a stale
-    // project write used to leave behind), media with no clip, and music
-    // for a project that no longer exists.
-    await db.put('clips', { ...(await rawClipRecord(clip.id))!, id: 'clip_stray' })
+    // A clip whose project is gone, media with no clip, and music for a
+    // project that no longer exists.
+    await db.put('clips', { ...(await rawClipRecord(clip.id))!, id: 'clip_stray', projectId: 'proj_gone' })
     await db.put('media', { clipId: 'clip_stray', blob: fakeBlob('stray-bytes') })
     await db.put('media', { clipId: 'clip_ghost', blob: fakeBlob('ghost') })
     await db.put('audio', {
@@ -1353,6 +1355,43 @@ describe('clip media storage', () => {
     expect(await (await getClip(clip.id))?.blob.text()).toBe('keep-me')
     expect((await getProjectAudio(other.id))?.tracks).toHaveLength(1)
     expect((await measureStorage()).orphans.bytes).toBe(0)
+  })
+
+  it('never reclaims a clip that fell out of its live project’s list — restores it', async () => {
+    const project = await createProject('Stranded')
+    const kept = await addClip({
+      projectId: project.id,
+      blob: fakeBlob('kept'),
+      mimeType: 'video/webm',
+      durationMs: 1000,
+    })
+    const db = await getDb()
+    await db.put('clips', { ...(await rawClipRecord(kept.id))!, id: 'clip_unlisted', createdAt: 1 })
+    await db.put('media', { clipId: 'clip_unlisted', blob: fakeBlob('footage') })
+
+    const scan = await measureStorage()
+    expect(scan.strandedClipIds).toEqual(['clip_unlisted'])
+    expect(scan.orphans.bytes).toBe(0)
+    expect(scan.projectBytes.get(project.id)).toBe('kept'.length + 'footage'.length)
+    expect(await reclaimOrphanedStorage()).toBe(0)
+    expect(await db.get('media', 'clip_unlisted')).toBeTruthy()
+
+    expect(await restoreStrandedClips()).toBe(1)
+    expect((await getClipsForProject(project.id)).map((clip) => clip.id)).toEqual([
+      kept.id,
+      'clip_unlisted',
+    ])
+    expect(await restoreStrandedClips()).toBe(0)
+  })
+
+  it('rejects a reorder that repeats a clip (it would drop another from the list)', async () => {
+    const project = await createProject('Reorder')
+    const a = await addClip({ projectId: project.id, blob: fakeBlob('a'), mimeType: 'video/webm', durationMs: 1000 })
+    const b = await addClip({ projectId: project.id, blob: fakeBlob('b'), mimeType: 'video/webm', durationMs: 1000 })
+    await expect(reorderClips(project.id, [a.id, a.id])).rejects.toThrow(/Invalid clip order/)
+    expect((await getProject(project.id))?.clipIds).toEqual([a.id, b.id])
+    await reorderClips(project.id, [b.id, a.id])
+    expect((await getProject(project.id))?.clipIds).toEqual([b.id, a.id])
   })
 
   it('deleting a project also removes clip records missing from its clip list', async () => {

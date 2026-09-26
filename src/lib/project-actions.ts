@@ -17,6 +17,7 @@ import {
   moveClip,
   removeProjectAudioTrack,
   replaceClipMedia,
+  restoreStrandedClips,
   setLastOpenedProjectId,
   setProjectOrientation,
   undoDeleteLastClip,
@@ -122,6 +123,10 @@ export async function loadHomeProjects(): Promise<{
   projects: ProjectSummary[]
   orphanBytes: number
 }> {
+  // Before the pristine sweep: a project whose only clips fell out of its
+  // list must get them back, not be deleted as empty. Best-effort — the
+  // slots still render if the repair write fails.
+  await restoreStrandedClips().catch(() => 0)
   const all = await listProjects()
   // Exiting a project still in its default state (no clips, default name,
   // no music) must leave nothing behind, just like backing out of

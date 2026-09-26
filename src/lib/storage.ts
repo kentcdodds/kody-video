@@ -1415,8 +1415,14 @@ export async function reorderClips(projectId: ProjectId, clipIds: ClipId[]): Pro
     throw new Error('Project not found')
   }
 
+  // Exactly the current clips, each once: a repeated id would push another
+  // clip out of the list.
   const set = new Set(project.clipIds)
-  if (clipIds.length !== project.clipIds.length || clipIds.some((id) => !set.has(id))) {
+  if (
+    clipIds.length !== project.clipIds.length ||
+    new Set(clipIds).size !== clipIds.length ||
+    clipIds.some((id) => !set.has(id))
+  ) {
     await tx.done
     throw new Error('Invalid clip order')
   }
@@ -1642,8 +1648,14 @@ export interface StorageScan {
   /** Bytes each project holds: clip media and thumbnails, background
    * music, and the media kept so the last clip delete can be undone. */
   projectBytes: Map<ProjectId, number>
-  /** Records no project can reach — nothing in the app can show or use
-   * them, so deleting them is always safe. */
+  /** Clip records filed under a live project but missing from its clip
+   * list. They are footage nobody deleted (clip deletes remove the record),
+   * so they count toward their project and restoreStrandedClips puts them
+   * back — they are never treated as leftovers. */
+  strandedClipIds: ClipId[]
+  /** Records no project can reach — their project is gone (or they never
+   * had a clip), so nothing in the app can show them and deleting them is
+   * always safe. */
   orphans: {
     bytes: number
     clipIds: ClipId[]
@@ -1674,11 +1686,14 @@ export function scanStorage(records: StorageRecords): StorageScan {
   const addToProject = (projectId: ProjectId, bytes: number) => {
     projectBytes.set(projectId, (projectBytes.get(projectId) ?? 0) + bytes)
   }
+  const strandedClipIds: ClipId[] = []
 
   for (const clip of records.clips) {
     const bytes = clipRecordBytes(clip) + claim(clip.id)
-    if (listed.get(clip.projectId)?.has(clip.id)) {
+    const projectClips = listed.get(clip.projectId)
+    if (projectClips) {
       addToProject(clip.projectId, bytes)
+      if (!projectClips.has(clip.id)) strandedClipIds.push(clip.id)
     } else {
       orphans.clipIds.push(clip.id)
       if (mediaBytes.has(clip.id)) orphans.mediaIds.push(clip.id)
@@ -1710,7 +1725,7 @@ export function scanStorage(records: StorageRecords): StorageScan {
     orphans.mediaIds.push(clipId)
     orphans.bytes += claim(clipId)
   }
-  return { projectBytes, orphans }
+  return { projectBytes, strandedClipIds, orphans }
 }
 
 const INVENTORY_STORES = ['projects', 'clips', 'media', 'audio', 'undo'] as const
@@ -1726,6 +1741,34 @@ async function readStorageRecords(
     tx.objectStore('undo').getAll(),
   ])
   return { projects, clips, media, audio, undo }
+}
+
+/**
+ * Put clip records that fell out of their live project's clip list back at
+ * the end of it (oldest first). Returns how many were restored.
+ */
+export async function restoreStrandedClips(): Promise<number> {
+  const db = await getDb()
+  const tx = db.transaction(['projects', 'clips'], 'readwrite')
+  const projects = await tx.objectStore('projects').getAll()
+  const byProject = tx.objectStore('clips').index('by-project')
+  const writes: Array<Promise<unknown>> = []
+  let restored = 0
+  for (const project of projects) {
+    const listed = new Set(project.clipIds)
+    const filed = await byProject.getAll(project.id)
+    const stranded = filed
+      .filter((clip) => !listed.has(clip.id))
+      .sort((a, b) => a.createdAt - b.createdAt)
+      .map((clip) => clip.id)
+    if (stranded.length === 0) continue
+    restored += stranded.length
+    writes.push(
+      tx.objectStore('projects').put({ ...project, clipIds: [...project.clipIds, ...stranded] }),
+    )
+  }
+  await completeTransaction(writes, tx)
+  return restored
 }
 
 /** Where this app's IndexedDB bytes go (Blob sizes only — no media is read). */
