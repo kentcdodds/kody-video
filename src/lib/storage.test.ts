@@ -25,7 +25,13 @@ import {
   isIndexedDbMissingError,
   IndexedDbUnavailableError,
   listProjects,
+  measureStorage,
   moveClip,
+  reclaimOrphanedStorage,
+  reorderClips,
+  restoreStrandedClips,
+  getProject,
+  clearUndo,
   PlusRequiredError,
   removeProjectAudioTrack,
   renameProject,
@@ -240,6 +246,7 @@ describe('storage layer', () => {
     expect([...db.objectStoreNames].sort()).toEqual([
       'audio',
       'clips',
+      'media',
       'meta',
       'projects',
       'undo',
@@ -1187,5 +1194,249 @@ describe('storage layer', () => {
     } finally {
       window.removeEventListener('unhandledrejection', onUnhandled)
     }
+  })
+})
+
+describe('clip media storage', () => {
+  beforeEach(async () => {
+    await __resetDbForTests()
+  })
+
+  async function rawClipRecord(clipId: string) {
+    return (await getDb()).get('clips', clipId)
+  }
+
+  // The quota effect itself (each rewrite charged another full copy) only
+  // shows in an on-disk profile — tests/e2e/storage.spec.ts measures it.
+  it('keeps clip media out of the record every metadata write rewrites', async () => {
+    const project = await createProject('Split')
+    const clip = await addClip({
+      projectId: project.id,
+      blob: fakeBlob('video-bytes'),
+      mimeType: 'video/webm',
+      durationMs: 2000,
+    })
+    // Every write a take gets after it is saved, plus the common edits.
+    await updateClipThumbs(clip.id, {
+      thumbs: [fakeBlob('t')],
+      poster: fakeBlob('p'),
+      thumbWidth: 90,
+      thumbHeight: 160,
+    })
+    await updateClipAudioPeak(clip.id, 0.5)
+    await updateClipSize(clip.id, 1080, 1920)
+    await updateClipTrim(clip.id, 100, 1900)
+    await updateClipVolumes(clip.id, { clipVolume: 0.5 })
+    await updateClipFit(clip.id, 'letterbox')
+
+    expect((await rawClipRecord(clip.id))?.blob).toBeUndefined()
+    const stored = await getClip(clip.id)
+    expect(await stored?.blob.text()).toBe('video-bytes')
+    expect(stored?.trimStartMs).toBe(100)
+  })
+
+  it('moves a legacy inline blob into the media store on the clip’s next write', async () => {
+    const project = await createProject('Legacy')
+    const clip = await addClip({
+      projectId: project.id,
+      blob: fakeBlob('new-style'),
+      mimeType: 'video/webm',
+      durationMs: 1000,
+    })
+    // A record written before the split: media inline, no media record.
+    const db = await getDb()
+    const { blob: _blob, ...meta } = (await getClip(clip.id))!
+    await db.delete('media', clip.id)
+    await db.put('clips', { ...meta, blob: fakeBlob('legacy-bytes') })
+
+    expect(await (await getClip(clip.id))?.blob.text()).toBe('legacy-bytes')
+    expect((await getClipsForProject(project.id)).map((c) => c.id)).toEqual([clip.id])
+
+    await updateClipTrim(clip.id, 0, 900)
+
+    expect((await rawClipRecord(clip.id))?.blob).toBeUndefined()
+    expect(await (await db.get('media', clip.id))?.blob.text()).toBe('legacy-bytes')
+    expect(await (await getClip(clip.id))?.blob.text()).toBe('legacy-bytes')
+  })
+
+  it('keeps a deleted clip’s media for undo, and drops it once undo is gone', async () => {
+    const project = await createProject('Undo media')
+    const first = await addClip({
+      projectId: project.id,
+      blob: fakeBlob('first'),
+      mimeType: 'video/webm',
+      durationMs: 1000,
+    })
+    const second = await addClip({
+      projectId: project.id,
+      blob: fakeBlob('second'),
+      mimeType: 'video/webm',
+      durationMs: 1000,
+    })
+    const db = await getDb()
+
+    await deleteClip(first.id)
+    expect(await db.get('media', first.id)).toBeTruthy()
+    const restored = await undoDeleteLastClip(project.id)
+    expect(await restored?.blob.text()).toBe('first')
+
+    await deleteClip(first.id)
+    // Only the newest delete is undoable: the older one's media goes.
+    await deleteClip(second.id)
+    expect(await db.get('media', first.id)).toBeUndefined()
+    expect(await db.get('media', second.id)).toBeTruthy()
+
+    await clearUndo(project.id)
+    expect(await db.get('media', second.id)).toBeUndefined()
+    expect((await measureStorage()).orphans.bytes).toBe(0)
+  })
+
+  it('counts the pending undo toward its project', async () => {
+    const project = await createProject('Undo size')
+    const clip = await addClip({
+      projectId: project.id,
+      blob: fakeBlob('12345'),
+      mimeType: 'video/webm',
+      durationMs: 1000,
+    })
+    await deleteClip(clip.id)
+    const scan = await measureStorage()
+    expect(scan.projectBytes.get(project.id)).toBe(5)
+    expect(scan.orphans.bytes).toBe(0)
+  })
+
+  it('measures each project and reclaims only records no project can reach', async () => {
+    await markWatermarkRemoved('cs_test_inventory')
+    const keep = await createProject('Keep')
+    const other = await createProject('Other')
+    const clip = await addClip({
+      projectId: keep.id,
+      blob: fakeBlob('keep-me'),
+      mimeType: 'video/webm',
+      durationMs: 1000,
+    })
+    await addProjectAudioTrack({
+      projectId: other.id,
+      blob: new Blob(['song'], { type: 'audio/mpeg' }),
+      mimeType: 'audio/mpeg',
+      durationMs: 1000,
+      name: 'song.mp3',
+    })
+    await updateClipThumbs(clip.id, {
+      thumbs: [fakeBlob('th')],
+      poster: fakeBlob('pos'),
+      thumbWidth: 90,
+      thumbHeight: 160,
+    })
+
+    const db = await getDb()
+    // A clip whose project is gone, media with no clip, and music for a
+    // project that no longer exists.
+    await db.put('clips', { ...(await rawClipRecord(clip.id))!, id: 'clip_stray', projectId: 'proj_gone' })
+    await db.put('media', { clipId: 'clip_stray', blob: fakeBlob('stray-bytes') })
+    await db.put('media', { clipId: 'clip_ghost', blob: fakeBlob('ghost') })
+    await db.put('audio', {
+      projectId: 'proj_gone',
+      tracks: [{ id: 't', blob: fakeBlob('gone-song'), mimeType: 'audio/mpeg', durationMs: 1, name: 'x', addedAt: 0 }],
+      fadeIn: true,
+      fadeOut: true,
+    })
+
+    const scan = await measureStorage()
+    expect(scan.projectBytes.get(keep.id)).toBe('keep-me'.length + 'th'.length + 'pos'.length)
+    expect(scan.projectBytes.get(other.id)).toBe('song'.length)
+    const strayBytes = 'th'.length + 'pos'.length + 'stray-bytes'.length
+    expect(scan.orphans.bytes).toBe(strayBytes + 'ghost'.length + 'gone-song'.length)
+
+    expect(await reclaimOrphanedStorage()).toBe(scan.orphans.bytes)
+    expect(await rawClipRecord('clip_stray')).toBeUndefined()
+    expect(await db.get('media', 'clip_ghost')).toBeUndefined()
+    expect(await db.get('audio', 'proj_gone')).toBeUndefined()
+    expect(await (await getClip(clip.id))?.blob.text()).toBe('keep-me')
+    expect((await getProjectAudio(other.id))?.tracks).toHaveLength(1)
+    expect((await measureStorage()).orphans.bytes).toBe(0)
+  })
+
+  it('never reclaims a clip that fell out of its live project’s list — restores it', async () => {
+    const project = await createProject('Stranded')
+    const kept = await addClip({
+      projectId: project.id,
+      blob: fakeBlob('kept'),
+      mimeType: 'video/webm',
+      durationMs: 1000,
+    })
+    const db = await getDb()
+    await db.put('clips', { ...(await rawClipRecord(kept.id))!, id: 'clip_unlisted', createdAt: 1 })
+    await db.put('media', { clipId: 'clip_unlisted', blob: fakeBlob('footage') })
+
+    const scan = await measureStorage()
+    expect(scan.strandedClipIds).toEqual(['clip_unlisted'])
+    expect(scan.orphans.bytes).toBe(0)
+    expect(scan.projectBytes.get(project.id)).toBe('kept'.length + 'footage'.length)
+    expect(await reclaimOrphanedStorage()).toBe(0)
+    expect(await db.get('media', 'clip_unlisted')).toBeTruthy()
+
+    expect(await restoreStrandedClips()).toBe(1)
+    expect((await getClipsForProject(project.id)).map((clip) => clip.id)).toEqual([
+      kept.id,
+      'clip_unlisted',
+    ])
+    expect(await restoreStrandedClips()).toBe(0)
+  })
+
+  it('never sweeps a default project as empty while a clip is still filed under it', async () => {
+    const project = await createProject()
+    const clip = await addClip({ projectId: project.id, blob: fakeBlob('x'), mimeType: 'video/webm', durationMs: 1000 })
+    const db = await getDb()
+    await db.put('projects', { ...(await getProject(project.id))!, clipIds: [] })
+
+    expect(await deleteProjectIfPristine(project.id)).toBe(false)
+    expect(await getClip(clip.id)).toBeTruthy()
+  })
+
+  it('rejects a reorder that repeats a clip (it would drop another from the list)', async () => {
+    const project = await createProject('Reorder')
+    const a = await addClip({ projectId: project.id, blob: fakeBlob('a'), mimeType: 'video/webm', durationMs: 1000 })
+    const b = await addClip({ projectId: project.id, blob: fakeBlob('b'), mimeType: 'video/webm', durationMs: 1000 })
+    await expect(reorderClips(project.id, [a.id, a.id])).rejects.toThrow(/Invalid clip order/)
+    expect((await getProject(project.id))?.clipIds).toEqual([a.id, b.id])
+    await reorderClips(project.id, [b.id, a.id])
+    expect((await getProject(project.id))?.clipIds).toEqual([b.id, a.id])
+  })
+
+  it('deleting a project also removes clip records missing from its clip list', async () => {
+    const project = await createProject('Stray')
+    const clip = await addClip({
+      projectId: project.id,
+      blob: fakeBlob('listed'),
+      mimeType: 'video/webm',
+      durationMs: 1000,
+    })
+    const db = await getDb()
+    await db.put('clips', { ...(await rawClipRecord(clip.id))!, id: 'clip_unlisted' })
+    await db.put('media', { clipId: 'clip_unlisted', blob: fakeBlob('unlisted') })
+
+    await deleteProject(project.id)
+
+    expect(await db.count('clips')).toBe(0)
+    expect(await db.count('media')).toBe(0)
+  })
+
+  it('a clip saved while the project is touched stays listed', async () => {
+    const project = await createProject('Race')
+    const first = await addClip({
+      projectId: project.id,
+      blob: fakeBlob('a'),
+      mimeType: 'video/webm',
+      durationMs: 1000,
+    })
+    // A trim (which touches the project) racing a take being saved.
+    const [, saved] = await Promise.all([
+      updateClipTrim(first.id, 0, 500),
+      addClip({ projectId: project.id, blob: fakeBlob('b'), mimeType: 'video/webm', durationMs: 1000 }),
+    ])
+    const listed = (await getClipsForProject(project.id)).map((clip) => clip.id)
+    expect(listed).toEqual([first.id, saved.id])
+    expect((await measureStorage()).orphans.bytes).toBe(0)
   })
 })

@@ -28,10 +28,19 @@ import {
   availableBytes,
   estimateStorageSpace,
   formatBytes,
+  isOtherStorageNotable,
+  storageBreakdown,
   type StorageSpace,
 } from '../lib/storage-space'
-import { ProjectLimitError, StorageQuotaExceededError } from '../lib/storage'
-import { getSettings, setVideoQuality } from '../lib/storage'
+import {
+  getSettings,
+  listProjects,
+  measureStorage,
+  ProjectLimitError,
+  reclaimOrphanedStorage,
+  setVideoQuality,
+  StorageQuotaExceededError,
+} from '../lib/storage'
 import { resolveVideoQuality, type VideoQualityPreset } from '../lib/video-quality'
 import { navigate } from '../router'
 
@@ -88,6 +97,9 @@ function updateDiagnosticsReport(
 interface AboutData {
   storage: StorageSpace | null
   exportCacheBytes: number
+  /** Largest first. */
+  projectSizes: Array<{ id: string; name: string; bytes: number }>
+  orphanBytes: number
   /** `null` until settings load so High is not locked on first paint. */
   plus: boolean | null
   videoQuality: VideoQualityPreset
@@ -98,14 +110,24 @@ interface AboutData {
 let lastAboutData: AboutData | null = null
 
 async function loadAboutData(): Promise<AboutData> {
-  const [storage, exportCacheBytes, settings] = await Promise.all([
+  const [storage, exportCacheBytes, settings, scan, projects] = await Promise.all([
     estimateStorageSpace(),
     estimateExportCacheBytes(),
     getSettings(),
+    measureStorage(),
+    listProjects(),
   ])
   return {
     storage,
     exportCacheBytes,
+    projectSizes: projects
+      .map((project) => ({
+        id: project.id,
+        name: project.name,
+        bytes: scan.projectBytes.get(project.id) ?? 0,
+      }))
+      .sort((a, b) => b.bytes - a.bytes),
+    orphanBytes: scan.orphans.bytes,
     plus: settings.watermarkRemoved === true,
     videoQuality: resolveVideoQuality(settings.videoQuality, settings.watermarkRemoved === true),
   }
@@ -126,6 +148,8 @@ export function AboutPage(handle: Handle) {
   let data: AboutData = lastAboutData ?? {
     storage: null,
     exportCacheBytes: 0,
+    projectSizes: [],
+    orphanBytes: 0,
     plus: null,
     videoQuality: 'standard',
   }
@@ -135,6 +159,7 @@ export function AboutPage(handle: Handle) {
   let updateStatus: UpdateStatus = 'idle'
   let cacheStatus: string | null = null
   let clearingCache = false
+  let reclaiming = false
   let cameraReport: string | null = null
   let inspectingCameras = false
   let importing = false
@@ -237,6 +262,25 @@ export function AboutPage(handle: Handle) {
       })
   }
 
+  const onReclaimOrphans = () => {
+    if (reclaiming) return
+    reclaiming = true
+    void handle.update()
+    void reclaimOrphanedStorage()
+      .then((freedBytes) => {
+        cacheStatus = `Cleaned up leftovers — freed ${formatBytes(freedBytes)}.`
+        void refresh()
+      })
+      .catch((err) => {
+        reportError(err, 'reclaim-orphans')
+        cacheStatus = err instanceof Error ? err.message : 'Could not clean up — try again.'
+      })
+      .finally(() => {
+        reclaiming = false
+        void handle.update()
+      })
+  }
+
   const importBackup = (file: File) => {
     void (async () => {
       importing = true
@@ -306,9 +350,19 @@ export function AboutPage(handle: Handle) {
   }
 
   return () => {
-    const { storage, exportCacheBytes, plus, videoQuality } = data
+    const { storage, exportCacheBytes, projectSizes, orphanBytes, plus, videoQuality } = data
+    const breakdown = storage
+      ? storageBreakdown(storage, {
+          projectsBytes: projectSizes.reduce((sum, project) => sum + project.bytes, 0),
+          exportCacheBytes,
+          orphanBytes,
+        })
+      : null
     const hashTarget = location.hash.slice(1)
-    if (!hashScrolled && (hashTarget === 'video-quality' || hashTarget === 'recording-health')) {
+    if (
+      !hashScrolled &&
+      (hashTarget === 'video-quality' || hashTarget === 'recording-health' || hashTarget === 'storage')
+    ) {
       hashScrolled = true
       queueMicrotask(() => {
         const section = document.getElementById(hashTarget)
@@ -487,7 +541,7 @@ export function AboutPage(handle: Handle) {
             />
           </section>
 
-          <section className="about-section">
+          <section className="about-section" id="storage">
             <h2>Storage</h2>
             <p>
               {storage
@@ -498,22 +552,64 @@ export function AboutPage(handle: Handle) {
               above. The app also keeps your latest export cached so tapping Go on an unchanged
               project is instant.
             </p>
-            <p>
-              Cached export files: <strong>{formatBytes(exportCacheBytes)}</strong>
-              {exportCacheBytes > 0 ? (
-                <>
-                  {' · '}
-                  <button
-                    type="button"
-                    className="link-button"
-                    disabled={clearingCache}
-                    mix={on('click', onClearExportCache)}
-                  >
-                    Clear
-                  </button>
-                </>
+            <ul className="storage-breakdown" aria-label="What is using space">
+              {projectSizes.map((project) => (
+                <li key={project.id}>
+                  <span>{project.name}</span>
+                  <strong>{formatBytes(project.bytes)}</strong>
+                </li>
+              ))}
+              <li>
+                <span>
+                  Cached export files
+                  {exportCacheBytes > 0 ? (
+                    <>
+                      {' · '}
+                      <button
+                        type="button"
+                        className="link-button"
+                        disabled={clearingCache}
+                        mix={on('click', onClearExportCache)}
+                      >
+                        Clear
+                      </button>
+                    </>
+                  ) : null}
+                </span>
+                <strong>{formatBytes(exportCacheBytes)}</strong>
+              </li>
+              {orphanBytes > 0 ? (
+                <li>
+                  <span>
+                    Leftovers no project uses
+                    {' · '}
+                    <button
+                      type="button"
+                      className="link-button"
+                      disabled={reclaiming}
+                      mix={on('click', onReclaimOrphans)}
+                    >
+                      Clean up
+                    </button>
+                  </span>
+                  <strong>{formatBytes(orphanBytes)}</strong>
+                </li>
               ) : null}
-            </p>
+              {breakdown ? (
+                <li>
+                  <span>App files &amp; space not yet released</span>
+                  <strong>{formatBytes(breakdown.otherBytes)}</strong>
+                </li>
+              ) : null}
+            </ul>
+            {storage && breakdown && isOtherStorageNotable(breakdown, storage) ? (
+              <p className="storage-other-note">
+                About {formatBytes(breakdown.otherBytes)} isn&rsquo;t part of any project. That is
+                usually space the browser hasn&rsquo;t released yet from earlier recordings and
+                clip edits &mdash; it frees it once Kody Video fully closes. Close the app
+                completely (swipe it away, and close the browser if it stays open), then reopen it.
+              </p>
+            ) : null}
             {cacheStatus ? (
               <p role="status" aria-live="polite">
                 {cacheStatus}

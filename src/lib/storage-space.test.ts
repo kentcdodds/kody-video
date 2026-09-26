@@ -7,6 +7,9 @@ import {
   formatStoragePercent,
   IMPORT_SLACK_BYTES,
   importNeedBytes,
+  isOtherStorageNotable,
+  NOTABLE_OTHER_BYTES,
+  storageBreakdown,
   storageSeverity,
 } from './storage-space'
 
@@ -82,5 +85,32 @@ describe('availableBytes / backupFitsStorage', () => {
     expect(message).toContain(formatBytes(availableBytes(tight)))
     expect(message).toContain(formatBytes(importNeedBytes(50)))
     expect(importNeedBytes(50)).toBe(50 + IMPORT_SLACK_BYTES)
+  })
+})
+
+describe('storageBreakdown', () => {
+  const MB = 1024 * 1024
+
+  it('attributes the remainder of browser usage to "other"', () => {
+    const space = { usedBytes: 1900 * MB, quotaBytes: 2000 * MB, ratio: 0.95 }
+    const breakdown = storageBreakdown(space, {
+      projectsBytes: 950 * MB,
+      exportCacheBytes: 0,
+      orphanBytes: 10 * MB,
+    })
+    expect(breakdown.otherBytes).toBe(940 * MB)
+    expect(isOtherStorageNotable(breakdown, space)).toBe(true)
+  })
+
+  it('never reports negative "other" and stays quiet about ordinary overhead', () => {
+    const space = { usedBytes: 500 * MB, quotaBytes: 2000 * MB, ratio: 0.25 }
+    const over = storageBreakdown(space, { projectsBytes: 600 * MB, exportCacheBytes: 0, orphanBytes: 0 })
+    expect(over.otherBytes).toBe(0)
+    const overhead = storageBreakdown(space, {
+      projectsBytes: 500 * MB - NOTABLE_OTHER_BYTES / 2,
+      exportCacheBytes: 0,
+      orphanBytes: 0,
+    })
+    expect(isOtherStorageNotable(overhead, space)).toBe(false)
   })
 })

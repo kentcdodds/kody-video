@@ -13,9 +13,11 @@ import {
   getSettings,
   getUndoSnapshot,
   listProjects,
+  measureStorage,
   moveClip,
   removeProjectAudioTrack,
   replaceClipMedia,
+  restoreStrandedClips,
   setLastOpenedProjectId,
   setProjectOrientation,
   undoDeleteLastClip,
@@ -58,6 +60,8 @@ export interface ProjectSummary extends Project {
   durationMs: number
   /** First available clip thumbnail, for the project slot background. */
   posterThumb: Blob | null
+  /** Bytes the project holds on this device (see StorageScan.projectBytes). */
+  sizeBytes: number
 }
 
 export interface ProjectLoaderData {
@@ -87,6 +91,8 @@ export interface HomeLoaderData {
   storage: StorageSpace | null
   /** Bytes held by cached export files (recoverable last export, scratch). */
   exportCacheBytes: number
+  /** Bytes in records no project can reach (reclaimOrphanedStorage). */
+  orphanBytes: number
   /** True when the one-time Kody Video Plus purchase is unlocked. */
   plus: boolean
   /** Home "Watch the tour" card dismissed (first-timer teaser). */
@@ -96,7 +102,7 @@ export interface HomeLoaderData {
 }
 
 export async function loadHomePage(): Promise<HomeLoaderData> {
-  const [projects, storage, exportCacheBytes, settings] = await Promise.all([
+  const [{ projects, orphanBytes }, storage, exportCacheBytes, settings] = await Promise.all([
     loadHomeProjects(),
     estimateStorageSpace(),
     estimateExportCacheBytes(),
@@ -106,13 +112,21 @@ export async function loadHomePage(): Promise<HomeLoaderData> {
     projects,
     storage,
     exportCacheBytes,
+    orphanBytes,
     plus: settings.watermarkRemoved === true,
     tourCardDismissed: settings.tourCardDismissed === true,
     videoQuality: resolveVideoQuality(settings.videoQuality, settings.watermarkRemoved === true),
   }
 }
 
-export async function loadHomeProjects(): Promise<ProjectSummary[]> {
+export async function loadHomeProjects(): Promise<{
+  projects: ProjectSummary[]
+  orphanBytes: number
+}> {
+  // Before the pristine sweep: a project whose only clips fell out of its
+  // list must get them back, not be deleted as empty. Best-effort — the
+  // slots still render if the repair write fails.
+  await restoreStrandedClips().catch(() => 0)
   const all = await listProjects()
   // Exiting a project still in its default state (no clips, default name,
   // no music) must leave nothing behind, just like backing out of
@@ -126,21 +140,31 @@ export async function loadHomeProjects(): Promise<ProjectSummary[]> {
   // Stable slot order (creation order) — OK Video-style fixed project slots
   // that don't shuffle every time you open a project.
   list.sort((a, b) => a.createdAt - b.createdAt)
-  return Promise.all(
-    list.map(async (project) => {
-      const clips = await getClipsForProject(project.id)
-      const durationMs = clips.reduce((sum, clip) => sum + effectiveDurationMs(clip), 0)
-      // Prefer any clip with a high-res poster over an older thumbs-only one.
-      const withPoster = clips.find((clip) => clip.poster)
-      const withThumb = clips.find((clip) => clip.thumbs && clip.thumbs.length > 0)
-      return {
-        ...project,
-        clipCount: clips.length,
-        durationMs,
-        posterThumb: withPoster?.poster ?? withThumb?.thumbs?.[0] ?? null,
-      }
-    }),
-  )
+  const [scan, projects] = await Promise.all([
+    measureStorage(),
+    Promise.all(
+      list.map(async (project) => {
+        const clips = await getClipsForProject(project.id)
+        const durationMs = clips.reduce((sum, clip) => sum + effectiveDurationMs(clip), 0)
+        // Prefer any clip with a high-res poster over an older thumbs-only one.
+        const withPoster = clips.find((clip) => clip.poster)
+        const withThumb = clips.find((clip) => clip.thumbs && clip.thumbs.length > 0)
+        return {
+          ...project,
+          clipCount: clips.length,
+          durationMs,
+          posterThumb: withPoster?.poster ?? withThumb?.thumbs?.[0] ?? null,
+        }
+      }),
+    ),
+  ])
+  return {
+    projects: projects.map((project) => ({
+      ...project,
+      sizeBytes: scan.projectBytes.get(project.id) ?? 0,
+    })),
+    orphanBytes: scan.orphans.bytes,
+  }
 }
 
 export async function loadProjectPage(projectId: ProjectId): Promise<ProjectLoaderData> {

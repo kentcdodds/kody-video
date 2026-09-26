@@ -76,8 +76,20 @@ export interface ClipRecord extends ClipMeta {
   poster?: Blob
 }
 
+/**
+ * A clip as the `clips` object store holds it. The media bytes live in the
+ * `media` store under the clip id, so trim/volume/peak writes never rewrite
+ * the video: IndexedDB stores every put's Blob as a fresh file, and
+ * Chromium keeps charging the superseded copy against quota until each JS
+ * reference to it is garbage-collected. Records written before the split
+ * keep `blob` inline until their next write moves it.
+ */
+export type StoredClipRecord = Omit<ClipRecord, 'blob'> & { blob?: Blob }
+
 export interface DeletedClipSnapshot {
-  clip: ClipRecord
+  /** The deleted clip's metadata; its media stays in the `media` store
+   * until the snapshot is restored or dropped. */
+  clip: StoredClipRecord
   index: number
   deletedAt: number
 }

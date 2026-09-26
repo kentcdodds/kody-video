@@ -6,7 +6,7 @@ import {
   loadHomeProjects,
   resetVerifiedDisplaySizesForTests,
 } from './project-actions'
-import { __resetDbForTests, addClip, createProject, deleteClip, getClip, getProject, listProjects, renameProject } from './storage'
+import { __resetDbForTests, addClip, createProject, deleteClip, getClip, getDb, getProject, listProjects, renameProject } from './storage'
 import { makeLabeledClipBlob } from './testing/make-test-clip'
 import { markWatermarkRemoved } from './entitlement'
 import { setPlatformOverridesForTests } from './platform'
@@ -33,11 +33,41 @@ describe('loadHomeProjects', () => {
     })
     await deleteClip(clip.id)
 
-    const summaries = await loadHomeProjects()
+    const { projects: summaries } = await loadHomeProjects()
 
     expect(summaries.map((project) => project.id)).toEqual([kept.id])
     expect((await listProjects()).map((project) => project.id)).toEqual([kept.id])
     expect(pristine.name).toBe('Project 2')
+  })
+
+  it('reports each project’s on-device size', async () => {
+    await markWatermarkRemoved('cs_test_sizes')
+    const small = await createProject('Small')
+    const big = await createProject('Big')
+    await addClip({ projectId: small.id, blob: fakeBlob('ab'), mimeType: 'video/webm', durationMs: 700 })
+    await addClip({ projectId: big.id, blob: fakeBlob('abcdef'), mimeType: 'video/webm', durationMs: 700 })
+    await addClip({ projectId: big.id, blob: fakeBlob('ghij'), mimeType: 'video/webm', durationMs: 700 })
+
+    const { projects, orphanBytes } = await loadHomeProjects()
+
+    expect(Object.fromEntries(projects.map((p) => [p.name, p.sizeBytes]))).toEqual({
+      Small: 2,
+      Big: 10,
+    })
+    expect(orphanBytes).toBe(0)
+  })
+
+  it('puts clips that fell out of a project’s list back before the empty-project sweep', async () => {
+    const project = await createProject()
+    const clip = await addClip({ projectId: project.id, blob: fakeBlob('x'), mimeType: 'video/webm', durationMs: 700 })
+    const stored = await getProject(project.id)
+    const db = await getDb()
+    await db.put('projects', { ...stored!, clipIds: [] })
+
+    const { projects } = await loadHomeProjects()
+
+    expect(projects.map((p) => p.id)).toEqual([project.id])
+    expect((await getProject(project.id))?.clipIds).toEqual([clip.id])
   })
 
   it('keeps empty projects the user renamed', async () => {
@@ -45,7 +75,7 @@ describe('loadHomeProjects', () => {
     // Even a rename to a default-shaped name is deliberate.
     await renameProject(project.id, 'Project 2')
 
-    const summaries = await loadHomeProjects()
+    const { projects: summaries } = await loadHomeProjects()
 
     expect(summaries.map((entry) => entry.id)).toEqual([project.id])
     expect(summaries[0]?.clipCount).toBe(0)
