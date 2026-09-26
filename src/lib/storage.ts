@@ -1,4 +1,4 @@
-import { openDB, type DBSchema, type IDBPDatabase } from 'idb'
+import { openDB, type DBSchema, type IDBPDatabase, type IDBPTransaction } from 'idb'
 import { removeExportEntry } from './export/opfs'
 import {
   FREE_PROJECTS,
@@ -18,6 +18,7 @@ import {
   type ProjectAudioTrack,
   type ProjectId,
   type ProjectOrientation,
+  type StoredClipRecord,
 } from './types'
 import {
   resetActiveVideoQualityForTests,
@@ -34,8 +35,13 @@ interface ClipsDB extends DBSchema {
   }
   clips: {
     key: ClipId
-    value: ClipRecord
+    value: StoredClipRecord
     indexes: { 'by-project': ProjectId }
+  }
+  /** Each clip's media bytes, keyed by clip id (see StoredClipRecord). */
+  media: {
+    key: ClipId
+    value: ClipMediaRecord
   }
   undo: {
     key: ProjectId
@@ -51,9 +57,14 @@ interface ClipsDB extends DBSchema {
   }
 }
 
+interface ClipMediaRecord {
+  clipId: ClipId
+  blob: Blob
+}
+
 export const DB_NAME = 'kody-video'
 /** Bumped when a migration must re-run for already-open clients. */
-export const DB_VERSION = 3
+export const DB_VERSION = 4
 
 let dbPromise: Promise<IDBPDatabase<ClipsDB>> | null = null
 let activeDb: IDBPDatabase<ClipsDB> | null = null
@@ -109,6 +120,43 @@ export function ensureObjectStores(db: {
     // One optional background-audio playlist per project.
     db.createObjectStore('audio', { keyPath: 'projectId' })
   }
+  if (!db.objectStoreNames.contains('media')) {
+    // No eager move of existing inline blobs: copying every clip inside the
+    // upgrade transaction needs the whole library free again, which is
+    // exactly what a nearly-full device lacks. putClipRecord moves each
+    // legacy blob on that clip's next write instead.
+    db.createObjectStore('media', { keyPath: 'clipId' })
+  }
+}
+
+interface PutStore<V> {
+  put(value: V): Promise<unknown>
+}
+
+/**
+ * Queue a clip-record write. The record itself never carries media: a
+ * legacy inline blob moves into `media` (one copy, once), and every later
+ * metadata write only rewrites the small record.
+ */
+function putClipRecord(
+  clips: PutStore<StoredClipRecord>,
+  media: PutStore<ClipMediaRecord>,
+  record: StoredClipRecord,
+): Array<Promise<unknown>> {
+  const { blob, ...meta } = record
+  const ops: Array<Promise<unknown>> = [clips.put(meta)]
+  if (blob) ops.push(media.put({ clipId: record.id, blob }))
+  return ops
+}
+
+/** A stored clip joined with its media; undefined when the bytes are gone. */
+function withMedia(
+  stored: StoredClipRecord | undefined,
+  media: ClipMediaRecord | undefined,
+): ClipRecord | undefined {
+  if (!stored) return undefined
+  const blob = media?.blob ?? stored.blob
+  return blob ? { ...stored, blob } : undefined
 }
 
 /** True when IndexedDB rejected because the cached connection is gone. */
@@ -506,16 +554,20 @@ function defaultProjectName(n: number): string {
 }
 
 export async function renameProject(id: ProjectId, name: string): Promise<Project> {
-  const db = await getDb()
-  const project = await db.get('projects', id)
-  if (!project) throw new Error('Project not found')
   const trimmed = name.trim()
   if (!trimmed) throw new Error('Name cannot be empty')
+  const db = await getDb()
+  const tx = db.transaction('projects', 'readwrite')
+  const project = await tx.store.get(id)
+  if (!project) {
+    await tx.done
+    throw new Error('Project not found')
+  }
   const updated: Project = { ...project, name: trimmed, updatedAt: Date.now() }
   // Any rename is deliberate — even one back to a "Project N"-shaped name —
   // so the project stops being eligible for the default-state cleanup.
   delete updated.nameIsDefault
-  await db.put('projects', updated)
+  await completeTransaction([tx.store.put(updated)], tx)
   return updated
 }
 
@@ -585,7 +637,7 @@ async function deleteProjectRecords(
   options: { onlyIfPristine: boolean },
 ): Promise<boolean> {
   const db = await getDb()
-  const tx = db.transaction(['projects', 'clips', 'undo', 'meta', 'audio'], 'readwrite')
+  const tx = db.transaction(['projects', 'clips', 'media', 'undo', 'meta', 'audio'], 'readwrite')
   const project = await tx.objectStore('projects').get(id)
   if (!project) {
     await tx.done
@@ -611,9 +663,16 @@ async function deleteProjectRecords(
   // Read meta before queueing writes so a failed delete cannot reject while
   // we are still awaiting get — that would reintroduce the AbortError leak.
   const settings = await tx.objectStore('meta').get('settings')
+  // Every clip filed under the project, not just the listed ones: a record
+  // that fell out of clipIds would otherwise outlive its project unseen.
+  const filedClipIds = await tx.objectStore('clips').index('by-project').getAllKeys(id)
+  const undo = await tx.objectStore('undo').get(id)
+  const clipIds = new Set([...project.clipIds, ...filedClipIds])
+  if (undo) clipIds.add(undo.clip.id)
   const clips = tx.objectStore('clips')
+  const media = tx.objectStore('media')
   const ops: Array<Promise<unknown>> = [
-    ...project.clipIds.map((clipId) => clips.delete(clipId)),
+    ...[...clipIds].flatMap((clipId) => [clips.delete(clipId), media.delete(clipId)]),
     tx.objectStore('undo').delete(id),
     tx.objectStore('audio').delete(id),
     tx.objectStore('projects').delete(id),
@@ -639,29 +698,48 @@ async function deleteProjectRecords(
   return true
 }
 
+/** Bump updatedAt. Read and write share one transaction: a clip saved in
+ * between must never be dropped from clipIds by a stale project snapshot
+ * (its record would linger, unreachable, holding its media). */
 export async function touchProject(id: ProjectId): Promise<void> {
   const db = await getDb()
-  const project = await db.get('projects', id)
-  if (!project) return
-  await db.put('projects', { ...project, updatedAt: Date.now() })
+  const tx = db.transaction('projects', 'readwrite')
+  const project = await tx.store.get(id)
+  if (!project) {
+    await tx.done
+    return
+  }
+  await completeTransaction([tx.store.put({ ...project, updatedAt: Date.now() })], tx)
 }
 
 export async function getClipsForProject(projectId: ProjectId): Promise<ClipRecord[]> {
   const db = await getDb()
-  const project = await db.get('projects', projectId)
-  if (!project) return []
-
-  const clips: ClipRecord[] = []
-  for (const clipId of project.clipIds) {
-    const clip = await db.get('clips', clipId)
-    if (clip) clips.push(clip)
+  const tx = db.transaction(['projects', 'clips', 'media'])
+  const project = await tx.objectStore('projects').get(projectId)
+  if (!project) {
+    await tx.done
+    return []
   }
-  return clips
+  const clipsStore = tx.objectStore('clips')
+  const mediaStore = tx.objectStore('media')
+  const clips = await Promise.all(
+    project.clipIds.map(async (clipId) =>
+      withMedia(await clipsStore.get(clipId), await mediaStore.get(clipId)),
+    ),
+  )
+  await tx.done
+  return clips.filter((clip): clip is ClipRecord => clip !== undefined)
 }
 
 export async function getClip(id: ClipId): Promise<ClipRecord | undefined> {
   const db = await getDb()
-  return db.get('clips', id)
+  const tx = db.transaction(['clips', 'media'])
+  const [stored, media] = await Promise.all([
+    tx.objectStore('clips').get(id),
+    tx.objectStore('media').get(id),
+  ])
+  await tx.done
+  return withMedia(stored, media)
 }
 
 export async function getClipMetasForProject(projectId: ProjectId): Promise<ClipMeta[]> {
@@ -669,8 +747,8 @@ export async function getClipMetasForProject(projectId: ProjectId): Promise<Clip
   return clips.map(toMeta)
 }
 
-function toMeta(clip: ClipRecord): ClipMeta {
-  const { blob: _blob, thumbs: _thumbs, ...meta } = clip
+function toMeta(clip: StoredClipRecord): ClipMeta {
+  const { blob: _blob, thumbs: _thumbs, poster: _poster, ...meta } = clip
   return meta
 }
 
@@ -813,7 +891,7 @@ export async function addClip(input: AddClipInput): Promise<ClipRecord> {
     clip.audioPeak = Math.max(0, Math.min(1, input.audioPeak))
   }
 
-  const tx = db.transaction(['clips', 'projects'], 'readwrite')
+  const tx = db.transaction(['clips', 'media', 'projects'], 'readwrite')
   const project = await tx.objectStore('projects').get(input.projectId)
   if (!project) {
     await tx.done.catch(() => undefined)
@@ -821,7 +899,7 @@ export async function addClip(input: AddClipInput): Promise<ClipRecord> {
   }
   await completeTransaction(
     [
-      tx.objectStore('clips').put(clip),
+      ...putClipRecord(tx.objectStore('clips'), tx.objectStore('media'), clip),
       tx.objectStore('projects').put({
         ...project,
         clipIds: insertClipIdAfter(project.clipIds, clip.id, input.afterClipId),
@@ -850,13 +928,13 @@ export async function updateClipThumbs(clipId: ClipId, input: ClipThumbsInput): 
   ])
   // Read + merge + write in one transaction so a concurrent trim/delete can
   // never be clobbered by a stale snapshot of the clip record.
-  const tx = db.transaction('clips', 'readwrite')
-  const clip = await tx.store.get(clipId)
+  const tx = db.transaction(['clips', 'media'], 'readwrite')
+  const clip = await tx.objectStore('clips').get(clipId)
   if (!clip) {
     await tx.done
     return
   }
-  const updated: ClipRecord = {
+  const updated: StoredClipRecord = {
     ...clip,
     thumbs,
     poster,
@@ -865,7 +943,10 @@ export async function updateClipThumbs(clipId: ClipId, input: ClipThumbsInput): 
     width: clip.width ?? input.videoWidth,
     height: clip.height ?? input.videoHeight,
   }
-  await completeTransaction([tx.store.put(updated)], tx)
+  await completeTransaction(
+    putClipRecord(tx.objectStore('clips'), tx.objectStore('media'), updated),
+    tx,
+  )
 }
 
 export interface ReplaceClipMediaInput {
@@ -893,7 +974,7 @@ export async function replaceClipMedia(
   const end = Math.max(start, Math.min(input.trimEndMs ?? durationMs, durationMs))
 
   const db = await getDb()
-  const tx = db.transaction(['clips', 'projects'], 'readwrite')
+  const tx = db.transaction(['clips', 'media', 'projects'], 'readwrite')
   const clip = await tx.objectStore('clips').get(clipId)
   if (!clip) {
     await tx.done.catch(() => undefined)
@@ -926,7 +1007,8 @@ export async function replaceClipMedia(
 
   await completeTransaction(
     [
-      tx.objectStore('clips').put(updated),
+      // Replaces the clip's media record: the old bytes go with it.
+      ...putClipRecord(tx.objectStore('clips'), tx.objectStore('media'), updated),
       tx.objectStore('projects').put({
         ...project,
         updatedAt: Date.now(),
@@ -937,33 +1019,64 @@ export async function replaceClipMedia(
   return updated
 }
 
+/**
+ * Read-merge-write one clip record in a single transaction. `edit` returns
+ * the new record, or null to leave the stored one untouched.
+ */
+async function editClipRecord(
+  clipId: ClipId,
+  edit: (clip: StoredClipRecord) => StoredClipRecord | null,
+): Promise<StoredClipRecord | undefined> {
+  const db = await getDb()
+  const tx = db.transaction(['clips', 'media'], 'readwrite')
+  const clip = await tx.objectStore('clips').get(clipId)
+  if (!clip) {
+    await tx.done.catch(() => undefined)
+    return undefined
+  }
+  let updated: StoredClipRecord | null
+  try {
+    updated = edit(clip)
+  } catch (error) {
+    await tx.done.catch(() => undefined)
+    throw error
+  }
+  if (!updated) {
+    await tx.done
+    return clip
+  }
+  await completeTransaction(
+    putClipRecord(tx.objectStore('clips'), tx.objectStore('media'), updated),
+    tx,
+  )
+  return updated
+}
+
 export async function updateClipTrim(
   clipId: ClipId,
   trimStartMs: number,
   trimEndMs: number,
 ): Promise<ClipMeta> {
-  const db = await getDb()
-  const clip = await db.get('clips', clipId)
-  if (!clip) throw new Error('Clip not found')
-
-  const start = Math.max(0, Math.min(trimStartMs, clip.durationMs))
-  const end = Math.max(start, Math.min(trimEndMs, clip.durationMs))
-  const updated: ClipRecord = { ...clip, trimStartMs: start, trimEndMs: end }
-  await db.put('clips', updated)
-  await touchProject(clip.projectId)
+  const updated = await editClipRecord(clipId, (clip) => {
+    const start = Math.max(0, Math.min(trimStartMs, clip.durationMs))
+    const end = Math.max(start, Math.min(trimEndMs, clip.durationMs))
+    return { ...clip, trimStartMs: start, trimEndMs: end }
+  })
+  if (!updated) throw new Error('Clip not found')
+  await touchProject(updated.projectId)
   return toMeta(updated)
 }
 
 /** Crop is the default, so it clears the stored override. */
 export async function updateClipFit(clipId: ClipId, fit: ClipFit): Promise<ClipMeta> {
-  const db = await getDb()
-  const clip = await db.get('clips', clipId)
-  if (!clip) throw new Error('Clip not found')
-  const updated: ClipRecord = { ...clip }
-  if (fit === 'letterbox') updated.fit = 'letterbox'
-  else delete updated.fit
-  await db.put('clips', updated)
-  await touchProject(clip.projectId)
+  const updated = await editClipRecord(clipId, (clip) => {
+    const next: StoredClipRecord = { ...clip }
+    if (fit === 'letterbox') next.fit = 'letterbox'
+    else delete next.fit
+    return next
+  })
+  if (!updated) throw new Error('Clip not found')
+  await touchProject(updated.projectId)
   return toMeta(updated)
 }
 
@@ -978,25 +1091,14 @@ export async function updateClipDuration(
   durationMs: number,
 ): Promise<ClipMeta> {
   const clamped = clampImageDurationMs(durationMs)
-  const db = await getDb()
-  const tx = db.transaction('clips', 'readwrite')
-  const clip = await tx.store.get(clipId)
-  if (!clip) {
-    await tx.done.catch(() => undefined)
-    throw new Error('Clip not found')
-  }
-  if (clip.kind !== 'image') {
-    await tx.done
-    throw new Error('Only photos can change duration — trim videos instead')
-  }
-  const updated: ClipRecord = {
-    ...clip,
-    durationMs: clamped,
-    trimStartMs: 0,
-    trimEndMs: clamped,
-  }
-  await completeTransaction([tx.store.put(updated)], tx)
-  await touchProject(clip.projectId)
+  const updated = await editClipRecord(clipId, (clip) => {
+    if (clip.kind !== 'image') {
+      throw new Error('Only photos can change duration — trim videos instead')
+    }
+    return { ...clip, durationMs: clamped, trimStartMs: 0, trimEndMs: clamped }
+  })
+  if (!updated) throw new Error('Clip not found')
+  await touchProject(updated.projectId)
   return toMeta(updated)
 }
 
@@ -1039,12 +1141,13 @@ async function writeClipVolumesWithRetry(
     return await writeClipVolumes(clipId, volumes)
   } catch (error) {
     if (!isRetriableIdbFailure(error)) throw error
-    // A volume write re-puts the whole clip record — video blob included —
-    // so it is the write most exposed to environmental IDB failures. Retry
-    // once on a fresh connection with re-copied media blobs: that covers
-    // both iOS Safari closing the connection under us and the engine
-    // refusing to re-store a Blob it itself returned. The write is
-    // idempotent, so a retry after an ambiguous failure is safe.
+    // A volume write re-puts the clip record's thumbnail blobs (and, for a
+    // record from before the media split, its inline video), so slider
+    // commits are exposed to environmental IDB failures. Retry once on a
+    // fresh connection with re-copied blobs: that covers both iOS Safari
+    // closing the connection under us and the engine refusing to re-store
+    // a Blob it itself returned. The write is idempotent, so a retry after
+    // an ambiguous failure is safe.
     discardStaleDb(activeDb, dbPromise)
     return await writeClipVolumes(clipId, volumes, { rematerializeBlobs: true })
   }
@@ -1075,8 +1178,8 @@ async function writeClipVolumes(
   // whole point is to stop a possibly-poisoned stored Blob from failing
   // the put again.
   let fresh: {
-    snapshot: ClipRecord
-    blob: Blob
+    snapshot: StoredClipRecord
+    blob?: Blob
     thumbs?: Blob[]
     poster?: Blob
   } | null = null
@@ -1085,7 +1188,7 @@ async function writeClipVolumes(
     if (!snapshot) throw new Error('Clip not found')
     fresh = {
       snapshot,
-      blob: await toStoredBlob(snapshot.blob, snapshot.mimeType),
+      blob: snapshot.blob ? await toStoredBlob(snapshot.blob, snapshot.mimeType) : undefined,
       thumbs: snapshot.thumbs
         ? await Promise.all(snapshot.thumbs.map((thumb) => toStoredBlob(thumb)))
         : undefined,
@@ -1095,18 +1198,18 @@ async function writeClipVolumes(
 
   // Read + merge + write in one transaction so a concurrent clip mutation
   // (trim, thumbs) can never be clobbered by a stale snapshot.
-  const tx = db.transaction('clips', 'readwrite')
-  const clip = await tx.store.get(clipId)
+  const tx = db.transaction(['clips', 'media'], 'readwrite')
+  const clip = await tx.objectStore('clips').get(clipId)
   if (!clip) {
     await tx.done.catch(() => undefined)
     throw new Error('Clip not found')
   }
-  const updated: ClipRecord = { ...clip }
+  const updated: StoredClipRecord = { ...clip }
   if (fresh) {
     // Overlay a re-copied field only while the stored one still matches the
     // snapshot it was copied from — a concurrent thumbs/poster/trim write
     // that committed between the copy and this put must win over the copy.
-    if (sameStoredBlob(clip.blob, fresh.snapshot.blob)) updated.blob = fresh.blob
+    if (fresh.blob && sameStoredBlob(clip.blob, fresh.snapshot.blob)) updated.blob = fresh.blob
     if (fresh.thumbs && sameStoredBlobList(clip.thumbs, fresh.snapshot.thumbs)) {
       updated.thumbs = fresh.thumbs
     }
@@ -1129,12 +1232,15 @@ async function writeClipVolumes(
   apply('clipVolume', volumes.clipVolume)
   apply('musicVolume', volumes.musicVolume)
   // Re-committing the value already stored (a slider released twice on the
-  // same spot) must not rewrite the whole record's media blobs for nothing.
+  // same spot) must not rewrite the record for nothing.
   if (!changed && !options?.rematerializeBlobs) {
     await tx.done
     return toMeta(updated)
   }
-  await completeTransaction([tx.store.put(updated)], tx)
+  await completeTransaction(
+    putClipRecord(tx.objectStore('clips'), tx.objectStore('media'), updated),
+    tx,
+  )
   await touchProject(clip.projectId)
   return toMeta(updated)
 }
@@ -1147,32 +1253,16 @@ export async function updateClipSize(
   height: number,
 ): Promise<void> {
   if (!(width > 0) || !(height > 0)) return
-  const db = await getDb()
-  const tx = db.transaction('clips', 'readwrite')
-  const clip = await tx.store.get(clipId)
-  if (!clip) {
-    await tx.done
-    return
-  }
-  if (clip.width === width && clip.height === height) {
-    await tx.done
-    return
-  }
-  await completeTransaction([tx.store.put({ ...clip, width, height })], tx)
+  await editClipRecord(clipId, (clip) =>
+    clip.width === width && clip.height === height ? null : { ...clip, width, height },
+  )
 }
 
 /** Persist a clip's measured audio peak (the normalization measurement).
  * Not a user edit — the project's updatedAt is deliberately untouched. */
 export async function updateClipAudioPeak(clipId: ClipId, peak: number): Promise<void> {
-  const db = await getDb()
-  const tx = db.transaction('clips', 'readwrite')
-  const clip = await tx.store.get(clipId)
-  if (!clip) {
-    await tx.done
-    return
-  }
   const audioPeak = Number.isFinite(peak) ? Math.max(0, Math.min(1, peak)) : 0
-  await completeTransaction([tx.store.put({ ...clip, audioPeak })], tx)
+  await editClipRecord(clipId, (clip) => ({ ...clip, audioPeak }))
 }
 
 export async function getProjectAudio(
@@ -1318,16 +1408,21 @@ export async function updateProjectAudioTrack(
 
 export async function reorderClips(projectId: ProjectId, clipIds: ClipId[]): Promise<Project> {
   const db = await getDb()
-  const project = await db.get('projects', projectId)
-  if (!project) throw new Error('Project not found')
+  const tx = db.transaction('projects', 'readwrite')
+  const project = await tx.store.get(projectId)
+  if (!project) {
+    await tx.done
+    throw new Error('Project not found')
+  }
 
   const set = new Set(project.clipIds)
   if (clipIds.length !== project.clipIds.length || clipIds.some((id) => !set.has(id))) {
+    await tx.done
     throw new Error('Invalid clip order')
   }
 
   const updated: Project = { ...project, clipIds, updatedAt: Date.now() }
-  await db.put('projects', updated)
+  await completeTransaction([tx.store.put(updated)], tx)
   return updated
 }
 
@@ -1349,8 +1444,7 @@ export async function moveClip(
 }
 
 export async function duplicateClip(clipId: ClipId): Promise<ClipRecord> {
-  const db = await getDb()
-  const source = await db.get('clips', clipId)
+  const source = await getClip(clipId)
   if (!source) throw new Error('Clip not found')
 
   const now = Date.now()
@@ -1362,7 +1456,8 @@ export async function duplicateClip(clipId: ClipId): Promise<ClipRecord> {
     source.poster ? toStoredBlob(source.poster) : Promise.resolve(undefined),
   ])
 
-  const tx = db.transaction(['clips', 'projects'], 'readwrite')
+  const db = await getDb()
+  const tx = db.transaction(['clips', 'media', 'projects'], 'readwrite')
   const clip = await tx.objectStore('clips').get(clipId)
   const project = clip
     ? await tx.objectStore('projects').get(clip.projectId)
@@ -1391,7 +1486,7 @@ export async function duplicateClip(clipId: ClipId): Promise<ClipRecord> {
 
   await completeTransaction(
     [
-      tx.objectStore('clips').put(copy),
+      ...putClipRecord(tx.objectStore('clips'), tx.objectStore('media'), copy),
       tx.objectStore('projects').put({
         ...project,
         clipIds,
@@ -1403,36 +1498,40 @@ export async function duplicateClip(clipId: ClipId): Promise<ClipRecord> {
   return copy
 }
 
+/**
+ * Remove a clip from its project, keeping its media for one-step undo. Only
+ * the newest deletion per project is undoable, so the media of the clip it
+ * supersedes is dropped here. All reads share the writing transaction: a
+ * stale project snapshot could otherwise drop a just-saved clip from
+ * clipIds and strand its record.
+ */
 export async function deleteClip(clipId: ClipId): Promise<DeletedClipSnapshot | null> {
   const db = await getDb()
-  const clip = await db.get('clips', clipId)
-  if (!clip) return null
-  const project = await db.get('projects', clip.projectId)
-  if (!project) return null
-
-  const index = project.clipIds.indexOf(clipId)
-  if (index < 0) return null
-
-  const snapshot: DeletedClipSnapshot = {
-    clip,
-    index,
-    deletedAt: Date.now(),
+  const tx = db.transaction(['clips', 'media', 'projects', 'undo'], 'readwrite')
+  const clip = await tx.objectStore('clips').get(clipId)
+  const project = clip ? await tx.objectStore('projects').get(clip.projectId) : undefined
+  const index = project?.clipIds.indexOf(clipId) ?? -1
+  if (!clip || !project || index < 0) {
+    await tx.done
+    return null
   }
+  const previous = await tx.objectStore('undo').get(project.id)
 
-  const clipIds = project.clipIds.filter((id) => id !== clipId)
-  const tx = db.transaction(['clips', 'projects', 'undo'], 'readwrite')
-  await completeTransaction(
-    [
-      tx.objectStore('clips').delete(clipId),
-      tx.objectStore('projects').put({
-        ...project,
-        clipIds,
-        updatedAt: Date.now(),
-      }),
-      tx.objectStore('undo').put(snapshot),
-    ],
-    tx,
-  )
+  const { blob: legacyBlob, ...meta } = clip
+  const snapshot: DeletedClipSnapshot = { clip: meta, index, deletedAt: Date.now() }
+  const media = tx.objectStore('media')
+  const ops: Array<Promise<unknown>> = [
+    tx.objectStore('clips').delete(clipId),
+    tx.objectStore('projects').put({
+      ...project,
+      clipIds: project.clipIds.filter((id) => id !== clipId),
+      updatedAt: Date.now(),
+    }),
+    tx.objectStore('undo').put(snapshot),
+  ]
+  if (legacyBlob) ops.push(media.put({ clipId, blob: legacyBlob }))
+  if (previous && previous.clip.id !== clipId) ops.push(media.delete(previous.clip.id))
+  await completeTransaction(ops, tx)
   return snapshot
 }
 
@@ -1440,22 +1539,20 @@ export async function deleteClip(clipId: ClipId): Promise<DeletedClipSnapshot | 
  * failed split so a real prior undo is not overwritten. */
 export async function discardClip(clipId: ClipId): Promise<boolean> {
   const db = await getDb()
-  const clip = await db.get('clips', clipId)
-  if (!clip) return false
-  const project = await db.get('projects', clip.projectId)
-  if (!project) return false
-
-  const index = project.clipIds.indexOf(clipId)
-  if (index < 0) return false
-
-  const clipIds = project.clipIds.filter((id) => id !== clipId)
-  const tx = db.transaction(['clips', 'projects'], 'readwrite')
+  const tx = db.transaction(['clips', 'media', 'projects'], 'readwrite')
+  const clip = await tx.objectStore('clips').get(clipId)
+  const project = clip ? await tx.objectStore('projects').get(clip.projectId) : undefined
+  if (!clip || !project || !project.clipIds.includes(clipId)) {
+    await tx.done
+    return false
+  }
   await completeTransaction(
     [
       tx.objectStore('clips').delete(clipId),
+      tx.objectStore('media').delete(clipId),
       tx.objectStore('projects').put({
         ...project,
-        clipIds,
+        clipIds: project.clipIds.filter((id) => id !== clipId),
         updatedAt: Date.now(),
       }),
     ],
@@ -1471,20 +1568,24 @@ export async function getUndoSnapshot(projectId: ProjectId): Promise<DeletedClip
 
 export async function undoDeleteLastClip(projectId: ProjectId): Promise<ClipRecord | null> {
   const db = await getDb()
-  const snapshot = await db.get('undo', projectId)
-  if (!snapshot) return null
-
-  const project = await db.get('projects', projectId)
-  if (!project) return null
+  const tx = db.transaction(['clips', 'media', 'projects', 'undo'], 'readwrite')
+  const snapshot = await tx.objectStore('undo').get(projectId)
+  const project = snapshot ? await tx.objectStore('projects').get(projectId) : undefined
+  const restored = snapshot
+    ? withMedia(snapshot.clip, await tx.objectStore('media').get(snapshot.clip.id))
+    : undefined
+  if (!snapshot || !project || !restored) {
+    await tx.done
+    return null
+  }
 
   const clipIds = [...project.clipIds]
   const insertAt = Math.min(snapshot.index, clipIds.length)
   clipIds.splice(insertAt, 0, snapshot.clip.id)
 
-  const tx = db.transaction(['clips', 'projects', 'undo'], 'readwrite')
   await completeTransaction(
     [
-      tx.objectStore('clips').put(snapshot.clip),
+      ...putClipRecord(tx.objectStore('clips'), tx.objectStore('media'), snapshot.clip),
       tx.objectStore('projects').put({
         ...project,
         clipIds,
@@ -1494,12 +1595,22 @@ export async function undoDeleteLastClip(projectId: ProjectId): Promise<ClipReco
     ],
     tx,
   )
-  return snapshot.clip
+  return restored
 }
 
+/** Drop the project's undo snapshot and the deleted clip's media with it. */
 export async function clearUndo(projectId: ProjectId): Promise<void> {
   const db = await getDb()
-  await db.delete('undo', projectId)
+  const tx = db.transaction(['undo', 'media'], 'readwrite')
+  const snapshot = await tx.objectStore('undo').get(projectId)
+  if (!snapshot) {
+    await tx.done
+    return
+  }
+  await completeTransaction(
+    [tx.objectStore('undo').delete(projectId), tx.objectStore('media').delete(snapshot.clip.id)],
+    tx,
+  )
 }
 
 export async function projectTotalDurationMs(projectId: ProjectId): Promise<number> {
@@ -1509,4 +1620,141 @@ export async function projectTotalDurationMs(projectId: ProjectId): Promise<numb
     const start = Math.max(0, Math.min(clip.trimStartMs, end))
     return sum + (end - start)
   }, 0)
+}
+
+function blobsBytes(blobs: ReadonlyArray<Blob | undefined>): number {
+  return blobs.reduce((sum, blob) => sum + (blob?.size ?? 0), 0)
+}
+
+function clipRecordBytes(clip: StoredClipRecord): number {
+  return blobsBytes([clip.blob, clip.poster, ...(clip.thumbs ?? [])])
+}
+
+export interface StorageRecords {
+  projects: Project[]
+  clips: StoredClipRecord[]
+  media: ClipMediaRecord[]
+  audio: ProjectAudioRecord[]
+  undo: DeletedClipSnapshot[]
+}
+
+export interface StorageScan {
+  /** Bytes each project holds: clip media and thumbnails, background
+   * music, and the media kept so the last clip delete can be undone. */
+  projectBytes: Map<ProjectId, number>
+  /** Records no project can reach — nothing in the app can show or use
+   * them, so deleting them is always safe. */
+  orphans: {
+    bytes: number
+    clipIds: ClipId[]
+    mediaIds: ClipId[]
+    audioProjectIds: ProjectId[]
+    undoProjectIds: ProjectId[]
+  }
+}
+
+/** Attribute every stored byte to a project, or to the orphan pile. */
+export function scanStorage(records: StorageRecords): StorageScan {
+  const listed = new Map(records.projects.map((project) => [project.id, new Set(project.clipIds)]))
+  const projectBytes = new Map<ProjectId, number>(records.projects.map((project) => [project.id, 0]))
+  const mediaBytes = new Map(records.media.map((media) => [media.clipId, media.blob.size]))
+  const claimedMedia = new Set<ClipId>()
+  const orphans: StorageScan['orphans'] = {
+    bytes: 0,
+    clipIds: [],
+    mediaIds: [],
+    audioProjectIds: [],
+    undoProjectIds: [],
+  }
+  const claim = (clipId: ClipId): number => {
+    if (claimedMedia.has(clipId)) return 0
+    claimedMedia.add(clipId)
+    return mediaBytes.get(clipId) ?? 0
+  }
+  const addToProject = (projectId: ProjectId, bytes: number) => {
+    projectBytes.set(projectId, (projectBytes.get(projectId) ?? 0) + bytes)
+  }
+
+  for (const clip of records.clips) {
+    const bytes = clipRecordBytes(clip) + claim(clip.id)
+    if (listed.get(clip.projectId)?.has(clip.id)) {
+      addToProject(clip.projectId, bytes)
+    } else {
+      orphans.clipIds.push(clip.id)
+      if (mediaBytes.has(clip.id)) orphans.mediaIds.push(clip.id)
+      orphans.bytes += bytes
+    }
+  }
+  for (const snapshot of records.undo) {
+    const projectId = snapshot.clip.projectId
+    const bytes = clipRecordBytes(snapshot.clip) + claim(snapshot.clip.id)
+    if (listed.has(projectId)) {
+      addToProject(projectId, bytes)
+    } else {
+      orphans.undoProjectIds.push(projectId)
+      if (mediaBytes.has(snapshot.clip.id)) orphans.mediaIds.push(snapshot.clip.id)
+      orphans.bytes += bytes
+    }
+  }
+  for (const audio of records.audio) {
+    const bytes = blobsBytes(audio.tracks.map((track) => track.blob))
+    if (listed.has(audio.projectId)) {
+      addToProject(audio.projectId, bytes)
+    } else {
+      orphans.audioProjectIds.push(audio.projectId)
+      orphans.bytes += bytes
+    }
+  }
+  for (const [clipId] of mediaBytes) {
+    if (claimedMedia.has(clipId)) continue
+    orphans.mediaIds.push(clipId)
+    orphans.bytes += claim(clipId)
+  }
+  return { projectBytes, orphans }
+}
+
+const INVENTORY_STORES = ['projects', 'clips', 'media', 'audio', 'undo'] as const
+
+async function readStorageRecords(
+  tx: IDBPTransaction<ClipsDB, typeof INVENTORY_STORES, IDBTransactionMode>,
+): Promise<StorageRecords> {
+  const [projects, clips, media, audio, undo] = await Promise.all([
+    tx.objectStore('projects').getAll(),
+    tx.objectStore('clips').getAll(),
+    tx.objectStore('media').getAll(),
+    tx.objectStore('audio').getAll(),
+    tx.objectStore('undo').getAll(),
+  ])
+  return { projects, clips, media, audio, undo }
+}
+
+/** Where this app's IndexedDB bytes go (Blob sizes only — no media is read). */
+export async function measureStorage(): Promise<StorageScan> {
+  const db = await getDb()
+  const tx = db.transaction(INVENTORY_STORES)
+  const records = await readStorageRecords(tx)
+  await tx.done
+  return scanStorage(records)
+}
+
+/**
+ * Delete every record no project can reach. One transaction over every
+ * store, so a clip being saved (always committed together with its
+ * project's clipIds) is either fully visible or not yet there — never
+ * mistaken for an orphan. Returns the bytes released.
+ */
+export async function reclaimOrphanedStorage(): Promise<number> {
+  const db = await getDb()
+  const tx = db.transaction(INVENTORY_STORES, 'readwrite')
+  const { orphans } = scanStorage(await readStorageRecords(tx))
+  await completeTransaction(
+    [
+      ...orphans.clipIds.map((id) => tx.objectStore('clips').delete(id)),
+      ...orphans.mediaIds.map((id) => tx.objectStore('media').delete(id)),
+      ...orphans.audioProjectIds.map((id) => tx.objectStore('audio').delete(id)),
+      ...orphans.undoProjectIds.map((id) => tx.objectStore('undo').delete(id)),
+    ],
+    tx,
+  )
+  return orphans.bytes
 }
