@@ -597,7 +597,7 @@ export function AboutPage(handle: Handle) {
               ) : null}
               {breakdown ? (
                 <li>
-                  <span>App files &amp; browser overhead</span>
+                  <span>App files &amp; space not yet released</span>
                   <strong>{formatBytes(breakdown.otherBytes)}</strong>
                 </li>
               ) : null}
@@ -605,9 +605,9 @@ export function AboutPage(handle: Handle) {
             {storage && breakdown && isOtherStorageNotable(breakdown, storage) ? (
               <p className="storage-other-note">
                 About {formatBytes(breakdown.otherBytes)} isn&rsquo;t part of any project. That is
-                usually space the browser hasn&rsquo;t released yet from clips edited on this
-                device &mdash; it frees it once Kody Video fully closes. Close the app completely
-                (swipe it away, and close the browser if it stays open), then reopen it.
+                usually space the browser hasn&rsquo;t released yet from earlier recordings and
+                clip edits &mdash; it frees it once Kody Video fully closes. Close the app
+                completely (swipe it away, and close the browser if it stays open), then reopen it.
               </p>
             ) : null}
             {cacheStatus ? (
