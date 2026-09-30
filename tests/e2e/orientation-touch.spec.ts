@@ -3,6 +3,7 @@ import {
   gotoHome,
   openNewProject,
   recordClip,
+  saveScreenshot,
   totalClipCount,
   unlockPlus,
   waitForCameraReady,
@@ -132,11 +133,7 @@ test.describe('export-cover preview (touch)', () => {
   test('camera, editor, and playback show the film-shaped cover crop', async ({
     page,
   }, testInfo) => {
-    const shot = async (name: string) => {
-      const file = testInfo.outputPath(`${name}.png`)
-      await page.screenshot({ path: file, fullPage: false })
-      await page.screenshot({ path: `/opt/cursor/artifacts/${name}.png`, fullPage: false })
-    }
+    const shot = (name: string) => saveScreenshot(page, testInfo, name)
 
     await openNewProject(page)
     await recordClip(page)
@@ -206,12 +203,7 @@ test.describe('export-cover preview (touch)', () => {
       .poll(() => preview.evaluate((el) => (el as HTMLVideoElement).videoWidth))
       .toBeGreaterThan(0)
     await expect(page.locator('.film-frame.is-letterbox')).toHaveCount(0)
-    const file = testInfo.outputPath('editor_landscape_clip_cropped.png')
-    await page.screenshot({ path: file, fullPage: false })
-    await page.screenshot({
-      path: '/opt/cursor/artifacts/editor_landscape_clip_cropped.png',
-      fullPage: false,
-    })
+    await saveScreenshot(page, testInfo, 'editor_landscape_clip_cropped')
 
     await page.getByRole('button', { name: 'Clip info' }).click()
     await expect(page.locator('.clip-info-sheet')).toBeVisible()
@@ -219,9 +211,6 @@ test.describe('export-cover preview (touch)', () => {
     await page.getByRole('button', { name: 'Close' }).click()
     await expect(page.locator('.film-frame.is-letterbox')).toBeVisible()
     await expect(page.getByRole('option', { name: /letterboxed/i })).toBeVisible()
-    await page.screenshot({
-      path: '/opt/cursor/artifacts/editor_landscape_clip_letterboxed.png',
-      fullPage: false,
-    })
+    await saveScreenshot(page, testInfo, 'editor_landscape_clip_letterboxed')
   })
 })

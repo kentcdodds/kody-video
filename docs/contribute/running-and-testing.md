@@ -38,6 +38,9 @@ npx playwright install chromium
 ```
 
 The e2e suite runs with a fake camera/mic, so it does not need real hardware.
+Specs that capture screenshots write them under `test-results/` (Playwright's
+per-test output dir). Set `E2E_SHOTS_DIR` to also copy them elsewhere, e.g.
+`E2E_SHOTS_DIR=/opt/cursor/artifacts npm run test:e2e` on Cursor Cloud VMs.
 See [manual-camera-testing.md](./manual-camera-testing.md) for driving the
 camera/record/export flow manually in a headless environment.
 
