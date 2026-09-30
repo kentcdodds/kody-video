@@ -102,7 +102,7 @@ for what it covers and the remaining real-device-only checks.
 
 ## Architecture
 
-Built with [Remix 3](https://github.com/remix-run/remix) (`remix@3.0.0-rc.2`,
+Built with [Remix 3](https://github.com/remix-run/remix) (`remix@3.0.0-rc.4`,
 pinned — v3 is a release candidate) as a pure client-side app: `remix/ui`
 components rendered with `createRoot`, no server rendering. Routing stays a
 tiny in-app `history` router (see `router.tsx`) rather than `remix/spa`, whose
