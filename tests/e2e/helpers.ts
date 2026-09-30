@@ -1,4 +1,22 @@
-import { expect, type Page } from '@playwright/test'
+import { copyFile, mkdir } from 'node:fs/promises'
+import path from 'node:path'
+import { expect, type Page, type TestInfo } from '@playwright/test'
+
+/** Screenshot into the test's output dir (under `test-results/`). Set
+ * `E2E_SHOTS_DIR` to also copy it somewhere collectable, e.g.
+ * `/opt/cursor/artifacts` on Cursor Cloud VMs. */
+export async function saveScreenshot(
+  page: Page,
+  testInfo: TestInfo,
+  name: string,
+): Promise<void> {
+  const file = testInfo.outputPath(`${name}.png`)
+  await page.screenshot({ path: file, fullPage: false })
+  const shotsDir = process.env.E2E_SHOTS_DIR
+  if (!shotsDir) return
+  await mkdir(shotsDir, { recursive: true })
+  await copyFile(file, path.join(shotsDir, `${name}.png`))
+}
 
 /** Visit home with onboarding already dismissed — nearly every spec wants
  * this, and the overlay lives on the project page, so setting the flag from
