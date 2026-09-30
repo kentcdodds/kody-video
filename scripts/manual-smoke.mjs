@@ -194,17 +194,34 @@ try {
   if (overlayShown) pass('Go opens full-screen export overlay')
   else fail('Go opens full-screen export overlay')
 
+  // blitPreview caps the long edge at 480, so a portrait export's preview is
+  // narrower than the 300px canvas default — check for real pixels instead.
+  // Sampling via a tiny scratch canvas avoids reading back the preview itself,
+  // which is also the encode canvas on the realtime path.
   const previewPainted = await page
     .waitForFunction(
       () => {
         const canvas = document.querySelector('.export-preview-canvas')
-        return canvas && canvas.width > 300
+        if (!canvas || (canvas.width === 300 && canvas.height === 150)) return false
+        const sample = document.createElement('canvas')
+        sample.width = 16
+        sample.height = 16
+        const ctx = sample.getContext('2d', { willReadFrequently: true })
+        ctx.drawImage(canvas, 0, 0, 16, 16)
+        const data = ctx.getImageData(0, 0, 16, 16).data
+        for (let i = 0; i < data.length; i += 4) {
+          if (data[i] + data[i + 1] + data[i + 2] > 0) {
+            return `${canvas.width}x${canvas.height}`
+          }
+        }
+        return false
       },
+      undefined,
       { timeout: 15000 },
     )
-    .then(() => true)
-    .catch(() => false)
-  if (previewPainted) pass('export overlay shows encoded frames')
+    .then((handle) => handle.jsonValue())
+    .catch(() => null)
+  if (previewPainted) pass('export overlay shows encoded frames', previewPainted)
   else fail('export overlay shows encoded frames')
 
   const exportDialog = page.getByRole('dialog', { name: /share project/i })
