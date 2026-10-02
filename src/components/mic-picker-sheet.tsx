@@ -1,5 +1,5 @@
-import type { Handle } from 'remix/ui'
-import { on, ref } from 'remix/ui'
+import type { Handle } from 'remix/component'
+import { on, ref } from 'remix/component'
 import type { AudioInputOption } from '../lib/audio-input'
 import { attachSheetModal } from '../lib/sheet-modal'
 

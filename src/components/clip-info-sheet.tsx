@@ -1,5 +1,5 @@
-import type { Handle } from 'remix/ui'
-import { on, ref } from 'remix/ui'
+import type { Handle } from 'remix/component'
+import { on, ref } from 'remix/component'
 import { canSplitClip, clipHasUnusedMedia } from '../lib/clip-edit'
 import { planClipQualityReduction } from '../lib/clip-quality'
 import { buildClipFacts } from '../lib/clip-facts'

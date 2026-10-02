@@ -1,5 +1,5 @@
-import type { Handle } from 'remix/ui'
-import { on, ref } from 'remix/ui'
+import type { Handle } from 'remix/component'
+import { on, ref } from 'remix/component'
 import { IconBack } from '../components/icons'
 import { BrandMark } from '../components/brand-mark'
 import { SharePlusSheet } from '../components/share-plus-sheet'

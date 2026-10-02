@@ -6,7 +6,7 @@ export default defineConfig({
   // Pre-bundle everything the component tests pull in — a dependency
   // discovered mid-run makes Vite reload the page and re-run tests.
   optimizeDeps: {
-    include: ['remix/ui/jsx-dev-runtime'],
+    include: ['remix/component/jsx-dev-runtime'],
   },
   test: {
     // Unit tests only — tests/e2e belongs to Playwright.

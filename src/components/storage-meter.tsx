@@ -1,6 +1,6 @@
-import type { Handle } from 'remix/ui'
-import { on } from 'remix/ui'
-import * as Popover from 'remix/ui/popover'
+import type { Handle } from 'remix/component'
+import { on } from 'remix/component'
+import * as Popover from '@remix-run/ui/popover'
 import {
   formatBytes,
   formatStoragePercent,

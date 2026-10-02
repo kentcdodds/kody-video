@@ -1,5 +1,5 @@
-import type { Handle } from 'remix/ui'
-import { on, ref } from 'remix/ui'
+import type { Handle } from 'remix/component'
+import { on, ref } from 'remix/component'
 import { AUDIO_FILE_ACCEPT, AudioImportError } from '../lib/audio-import'
 import { reportError } from '../lib/error-reporting'
 import {

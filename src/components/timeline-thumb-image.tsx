@@ -1,5 +1,5 @@
-import type { Handle, MixValue } from 'remix/ui'
-import { ref } from 'remix/ui'
+import type { Handle, MixValue } from 'remix/component'
+import { ref } from 'remix/component'
 import { createBlobUrlBinder } from '../lib/blob-url'
 
 interface TimelineThumbImageProps {

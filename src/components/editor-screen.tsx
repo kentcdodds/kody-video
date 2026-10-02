@@ -1,5 +1,5 @@
-import type { Handle, RemixNode } from 'remix/ui'
-import { on, ref } from 'remix/ui'
+import type { Handle, RemixNode } from 'remix/component'
+import { on, ref } from 'remix/component'
 import '../styles/editor.css'
 import {
   DEVICE_CLIP_ACCEPT,

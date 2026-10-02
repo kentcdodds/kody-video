@@ -1,5 +1,5 @@
-import type { Handle } from 'remix/ui'
-import { ref } from 'remix/ui'
+import type { Handle } from 'remix/component'
+import { ref } from 'remix/component'
 import { formatDuration } from '../lib/types'
 
 interface RecordTimerProps {

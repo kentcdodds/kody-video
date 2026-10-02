@@ -23,7 +23,7 @@ export default defineConfig({
   },
   esbuild: {
     jsx: 'automatic',
-    jsxImportSource: 'remix/ui',
+    jsxImportSource: 'remix/component',
   },
   plugins: [
     syncApiPlugin(),

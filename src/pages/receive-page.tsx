@@ -1,5 +1,5 @@
-import type { Handle } from 'remix/ui'
-import { on } from 'remix/ui'
+import type { Handle } from 'remix/component'
+import { on } from 'remix/component'
 import { IconBack } from '../components/icons'
 import { BrandMark } from '../components/brand-mark'
 import { isSendCancelledAbort, reportError } from '../lib/error-reporting'

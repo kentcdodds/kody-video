@@ -1,5 +1,5 @@
-import type { Handle } from 'remix/ui'
-import { on } from 'remix/ui'
+import type { Handle } from 'remix/component'
+import { on } from 'remix/component'
 import {
   VIDEO_QUALITY_IDS,
   VIDEO_QUALITY_PRESETS,

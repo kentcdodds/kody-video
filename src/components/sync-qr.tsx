@@ -1,4 +1,4 @@
-import type { Handle } from 'remix/ui'
+import type { Handle } from 'remix/component'
 import { qrSvgDataUrl } from '../lib/sync-qr-svg'
 
 interface SyncQrProps {

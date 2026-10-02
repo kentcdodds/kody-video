@@ -1,5 +1,5 @@
-import type { Handle } from 'remix/ui'
-import { on } from 'remix/ui'
+import type { Handle } from 'remix/component'
+import { on } from 'remix/component'
 import { registerSW } from 'virtual:pwa-register'
 import { BackupDropOverlay } from './components/backup-drop-overlay'
 import { lazyPage } from './components/lazy-page'
