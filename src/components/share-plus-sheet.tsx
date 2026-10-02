@@ -1,5 +1,5 @@
-import type { Handle } from 'remix/ui'
-import { on, ref } from 'remix/ui'
+import type { Handle } from 'remix/component'
+import { on, ref } from 'remix/component'
 import { attachSheetModal } from '../lib/sheet-modal'
 import { pairingHint, pairingHref } from '../lib/pairing-href'
 import { formatRoomCode } from '../lib/sync-protocol'

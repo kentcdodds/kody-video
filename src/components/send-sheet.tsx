@@ -1,5 +1,5 @@
-import type { Handle } from 'remix/ui'
-import { on, ref } from 'remix/ui'
+import type { Handle } from 'remix/component'
+import { on, ref } from 'remix/component'
 import { attachSheetModal } from '../lib/sheet-modal'
 import { isSendCancelledAbort, reportError } from '../lib/error-reporting'
 import { formatRoomCode, type SyncPhase } from '../lib/sync-protocol'

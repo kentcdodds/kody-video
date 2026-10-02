@@ -1,5 +1,5 @@
-import type { Handle } from 'remix/ui'
-import { on } from 'remix/ui'
+import type { Handle } from 'remix/component'
+import { on } from 'remix/component'
 import { EditorScreen } from '../components/editor-screen'
 import { ExportOverlay } from '../components/export-overlay'
 import { ExportSheet, type ExportStatus } from '../components/export-sheet'

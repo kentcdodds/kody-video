@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { createElement, createRoot, type Handle } from 'remix/ui'
+import { createElement, createRoot, type Handle } from 'remix/component'
 
 /**
  * Regression for Sentry 7685051724: a sync handle.update() kicked from setup

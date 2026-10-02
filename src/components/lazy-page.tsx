@@ -1,5 +1,5 @@
-import type { Handle, RemixNode } from 'remix/ui'
-import { on } from 'remix/ui'
+import type { Handle, RemixNode } from 'remix/component'
+import { on } from 'remix/component'
 import { reportError } from '../lib/error-reporting'
 import { canPurgeCachesOnRecover } from '../lib/pwa-boot'
 

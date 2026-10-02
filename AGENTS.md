@@ -4,7 +4,8 @@ Kody Video is a mobile-first, on-device PWA "clips camera": hold to record clips
 
 ## Remix docs
 
-The app is built on the pinned `remix` package (`remix/ui` + `remix/route-pattern`).
+The app is built on the pinned `remix` package (`remix/component` + `remix/route-pattern`),
+plus headless popover primitives from `@remix-run/ui` (v0.x, pinned).
 For API docs that match the installed version, start from
 `node_modules/remix/INDEX.md` (guides + per-export READMEs) instead of hosted docs.
 

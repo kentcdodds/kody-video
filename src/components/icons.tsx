@@ -1,6 +1,6 @@
 /** Cohesive stroke icon set (24×24 viewBox, ~2–3px padding, optical balance). */
 
-import type { Handle } from 'remix/ui'
+import type { Handle } from 'remix/component'
 
 interface IconProps {
   size?: number

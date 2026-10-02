@@ -1,5 +1,5 @@
 import { createMultiMatcher } from 'remix/route-pattern/match'
-import type { Handle, RemixNode } from 'remix/ui'
+import type { Handle, RemixNode } from 'remix/component'
 
 /**
  * Minimal client-side router for a pure SPA.

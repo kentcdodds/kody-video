@@ -1,6 +1,6 @@
 // Must run before Router / @remix-run/route-pattern (KODY-VIDEO-M).
 import './lib/array-at-polyfill'
-import { createRoot } from 'remix/ui'
+import { createRoot } from 'remix/component'
 import { App } from './app'
 import { stripUpdateNavigationMark } from './lib/app-update'
 import { initErrorReporting, reportComponentError } from './lib/error-reporting'
