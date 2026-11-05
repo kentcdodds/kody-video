@@ -367,7 +367,8 @@ export function drawFitFrom(
 
 /**
  * Pick output dimensions from the first clip's real pixel size: preserve its
- * aspect ratio, cap the long edge at 1920 (1080p), never upscale, keep dims even.
+ * aspect ratio, cap the long edge at `maxLongEdge` (1920 = 1080p by default;
+ * smaller export sizes pass less), never upscale, keep dims even.
  *
  * When the project carries an explicit `orientation`, the output must match
  * it regardless of what the first clip happens to be: a mismatched source
@@ -380,6 +381,7 @@ export function pickOutputSize(
   sourceWidth: number,
   sourceHeight: number,
   orientation?: ProjectOrientation,
+  maxLongEdge: number = VIDEO_LONG_EDGE,
 ): {
   width: number
   height: number
@@ -392,7 +394,7 @@ export function pickOutputSize(
   ) {
     ;[w, h] = [h, w]
   }
-  const scale = Math.min(1, VIDEO_LONG_EDGE / Math.max(w, h))
+  const scale = Math.min(1, Math.min(maxLongEdge, VIDEO_LONG_EDGE) / Math.max(w, h))
   const even = (n: number) => Math.max(2, 2 * Math.round((n * scale) / 2))
   return { width: even(w), height: even(h) }
 }

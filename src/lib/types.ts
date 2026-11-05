@@ -214,6 +214,16 @@ export function clipMusicVolume(clip: Pick<ClipMeta, 'musicVolume'>): number {
   return clampVolume(clip.musicVolume ?? 1)
 }
 
+/** Output frame cap chosen when exporting. Full keeps the film's own size
+ * (≤1080p); the others only ever scale down. */
+export type ExportSize = 'full' | '720p' | '480p'
+
+export const EXPORT_SIZE_IDS = ['full', '720p', '480p'] as const satisfies readonly ExportSize[]
+
+export function resolveExportSize(value: unknown): ExportSize {
+  return value === '720p' || value === '480p' ? value : 'full'
+}
+
 export interface AppMeta {
   key: 'settings'
   maxProjects: number
@@ -243,6 +253,8 @@ export interface AppMeta {
    * Does not rewrite already-saved clips. Frame rate stays 30 either way.
    */
   videoQuality?: 'high' | 'standard' | 'saver'
+  /** Last-used export size preset (missing = full, the film's own size). */
+  exportSize?: ExportSize
   /** The persisted last export (OPFS-backed), recoverable after the share
    * sheet is missed — and served instantly when nothing changed. */
   lastExport?: {

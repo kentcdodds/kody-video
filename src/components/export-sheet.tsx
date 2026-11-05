@@ -1,8 +1,11 @@
 import type { Handle } from 'remix/component'
 import { on, ref } from 'remix/component'
+import type { ExportSizeOption } from '../lib/export/export-size'
 import { projectFilename } from '../lib/media'
+import type { ExportSize } from '../lib/types'
 import { attachSheetModal } from '../lib/sheet-modal'
 import { BrandMark } from './brand-mark'
+import { ExportSizePicker } from './export-size-picker'
 
 export type ExportStatus = 'exporting' | 'ready' | 'error'
 
@@ -43,6 +46,11 @@ interface ExportSheetProps {
   /** True when the name is still the generated "Project N". */
   nameIsDefault: boolean
   onRename: (name: string) => void
+  /** Size presets this film can use (picker hidden when only Full fits). */
+  sizeOptions: readonly ExportSizeOption[]
+  exportSize: ExportSize
+  /** Pick a different size: re-exports at it right away. */
+  onExportSizeChange: (size: ExportSize) => void
   onKeepWatermarkChange: (keep: boolean) => void
   onIncludeLocationChange: (include: boolean) => void
   onShare: () => void
@@ -89,6 +97,9 @@ export function ExportSheet(handle: Handle<ExportSheetProps>) {
       usedFallback,
       busy,
       nameIsDefault,
+      sizeOptions,
+      exportSize,
+      onExportSizeChange,
       onKeepWatermarkChange,
       onIncludeLocationChange,
       onShare,
@@ -154,6 +165,21 @@ export function ExportSheet(handle: Handle<ExportSheetProps>) {
                   </p>
                 ) : null}
               </div>
+              {sizeOptions.length > 1 ? (
+                <div className="export-size-field">
+                  <p className="export-size-field-label">Size</p>
+                  <ExportSizePicker
+                    options={sizeOptions}
+                    value={exportSize}
+                    actualBytes={fileSizeBytes}
+                    disabled={busy}
+                    onChange={(size) => {
+                      flushName()
+                      onExportSizeChange(size)
+                    }}
+                  />
+                </div>
+              ) : null}
               {showFallbackHint
                 ? fallbackHint({
                     busy,

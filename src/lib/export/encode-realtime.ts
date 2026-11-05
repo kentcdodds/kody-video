@@ -55,6 +55,8 @@ export interface RealtimeExportOptions {
   /** Force the output into the project's orientation (absent = follow the
    * first clip). */
   orientation?: ProjectOrientation
+  /** Output long-edge cap for a smaller export size (default 1080p). */
+  maxLongEdge?: number
   /** Stop the stitcher as soon as the user cancels (Stop or a pref change). */
   signal?: AbortSignal
 }
@@ -74,7 +76,12 @@ export async function exportRealtime(
   try {
     if (isImageClip(probeClip)) {
       const bitmap = await loadClipImage(probeClip.blob)
-      ;({ width, height } = pickOutputSize(bitmap.width, bitmap.height, options.orientation))
+      ;({ width, height } = pickOutputSize(
+        bitmap.width,
+        bitmap.height,
+        options.orientation,
+        options.maxLongEdge,
+      ))
       bitmap.close()
     } else {
       const probe = await loadClipVideo(probeClip.blob, 8000, probeClip.mimeType)
@@ -82,6 +89,7 @@ export async function exportRealtime(
         probe.video.videoWidth,
         probe.video.videoHeight,
         options.orientation,
+        options.maxLongEdge,
       ))
       probe.release()
     }
@@ -93,6 +101,7 @@ export async function exportRealtime(
         probeClip.width!,
         probeClip.height!,
         options.orientation,
+        options.maxLongEdge,
       ))
     } else {
       throw tagExportError(error, { engine: 'realtime', where: 'probe-size', clipIndex: 0 })

@@ -40,6 +40,7 @@ import {
   setOnboardingDismissed,
   setProjectOrientation,
   setTourCardDismissed,
+  setExportSize,
   setKeepWatermark,
   setVideoQuality,
   STORAGE_QUOTA_MESSAGE,
@@ -312,6 +313,14 @@ describe('storage layer', () => {
     expect((await getSettings()).keepWatermark).toBe(true)
     await setKeepWatermark(false)
     expect((await getSettings()).keepWatermark).toBe(false)
+  })
+
+  it('defaults exportSize to Full and remembers the picked size', async () => {
+    expect((await getSettings()).exportSize).toBeUndefined()
+    await setExportSize('480p')
+    expect((await getSettings()).exportSize).toBe('480p')
+    await setExportSize('full')
+    expect((await getSettings()).exportSize).toBe('full')
   })
 
   it('serializes overlapping mark and location pref writes', async () => {

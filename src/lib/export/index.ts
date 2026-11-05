@@ -1,10 +1,11 @@
 import { reportError } from '../error-reporting'
-import type { ClipRecord, ProjectOrientation } from '../types'
+import type { ClipRecord, ExportSize, ProjectOrientation } from '../types'
 import type { BackgroundAudio } from './background-audio'
 import { ExportCancelledError, isExportCancelled, throwIfExportAborted } from './cancelled'
 import { exportRealtime } from './encode-realtime'
 import { exportWithWebCodecs, supportsWebCodecsExport } from './encode-webcodecs'
 import { sweepExportCache, withExportCacheReserved } from './export-cache'
+import { EXPORT_SIZE_LONG_EDGE } from './export-size'
 import { planExport } from './plan'
 import {
   AUDIO_SILENCE_PEAK,
@@ -52,6 +53,8 @@ export interface ExportOptions {
   /** Force the output into the project's orientation. Portrait and
    * landscape both pin the canvas; absent still follows the first clip. */
   orientation?: ProjectOrientation
+  /** Output size preset; Full (default) keeps the film's size up to 1080p. */
+  size?: ExportSize
   /**
    * Fired once when the export enters the realtime canvas + MediaRecorder
    * path (no WebCodecs, or WebCodecs failed). Lets the UI offer a backup /
@@ -110,6 +113,7 @@ async function runExport(
         options.includeLocation === true,
         options.signal,
         options.projectName ?? '',
+        EXPORT_SIZE_LONG_EDGE[options.size ?? 'full'],
       )
       reportSilentExportAudio({ engine: 'webcodecs', outputMime: result.mimeType })
       reportBlackExportVideo({ engine: 'webcodecs', outputMime: result.mimeType })
@@ -144,6 +148,7 @@ async function runExport(
     watermarkImage,
     background: options.background,
     orientation: options.orientation,
+    maxLongEdge: EXPORT_SIZE_LONG_EDGE[options.size ?? 'full'],
     signal: options.signal,
   })
   reportSilentExportAudio({ engine: 'realtime', outputMime: result.mimeType })

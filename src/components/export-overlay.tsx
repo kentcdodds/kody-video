@@ -1,5 +1,8 @@
 import type { Handle } from 'remix/component'
 import { on, ref } from 'remix/component'
+import type { ExportSizeOption } from '../lib/export/export-size'
+import type { ExportSize } from '../lib/types'
+import { ExportSizePicker } from './export-size-picker'
 
 interface ExportOverlayProps {
   projectName: string
@@ -22,6 +25,12 @@ interface ExportOverlayProps {
   keepWatermark: boolean
   includeLocation: boolean
   hasTaggedClips: boolean
+  /** Size presets this film can use (picker hidden when only Full fits). */
+  sizeOptions: readonly ExportSizeOption[]
+  exportSize: ExportSize
+  /** "About 2 min left" once progress gives a stable estimate. */
+  timeLeft: string | null
+  onExportSizeChange: (size: ExportSize) => void
   /** Bound to the canvas the export engines mirror sampled frames onto. */
   bindPreviewCanvas: (canvas: HTMLCanvasElement | null) => void
   onStop: () => void
@@ -48,6 +57,10 @@ export function ExportOverlay(handle: Handle<ExportOverlayProps>) {
       keepWatermark,
       includeLocation,
       hasTaggedClips,
+      sizeOptions,
+      exportSize,
+      timeLeft,
+      onExportSizeChange,
       onStop,
       onKeepWatermarkChange,
       onIncludeLocationChange,
@@ -116,6 +129,19 @@ export function ExportOverlay(handle: Handle<ExportOverlayProps>) {
           <p className="export-percent" aria-live="polite">
             {percent}%
           </p>
+          <p className="export-eta">{timeLeft ?? '\u00a0'}</p>
+          {sizeOptions.length > 1 ? (
+            <div className="export-overlay-size">
+              <ExportSizePicker
+                options={sizeOptions}
+                value={exportSize}
+                onChange={onExportSizeChange}
+              />
+              <p className="export-overlay-pref-hint muted">
+                Changing the size starts the export over.
+              </p>
+            </div>
+          ) : null}
           {purchased ? (
             <div className="export-overlay-prefs">
               <label className="export-pref-toggle">
