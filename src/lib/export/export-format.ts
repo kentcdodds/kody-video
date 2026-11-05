@@ -61,7 +61,8 @@ export function probeExportFormats(): Promise<ExportFormatSupport> {
 }
 
 async function detectExportFormats(): Promise<ExportFormatSupport> {
-  const size = { width: 1280, height: 720 }
+  // Full-size landscape 1080p: the largest frame an export encodes.
+  const size = { width: 1920, height: 1080 }
   if (typeof VideoEncoder !== 'undefined') {
     const mp4 = (await getFirstEncodableVideoCodec(['avc', 'hevc'], size)) !== null
     const webm =

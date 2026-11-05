@@ -474,8 +474,12 @@ export function ProjectPage(handle: Handle<ProjectPageProps>) {
         // bypasses this (force) and always renders fresh.
         if (!options?.force && project) {
           const recovered = await loadMatchingExport(project.id, signature).catch(() => null)
+          const support = await probeExportFormats()
           if (exportRun !== runId) return
-          if (recovered) {
+          // MP4 signatures predate the format choice, so a cache from back when
+          // this browser could only make WebM still matches: re-render it as
+          // MP4 unless MP4 is still out of reach here.
+          if (recovered && (recovered.result.fileExtension === format || !support[format])) {
             setExportState({
               status: 'ready',
               progress: 1,

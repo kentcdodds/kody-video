@@ -204,9 +204,6 @@ export default defineConfig({
           '**/og-image.png',
           '**/art/kody-video-icon.png',
           '**/*.map',
-          // WASM AAC encoder: only browsers with H.264 but no native AAC
-          // encoder (Linux Chrome, Firefox) fetch it, on demand at export.
-          '**/mediabunny-aac-encoder-*.js',
           // Network-only: About / resume probes compare this to the running
           // bundle SHA. Precaching it would make a stale shell look current.
           '**/version.json',
