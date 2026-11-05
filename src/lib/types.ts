@@ -220,6 +220,13 @@ export type ExportSize = 'full' | '720p' | '480p'
 
 export const EXPORT_SIZE_IDS = ['full', '720p', '480p'] as const satisfies readonly ExportSize[]
 
+/** Export container: MP4 (H.264 + AAC) by default, or WebM (VP9/VP8 + Opus). */
+export type ExportFormat = 'mp4' | 'webm'
+
+export function resolveExportFormat(value: unknown): ExportFormat {
+  return value === 'webm' ? 'webm' : 'mp4'
+}
+
 export function resolveExportSize(value: unknown): ExportSize {
   return value === '720p' || value === '480p' ? value : 'full'
 }
@@ -255,6 +262,7 @@ export interface AppMeta {
   videoQuality?: 'high' | 'standard' | 'saver'
   /** Last-used export size preset (missing = full, the film's own size). */
   exportSize?: ExportSize
+  exportFormat?: ExportFormat
   /** The persisted last export (OPFS-backed), recoverable after the share
    * sheet is missed — and served instantly when nothing changed. */
   lastExport?: {

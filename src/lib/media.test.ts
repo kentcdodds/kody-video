@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
   fileFromBlob,
+  pickRecorderMimeType,
   pickRecordingMimeType,
   projectFilename,
   resetRecordingMimeTypeForTests,
@@ -26,6 +27,25 @@ afterEach(() => {
   resetRecordingMimeTypeForTests()
   FakeMediaRecorder.probes = []
   FakeMediaRecorder.supported = new Set()
+})
+
+describe('pickRecorderMimeType', () => {
+  it('prefers H.264 + AAC MP4 when asked, never MP4 with Opus', () => {
+    FakeMediaRecorder.supported = new Set([
+      'video/webm;codecs=vp9,opus',
+      'video/mp4;codecs=avc1,mp4a.40.2',
+      'video/mp4',
+    ])
+    vi.stubGlobal('MediaRecorder', FakeMediaRecorder)
+    expect(pickRecorderMimeType('mp4')).toBe('video/mp4;codecs=avc1,mp4a.40.2')
+    expect(pickRecorderMimeType('webm')).toBe('video/webm;codecs=vp9,opus')
+  })
+
+  it('falls back to WebM when the recorder has no AAC MP4', () => {
+    FakeMediaRecorder.supported = new Set(['video/webm;codecs=vp9,opus', 'video/mp4'])
+    vi.stubGlobal('MediaRecorder', FakeMediaRecorder)
+    expect(pickRecorderMimeType('mp4')).toBe('video/webm;codecs=vp9,opus')
+  })
 })
 
 describe('pickRecordingMimeType', () => {

@@ -7,6 +7,7 @@ import {
   clipSoundVolume,
   isImageClip,
   resolveAudioTrackPlayback,
+  type ExportFormat,
   type ProjectOrientation,
 } from '../types'
 import {
@@ -57,6 +58,8 @@ export interface RealtimeExportOptions {
   orientation?: ProjectOrientation
   /** Output long-edge cap for a smaller export size (default 1080p). */
   maxLongEdge?: number
+  /** Preferred recorder container (falls back to whatever records). */
+  format?: ExportFormat
   /** Stop the stitcher as soon as the user cancels (Stop or a pref change). */
   signal?: AbortSignal
 }
@@ -276,7 +279,7 @@ export async function exportRealtime(
     ...(dest?.stream.getAudioTracks() ?? []),
   ])
 
-  const mimeType = pickRecorderMimeType()
+  const mimeType = pickRecorderMimeType(options.format)
   let recorder: MediaRecorder
   try {
     recorder = mimeType

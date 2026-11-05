@@ -13,6 +13,7 @@ import {
   clipMusicVolume,
   clipSoundVolume,
   type ClipRecord,
+  type ExportFormat,
   type ExportSize,
   type ProjectAudioRecord,
   type ProjectId,
@@ -33,12 +34,15 @@ export function exportSignature(
   includeLocation = false,
   projectName = '',
   size: ExportSize = 'full',
+  format: ExportFormat = 'mp4',
 ): string {
   return JSON.stringify({
     watermarked,
     // Full is the default; only a smaller preset changes the pixels, so
     // caches from before size presets existed stay reusable.
     ...(size === 'full' ? {} : { size }),
+    // MP4 is the default; caches from before the format choice stay reusable.
+    ...(format === 'mp4' ? {} : { format }),
     // Sign explicitly, including false, to invalidate legacy cached exports
     // that may contain location metadata before this privacy control existed.
     includeLocation,

@@ -1,5 +1,5 @@
 import { reportError } from '../error-reporting'
-import type { ClipRecord, ExportSize, ProjectOrientation } from '../types'
+import type { ClipRecord, ExportFormat, ExportSize, ProjectOrientation } from '../types'
 import type { BackgroundAudio } from './background-audio'
 import { ExportCancelledError, isExportCancelled, throwIfExportAborted } from './cancelled'
 import { exportRealtime } from './encode-realtime'
@@ -55,6 +55,8 @@ export interface ExportOptions {
   orientation?: ProjectOrientation
   /** Output size preset; Full (default) keeps the film's size up to 1080p. */
   size?: ExportSize
+  /** Preferred container; falls back to the other when this browser can't encode it. */
+  format?: ExportFormat
   /**
    * Fired once when the export enters the realtime canvas + MediaRecorder
    * path (no WebCodecs, or WebCodecs failed). Lets the UI offer a backup /
@@ -114,6 +116,7 @@ async function runExport(
         options.signal,
         options.projectName ?? '',
         EXPORT_SIZE_LONG_EDGE[options.size ?? 'full'],
+        options.format ?? 'mp4',
       )
       reportSilentExportAudio({ engine: 'webcodecs', outputMime: result.mimeType })
       reportBlackExportVideo({ engine: 'webcodecs', outputMime: result.mimeType })
@@ -149,6 +152,7 @@ async function runExport(
     background: options.background,
     orientation: options.orientation,
     maxLongEdge: EXPORT_SIZE_LONG_EDGE[options.size ?? 'full'],
+    format: options.format ?? 'mp4',
     signal: options.signal,
   })
   reportSilentExportAudio({ engine: 'realtime', outputMime: result.mimeType })

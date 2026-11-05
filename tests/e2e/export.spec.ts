@@ -218,6 +218,109 @@ test.describe('Go / export', () => {
     ).toHaveAttribute('aria-checked', 'true')
   })
 
+  test('format choice: MP4 (H.264 + AAC) by default, WebM on request, remembered', async ({
+    page,
+  }) => {
+    await openSeededProject(page, { clips: 2, clipMs: 1500 })
+    await page.locator('.go-button').click()
+    await exportReady(page)
+
+    const sheet = page.locator('.export-sheet')
+    const formats = sheet.getByRole('radiogroup', { name: 'Export format' })
+    await expect(formats.getByRole('radio', { name: 'MP4' })).toHaveAttribute('aria-checked', 'true')
+    await expect(sheet).toContainText(/MP4 · .+B/)
+    await expect(sheet).toContainText(/Saves as project-1\.mp4/)
+
+    const inspectLastExport = () =>
+      page.evaluate(async () => {
+        const storage = await import('/src/lib/storage.ts')
+        const name = (await storage.getSettings()).lastExport?.opfsName
+        if (!name) throw new Error('no last export')
+        const root = await navigator.storage.getDirectory()
+        const dir = await root.getDirectoryHandle('exports')
+        const file = await (await dir.getFileHandle(name)).getFile()
+        const bytes = new Uint8Array(await file.arrayBuffer())
+        const ascii = new TextDecoder('latin1').decode(bytes)
+        const ebml = bytes[0] === 0x1a && bytes[1] === 0x45 && bytes[2] === 0xdf && bytes[3] === 0xa3
+        const video = document.createElement('video')
+        video.muted = true
+        video.src = URL.createObjectURL(file)
+        await new Promise<void>((resolve, reject) => {
+          video.onloadedmetadata = () => resolve()
+          video.onerror = () => reject(new Error('export failed to load'))
+        })
+        await video.play()
+        await new Promise((resolve) => setTimeout(resolve, 300))
+        const advanced = video.currentTime > 0
+        video.pause()
+        URL.revokeObjectURL(video.src)
+        return {
+          container: ascii.slice(4, 8) === 'ftyp' ? 'mp4' : ebml ? 'webm' : 'unknown',
+          h264: ascii.includes('avcC'),
+          aac: ascii.includes('mp4a'),
+          opus: ascii.includes('A_OPUS'),
+          advanced,
+        }
+      })
+
+    expect(await inspectLastExport()).toEqual({
+      container: 'mp4',
+      h264: true,
+      aac: true,
+      opus: false,
+      advanced: true,
+    })
+
+    // Picking WebM re-exports in it right away, and the choice is remembered.
+    await formats.getByRole('radio', { name: 'WebM' }).click()
+    await expect(page.getByText('Done! Your video is ready')).toBeHidden()
+    await exportReady(page)
+    await expect(formats.getByRole('radio', { name: 'WebM' })).toHaveAttribute('aria-checked', 'true')
+    await expect(sheet).toContainText(/Saves as project-1\.webm/)
+    expect(await inspectLastExport()).toMatchObject({ container: 'webm', opus: true, advanced: true })
+    await expect
+      .poll(() =>
+        page.evaluate(async () => {
+          const storage = await import('/src/lib/storage.ts')
+          const settings = await storage.getSettings()
+          const signature = settings.lastExport?.signature
+          return [settings.exportFormat, signature ? JSON.parse(signature).format : null]
+        }),
+      )
+      .toEqual(['webm', 'webm'])
+
+    // Back to MP4 after a reload: the WebM cache is not reused for an MP4 Go.
+    await sheet.getByRole('button', { name: 'Done' }).click()
+    await page.reload()
+    await waitForCameraReady(page)
+    await page.locator('.go-button').click()
+    await expect(page.getByText(/Restored your last export/)).toBeVisible({ timeout: 8_000 })
+    await expect(formats.getByRole('radio', { name: 'WebM' })).toHaveAttribute('aria-checked', 'true')
+    await formats.getByRole('radio', { name: 'MP4' }).click()
+    await expect(page.getByText('Done! Your video is ready')).toBeHidden()
+    await exportReady(page)
+    await expect(sheet).toContainText(/Saves as project-1\.mp4/)
+    expect(await inspectLastExport()).toMatchObject({ container: 'mp4', aac: true, advanced: true })
+  })
+
+  test('browsers without an H.264 encoder export WebM and say so', async ({ page }) => {
+    await page.addInitScript(() => {
+      const original = VideoEncoder.isConfigSupported.bind(VideoEncoder)
+      VideoEncoder.isConfigSupported = async (config) =>
+        /^(avc|hvc|hev)/.test(config.codec) ? { supported: false, config } : original(config)
+    })
+    await openSeededProject(page, { clips: 1, clipMs: 1500 })
+    await page.locator('.go-button').click()
+    await exportReady(page)
+
+    const sheet = page.locator('.export-sheet')
+    const formats = sheet.getByRole('radiogroup', { name: 'Export format' })
+    await expect(formats.getByRole('radio', { name: 'MP4' })).toBeDisabled()
+    await expect(formats.getByRole('radio', { name: 'WebM' })).toHaveAttribute('aria-checked', 'true')
+    await expect(sheet).toContainText('This browser can’t encode H.264, so exports are WebM.')
+    await expect(sheet).toContainText(/Saves as project-1\.webm/)
+  })
+
   test('Stop cancels an in-flight export without waiting for the file', async ({ page }) => {
     await openSeededProject(page, { clips: 3, clipMs: 4000 })
     await page.locator('.go-button').click()

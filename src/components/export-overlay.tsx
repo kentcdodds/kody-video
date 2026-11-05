@@ -1,7 +1,9 @@
 import type { Handle } from 'remix/component'
 import { on, ref } from 'remix/component'
+import type { ExportFormatSupport } from '../lib/export/export-format'
 import type { ExportSizeOption } from '../lib/export/export-size'
-import type { ExportSize } from '../lib/types'
+import type { ExportFormat, ExportSize } from '../lib/types'
+import { ExportFormatPicker } from './export-format-picker'
 import { ExportSizePicker } from './export-size-picker'
 
 interface ExportOverlayProps {
@@ -31,6 +33,9 @@ interface ExportOverlayProps {
   /** "About 2 min left" once progress gives a stable estimate. */
   timeLeft: string | null
   onExportSizeChange: (size: ExportSize) => void
+  exportFormat: ExportFormat
+  formatSupport: ExportFormatSupport | null
+  onExportFormatChange: (format: ExportFormat) => void
   /** Bound to the canvas the export engines mirror sampled frames onto. */
   bindPreviewCanvas: (canvas: HTMLCanvasElement | null) => void
   onStop: () => void
@@ -61,6 +66,9 @@ export function ExportOverlay(handle: Handle<ExportOverlayProps>) {
       exportSize,
       timeLeft,
       onExportSizeChange,
+      exportFormat,
+      formatSupport,
+      onExportFormatChange,
       onStop,
       onKeepWatermarkChange,
       onIncludeLocationChange,
@@ -130,18 +138,23 @@ export function ExportOverlay(handle: Handle<ExportOverlayProps>) {
             {percent}%
           </p>
           <p className="export-eta">{timeLeft ?? '\u00a0'}</p>
-          {sizeOptions.length > 1 ? (
-            <div className="export-overlay-size">
+          <div className="export-overlay-size">
+            <ExportFormatPicker
+              value={exportFormat}
+              support={formatSupport}
+              onChange={onExportFormatChange}
+            />
+            {sizeOptions.length > 1 ? (
               <ExportSizePicker
                 options={sizeOptions}
                 value={exportSize}
                 onChange={onExportSizeChange}
               />
-              <p className="export-overlay-pref-hint muted">
-                Changing the size starts the export over.
-              </p>
-            </div>
-          ) : null}
+            ) : null}
+            <p className="export-overlay-pref-hint muted">
+              Changing these starts the export over.
+            </p>
+          </div>
           {purchased ? (
             <div className="export-overlay-prefs">
               <label className="export-pref-toggle">
