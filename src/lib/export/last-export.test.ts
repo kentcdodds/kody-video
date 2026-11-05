@@ -16,6 +16,15 @@ function fakeClip(id: string): ClipRecord {
 }
 
 describe('exportSignature', () => {
+  it('keeps Full signatures stable and separates smaller sizes', () => {
+    const clips = [fakeClip('clip_a')]
+    const full = exportSignature(clips, true, null, 'portrait', false, '')
+    expect(exportSignature(clips, true, null, 'portrait', false, '', 'full')).toBe(full)
+    const small = exportSignature(clips, true, null, 'portrait', false, '', '480p')
+    expect(small).not.toBe(full)
+    expect(JSON.parse(small).size).toBe('480p')
+  })
+
   it('signs absent and portrait orientations identically', () => {
     const clips = [fakeClip('clip_a')]
     expect(exportSignature(clips, true, null, 'portrait')).toBe(

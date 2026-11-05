@@ -46,9 +46,11 @@ import {
   NEW_PROJECT_ID,
   effectiveDurationMs,
   isImageClip,
+  resolveExportSize,
   type ClipFit,
   type ClipId,
   type ClipRecord,
+  type ExportSize,
   type Project,
   type ProjectAudioRecord,
   type ProjectId,
@@ -79,6 +81,8 @@ export interface ProjectLoaderData {
   keepWatermark: boolean
   /** Plus opt-in: include captured coordinates in MP4 exports (default off). */
   includeLocationInExports: boolean
+  /** Remembered export size preset (Full / 720p / 480p). */
+  exportSize: ExportSize
   /** Device storage estimate (null when the API is unavailable). */
   storage: StorageSpace | null
   /** Opt-in: tag new clips with device location. */
@@ -194,6 +198,7 @@ export async function loadProjectPage(projectId: ProjectId): Promise<ProjectLoad
         keepWatermark: settings.keepWatermark === true,
         includeLocationInExports:
           settings.watermarkRemoved === true && settings.includeLocationInExports === true,
+        exportSize: resolveExportSize(settings.exportSize),
         storage,
         locationTaggingEnabled:
           settings.watermarkRemoved === true && settings.locationTaggingEnabled === true,
@@ -220,6 +225,7 @@ export async function loadProjectPage(projectId: ProjectId): Promise<ProjectLoad
         keepWatermark: settings.keepWatermark === true,
         includeLocationInExports:
           settings.watermarkRemoved === true && settings.includeLocationInExports === true,
+        exportSize: resolveExportSize(settings.exportSize),
         storage,
         locationTaggingEnabled:
           settings.watermarkRemoved === true && settings.locationTaggingEnabled === true,
@@ -240,6 +246,7 @@ export async function loadProjectPage(projectId: ProjectId): Promise<ProjectLoad
       keepWatermark: settings.keepWatermark === true,
       includeLocationInExports:
         settings.watermarkRemoved === true && settings.includeLocationInExports === true,
+      exportSize: resolveExportSize(settings.exportSize),
       storage,
       locationTaggingEnabled:
         settings.watermarkRemoved === true && settings.locationTaggingEnabled === true,
@@ -255,6 +262,7 @@ export async function loadProjectPage(projectId: ProjectId): Promise<ProjectLoad
       watermarkRemoved: false,
       keepWatermark: false,
       includeLocationInExports: false,
+      exportSize: 'full',
       storage: null,
       locationTaggingEnabled: false,
       error: err instanceof Error ? err.message : 'Failed to load project',

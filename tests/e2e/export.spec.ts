@@ -140,6 +140,84 @@ test.describe('Go / export', () => {
     expect(cacheEntries).toHaveLength(1)
   })
 
+  test('export size presets shrink the file, are remembered, and still play', async ({
+    page,
+  }) => {
+    await openSeededProject(page, { clips: 2, clipMs: 1500, size: { width: 720, height: 1280 } })
+    await page.locator('.go-button').click()
+    await exportReady(page)
+
+    const sheet = page.locator('.export-sheet')
+    const sizes = sheet.getByRole('radiogroup', { name: 'Export size' })
+    // 720p film: 720p would not shrink it, so only Full and 480p are offered.
+    await expect(sizes.getByRole('radio')).toHaveCount(2)
+    await expect(sizes.getByRole('radio', { name: /Full/ })).toHaveAttribute('aria-checked', 'true')
+    await expect(sizes.getByRole('radio', { name: /480p/ })).toContainText(/~[\d.]+ (KB|MB)/)
+
+    // Picking a size re-exports at it right away.
+    await sizes.getByRole('radio', { name: /480p/ }).click()
+    await expect(page.getByText('Done! Your video is ready')).toBeHidden()
+    await exportReady(page)
+    await expect(sizes.getByRole('radio', { name: /480p/ })).toHaveAttribute('aria-checked', 'true')
+
+    await expect
+      .poll(() =>
+        page.evaluate(async () => {
+          const storage = await import('/src/lib/storage.ts')
+          return (await storage.getSettings()).exportSize ?? null
+        }),
+      )
+      .toBe('480p')
+    // The recoverable copy on disk is the 480p render, not the earlier Full one.
+    await expect
+      .poll(() =>
+        page.evaluate(async () => {
+          const storage = await import('/src/lib/storage.ts')
+          const signature = (await storage.getSettings()).lastExport?.signature
+          return signature ? (JSON.parse(signature).size ?? 'full') : null
+        }),
+      )
+      .toBe('480p')
+
+    // The saved file really is 480p and plays.
+    const played = await page.evaluate(async () => {
+      const storage = await import('/src/lib/storage.ts')
+      const name = (await storage.getSettings()).lastExport?.opfsName
+      if (!name) throw new Error('no last export')
+      const root = await navigator.storage.getDirectory()
+      const dir = await root.getDirectoryHandle('exports')
+      const file = await (await dir.getFileHandle(name)).getFile()
+      const video = document.createElement('video')
+      video.muted = true
+      video.src = URL.createObjectURL(file)
+      await new Promise<void>((resolve, reject) => {
+        video.onloadedmetadata = () => resolve()
+        video.onerror = () => reject(new Error('export failed to load'))
+      })
+      await video.play()
+      await new Promise((resolve) => setTimeout(resolve, 300))
+      const result = {
+        width: video.videoWidth,
+        height: video.videoHeight,
+        advanced: video.currentTime > 0,
+      }
+      video.pause()
+      URL.revokeObjectURL(video.src)
+      return result
+    })
+    expect(played).toEqual({ width: 480, height: 854, advanced: true })
+
+    // The remembered size applies to the next Go and keeps the cache keyed to it.
+    await sheet.getByRole('button', { name: 'Done' }).click()
+    await page.reload()
+    await waitForCameraReady(page)
+    await page.locator('.go-button').click()
+    await expect(page.getByText(/Restored your last export/)).toBeVisible({ timeout: 8_000 })
+    await expect(
+      page.locator('.export-sheet').getByRole('radio', { name: /480p/ }),
+    ).toHaveAttribute('aria-checked', 'true')
+  })
+
   test('Stop cancels an in-flight export without waiting for the file', async ({ page }) => {
     await openSeededProject(page, { clips: 3, clipMs: 4000 })
     await page.locator('.go-button').click()

@@ -13,6 +13,7 @@ import {
   clipMusicVolume,
   clipSoundVolume,
   type ClipRecord,
+  type ExportSize,
   type ProjectAudioRecord,
   type ProjectId,
   type ProjectOrientation,
@@ -31,9 +32,13 @@ export function exportSignature(
   orientation?: ProjectOrientation,
   includeLocation = false,
   projectName = '',
+  size: ExportSize = 'full',
 ): string {
   return JSON.stringify({
     watermarked,
+    // Full is the default; only a smaller preset changes the pixels, so
+    // caches from before size presets existed stay reusable.
+    ...(size === 'full' ? {} : { size }),
     // Sign explicitly, including false, to invalidate legacy cached exports
     // that may contain location metadata before this privacy control existed.
     includeLocation,

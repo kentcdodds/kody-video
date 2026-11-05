@@ -1216,3 +1216,41 @@ html:has(.project-screen.viewport-landscape) .app-shell {
     width: min(1200px, calc(100% - 48px));
   }
 }
+
+.export-size-field {
+  margin-top: 14px;
+  text-align: left;
+}
+
+.export-size-field-label {
+  margin: 0;
+  font-size: 0.85rem;
+  color: var(--ink-muted);
+}
+
+.export-size-option {
+  flex-direction: column;
+  gap: 0;
+  padding: 4px 8px;
+  line-height: 1.15;
+}
+
+.export-size-bytes {
+  font-size: 0.72rem;
+  font-weight: 600;
+  opacity: 0.75;
+  font-variant-numeric: tabular-nums;
+}
+
+.export-overlay-size {
+  width: 100%;
+  max-width: 22rem;
+  margin: 12px auto 0;
+}
+
+.export-eta {
+  margin: 2px 0 0;
+  font-size: 0.82rem;
+  color: var(--ink-muted);
+  font-variant-numeric: tabular-nums;
+}

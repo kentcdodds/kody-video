@@ -22,9 +22,12 @@ import {
  * Pass `toneHz` for a clip WITH an audio track: a steady sine tone, which
  * audio-continuity assertions (e.g. the clip-joint crossfade) can measure.
  */
-export async function makeTestClipBlob(durationMs: number, toneHz?: number): Promise<Blob> {
-  const width = 320
-  const height = 568
+export async function makeTestClipBlob(
+  durationMs: number,
+  toneHz?: number,
+  size: { width: number; height: number } = { width: 320, height: 568 },
+): Promise<Blob> {
+  const { width, height } = size
   const fps = 15
   const codec = await getFirstEncodableVideoCodec(['vp8', 'vp9'], { width, height })
   if (!codec) throw new Error('No encodable test codec')

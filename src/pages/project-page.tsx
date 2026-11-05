@@ -12,7 +12,9 @@ import { UpsellSheet } from '../components/upsell-sheet'
 import { REMOVE_WATERMARK_LINK, shouldWatermarkExports } from '../lib/entitlement'
 import { buildClipsZip } from '../lib/clips-zip'
 import { clearExportMarker, markExportStarted, reportError } from '../lib/error-reporting'
-import { exportProject, isExportCancelled, type ExportResult } from '../lib/export'
+import { exportProject, isExportCancelled, planExport, type ExportResult } from '../lib/export'
+import { estimateRemainingMs, formatTimeLeft } from '../lib/export/export-eta'
+import { effectiveExportSize, exportSizeOptions } from '../lib/export/export-size'
 import { exportSignature, loadMatchingExport, persistLastExport } from '../lib/export/last-export'
 import { lastCaptureTimeMs } from '../lib/export/mp4-export-metadata'
 import { MediaElementFailureError } from '../lib/export/media-error'
@@ -36,6 +38,7 @@ import { reuseAudioMediaBlobs, reuseClipMediaBlobs } from '../lib/reuse-media-bl
 import {
   createProject,
   renameProject,
+  setExportSize,
   setIncludeLocationInExports,
   setKeepWatermark,
   setOnboardingDismissed,
@@ -46,6 +49,7 @@ import {
   NEW_PROJECT_ID,
   isImageClip,
   projectOrientation,
+  type ExportSize,
   type ProjectId,
   type ProjectOrientation,
 } from '../lib/types'
@@ -85,6 +89,8 @@ interface ExportUiState {
   locationIncluded: boolean
   /** True once this run entered the realtime canvas fallback. */
   usedFallback: boolean
+  /** First progress report of this run — the ETA baseline (setup excluded). */
+  progressStart?: { atMs: number; progress: number }
 }
 
 interface ProjectPageProps {
@@ -199,6 +205,7 @@ export function ProjectPage(handle: Handle<ProjectPageProps>) {
           watermarkRemoved: false,
           keepWatermark: false,
           includeLocationInExports: false,
+          exportSize: 'full',
           storage: null,
           locationTaggingEnabled: false,
           error: err instanceof Error ? err.message : 'Could not load this project.',
@@ -322,6 +329,18 @@ export function ProjectPage(handle: Handle<ProjectPageProps>) {
     return ensureProjectPromise
   }
 
+  /** Size presets this film can use, and the one that will apply. */
+  const exportSizeChoices = () => {
+    if (!data) return { options: [], size: 'full' as ExportSize }
+    const plan = planExport(data.clips)
+    const options = exportSizeOptions(
+      plan.segments[0]?.clip ?? {},
+      projectOrientation(data.project ?? { orientation: undefined }),
+      plan.totalMs,
+    )
+    return { options, size: effectiveExportSize(data.exportSize, options) }
+  }
+
   const setExportState = (next: ExportUiState | null) => {
     exportState = next
     void handle.update()
@@ -367,6 +386,7 @@ export function ProjectPage(handle: Handle<ProjectPageProps>) {
     // Always pin the canvas to the film so mismatched clips crop or
     // letterbox instead of stretching the output to the first take.
     const orientation = projectOrientation(project ?? { orientation: undefined })
+    const size = exportSizeChoices().size
     const signature = exportSignature(
       clips,
       watermarked,
@@ -374,6 +394,7 @@ export function ProjectPage(handle: Handle<ProjectPageProps>) {
       orientation,
       includeLocation,
       project?.name ?? '',
+      size,
     )
     // Stop camera/mic immediately rather than waiting on record-screen
     // unmount. On iOS the combined mic+camera session can hold decoder
@@ -473,6 +494,7 @@ export function ProjectPage(handle: Handle<ProjectPageProps>) {
           includeLocation,
           projectName: project?.name ?? '',
           orientation,
+          size,
           background:
             audio && audio.tracks.length > 0
               ? {
@@ -500,7 +522,14 @@ export function ProjectPage(handle: Handle<ProjectPageProps>) {
           onProgress: (ratio) => {
             if (exportRun !== runId) return
             if (exportState && exportState.status === 'exporting') {
-              exportState = { ...exportState, progress: ratio }
+              exportState = {
+                ...exportState,
+                progress: ratio,
+                progressStart: exportState.progressStart ?? {
+                  atMs: performance.now(),
+                  progress: ratio,
+                },
+              }
               void handle.update()
             }
           },
@@ -613,6 +642,17 @@ export function ProjectPage(handle: Handle<ProjectPageProps>) {
     })
   }
 
+  const persistExportSize = (size: ExportSize): Promise<void> => {
+    if (data) {
+      data = { ...data, exportSize: size }
+      void handle.update()
+    }
+    return setExportSize(size).catch((err) => {
+      reportError(err, 'export-size')
+      throw err
+    })
+  }
+
   const persistProjectName = (name: string) => {
     const project = data?.project
     if (!project) return
@@ -625,6 +665,17 @@ export function ProjectPage(handle: Handle<ProjectPageProps>) {
     void renameProject(project.id, trimmed).catch((err) => {
       reportError(err, 'rename-project')
     })
+  }
+
+  const exportTimeLeft = (): string | null => {
+    const start = exportState?.progressStart
+    if (!exportState || !start) return null
+    const remainingMs = estimateRemainingMs({
+      startProgress: start.progress,
+      progress: exportState.progress,
+      elapsedMs: performance.now() - start.atMs,
+    })
+    return remainingMs === null ? null : formatTimeLeft(remainingMs)
   }
 
   const setExportNotice = (notice: string) => {
@@ -680,6 +731,7 @@ export function ProjectPage(handle: Handle<ProjectPageProps>) {
     }
 
     const exporting = exportState?.status === 'exporting'
+    const sizeChoices = exportSizeChoices()
     const overlayOpen = playing || exportState !== null || onboardingOpen
     const exportFilename = exportState?.result
       ? projectFilename(project.name, exportState.result.fileExtension)
@@ -768,6 +820,13 @@ export function ProjectPage(handle: Handle<ProjectPageProps>) {
 
         {exporting ? (
           <ExportOverlay
+            sizeOptions={sizeChoices.options}
+            exportSize={sizeChoices.size}
+            timeLeft={exportTimeLeft()}
+            onExportSizeChange={(size) => {
+              const runId = exportRun
+              void persistExportSize(size).then(() => restartExportIfStillRunning(runId))
+            }}
             projectName={project.name}
             progress={exportState?.progress ?? 0}
             watermarked={exportState?.watermarked === true}
@@ -799,6 +858,11 @@ export function ProjectPage(handle: Handle<ProjectPageProps>) {
         {exportState && exportState.status !== 'exporting' ? (
           <ExportSheet
             status={exportState.status}
+            sizeOptions={sizeChoices.options}
+            exportSize={sizeChoices.size}
+            onExportSizeChange={(size) => {
+              void persistExportSize(size).then(() => startExport())
+            }}
             error={exportState.error}
             notice={exportState.notice}
             watermarked={exportState.watermarked}

@@ -27,6 +27,7 @@ import {
   type ProjectOrientation,
 } from '../types'
 import { videoBitrateFor } from '../video-quality'
+import { EXPORT_AUDIO_BITRATE } from './export-size'
 import {
   applyGainEnvelope,
   boundaryRampHalfMs,
@@ -75,7 +76,7 @@ import {
 const FPS = EXPORT_FPS
 const AUDIO_SAMPLE_RATE = 48000
 const AUDIO_CHANNELS = 2
-const AUDIO_BITRATE = 192_000
+const AUDIO_BITRATE = EXPORT_AUDIO_BITRATE
 const KEYFRAME_INTERVAL_SEC = 2
 
 export function supportsWebCodecsExport(): boolean {
@@ -138,12 +139,13 @@ export async function exportWithWebCodecs(
   includeLocation = false,
   signal?: AbortSignal,
   projectName = '',
+  maxLongEdge?: number,
 ): Promise<ExportResult> {
   if (!supportsWebCodecsExport()) {
     throw new Error('WebCodecs is not available')
   }
 
-  const { width, height } = await probeOutputSize(plan, orientation)
+  const { width, height } = await probeOutputSize(plan, orientation, maxLongEdge)
   const choice = await pickCodecs(width, height)
   if (!choice) {
     throw new Error('No supported export codec')
@@ -614,17 +616,18 @@ async function injectMetadataBestEffort(
 async function probeOutputSize(
   plan: ExportPlan,
   orientation?: ProjectOrientation,
+  maxLongEdge?: number,
 ): Promise<{ width: number; height: number }> {
   const clip = plan.segments[0]!.clip
   if (isImageClip(clip)) {
     // Photos store their pixel size at import; a decode is the fallback.
     if ((clip.width ?? 0) > 0 && (clip.height ?? 0) > 0) {
-      return pickOutputSize(clip.width!, clip.height!, orientation)
+      return pickOutputSize(clip.width!, clip.height!, orientation, maxLongEdge)
     }
     try {
       const bitmap = await loadClipImage(clip.blob)
       try {
-        return pickOutputSize(bitmap.width, bitmap.height, orientation)
+        return pickOutputSize(bitmap.width, bitmap.height, orientation, maxLongEdge)
       } finally {
         bitmap.close()
       }
@@ -636,7 +639,7 @@ async function probeOutputSize(
     const input = new Input({ source: new BlobSource(clip.blob), formats: ALL_FORMATS })
     const track = await input.getPrimaryVideoTrack()
     if (track && track.displayWidth > 0 && track.displayHeight > 0) {
-      return pickOutputSize(track.displayWidth, track.displayHeight, orientation)
+      return pickOutputSize(track.displayWidth, track.displayHeight, orientation, maxLongEdge)
     }
   } catch {
     // Fall through to the element probe.
@@ -644,7 +647,7 @@ async function probeOutputSize(
   try {
     const probe = await loadClipVideo(clip.blob, 8000, clip.mimeType)
     try {
-      return pickOutputSize(probe.video.videoWidth, probe.video.videoHeight, orientation)
+      return pickOutputSize(probe.video.videoWidth, probe.video.videoHeight, orientation, maxLongEdge)
     } finally {
       probe.release()
     }
@@ -652,7 +655,7 @@ async function probeOutputSize(
     // Recorded clips carry their capture dimensions — probing must never be
     // the reason an export dies (pickOutputSize also has sane defaults).
     if ((clip.width ?? 0) > 0 && (clip.height ?? 0) > 0) {
-      return pickOutputSize(clip.width!, clip.height!, orientation)
+      return pickOutputSize(clip.width!, clip.height!, orientation, maxLongEdge)
     }
     throw tagExportError(error, { engine: 'webcodecs', where: 'probe-size', clipIndex: 0 })
   }

@@ -134,24 +134,26 @@ export async function seedProject(
     clipMs?: number
     name?: string
     location?: { lat: number; lng: number }
+    /** Fixture frame size (default 320x568 portrait). */
+    size?: { width: number; height: number }
   } = { clips: 1 },
 ): Promise<string> {
   await gotoHome(page)
   const projectId = await page.evaluate(
-    async ({ clips, clipMs, name, location }) => {
+    async ({ clips, clipMs, name, location, size }) => {
       const storage = await import('/src/lib/storage.ts')
       const thumbs = await import('/src/lib/thumbs.ts')
       const { makeTestClipBlob } = await import('/src/lib/testing/make-test-clip.ts')
       const project = await storage.createProject(name)
-      const blob = await makeTestClipBlob(clipMs)
+      const blob = await makeTestClipBlob(clipMs, undefined, size)
       for (let i = 0; i < clips; i += 1) {
         const clip = await storage.addClip({
           projectId: project.id,
           blob,
           mimeType: 'video/webm',
           durationMs: clipMs,
-          width: 320,
-          height: 568,
+          width: size.width,
+          height: size.height,
           lat: location?.lat,
           lng: location?.lng,
         })
@@ -165,6 +167,7 @@ export async function seedProject(
       clipMs: options.clipMs ?? 1500,
       name: options.name,
       location: options.location,
+      size: options.size ?? { width: 320, height: 568 },
     },
   )
   return projectId
@@ -172,7 +175,7 @@ export async function seedProject(
 
 export async function openSeededProject(
   page: Page,
-  options: { clips: number; clipMs?: number; name?: string } = { clips: 1 },
+  options: Parameters<typeof seedProject>[1] = { clips: 1 },
 ): Promise<string> {
   const projectId = await seedProject(page, options)
   await page.goto(`/project/${projectId}`)
