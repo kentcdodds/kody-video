@@ -515,7 +515,8 @@ export function ProjectPage(handle: Handle<ProjectPageProps>) {
           onFallback: () => {
             if (exportRun !== runId) return
             if (exportState && exportState.status === 'exporting' && !exportState.usedFallback) {
-              exportState = { ...exportState, usedFallback: true }
+              // The realtime engine restarts progress near zero: re-baseline the ETA.
+              exportState = { ...exportState, usedFallback: true, progressStart: undefined }
               void handle.update()
             }
           },

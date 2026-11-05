@@ -50,6 +50,11 @@ export function exportSizeOptions(
   const sourceWidth = source.width ?? 0
   const sourceHeight = source.height ?? 0
   const full = pickOutputSize(sourceWidth, sourceHeight, orientation)
+  // Unsized clips (older records, before hydration): the encoders probe the
+  // real frame, so don't offer caps that might not shrink it.
+  if (!(sourceWidth > 0 && sourceHeight > 0)) {
+    return [{ id: 'full', ...full, estimatedBytes: estimateExportBytes(full.width, full.height, durationMs) }]
+  }
   const fullLongEdge = Math.max(full.width, full.height)
   return EXPORT_SIZE_IDS.filter(
     (id) => id === 'full' || EXPORT_SIZE_LONG_EDGE[id] < fullLongEdge,

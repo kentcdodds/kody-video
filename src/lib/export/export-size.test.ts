@@ -31,6 +31,10 @@ describe('exportSizeOptions', () => {
     expect(options.map((option) => option.id)).toEqual(['full', '480p'])
   })
 
+  it('offers only Full when the clip size is unknown', () => {
+    expect(exportSizeOptions({}, 'portrait', 10_000).map((option) => option.id)).toEqual(['full'])
+  })
+
   it('offers only Full when the film is already small', () => {
     const options = exportSizeOptions({ width: 480, height: 854 }, 'portrait', 10_000)
     expect(options.map((option) => option.id)).toEqual(['full'])
