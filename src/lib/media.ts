@@ -306,13 +306,12 @@ export function stopAudioTracks(stream: MediaStream | null | undefined): void {
   })
 }
 
-export function pickRecorderMimeType(): string {
-  const candidates = [
-    'video/webm;codecs=vp9,opus',
-    'video/webm;codecs=vp8,opus',
-    'video/webm',
-    'video/mp4',
-  ]
+export function pickRecorderMimeType(format: 'mp4' | 'webm' = 'webm'): string {
+  const webm = ['video/webm;codecs=vp9,opus', 'video/webm;codecs=vp8,opus', 'video/webm']
+  // AAC only: MP4 with Opus audio won't play in Photos/QuickTime.
+  const mp4 = ['video/mp4;codecs=avc1.640028,mp4a.40.2', 'video/mp4;codecs=avc1,mp4a.40.2']
+  const candidates =
+    format === 'mp4' ? [...mp4, ...webm, 'video/mp4'] : [...webm, 'video/mp4']
   for (const type of candidates) {
     if (typeof MediaRecorder !== 'undefined' && MediaRecorder.isTypeSupported(type)) {
       return type

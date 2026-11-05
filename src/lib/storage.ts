@@ -6,6 +6,7 @@ import {
   clampImageDurationMs,
   clampVolume,
   newId,
+  resolveExportFormat,
   resolveExportSize,
   type AppMeta,
   type ClipFit,
@@ -14,6 +15,7 @@ import {
   type ClipMeta,
   type ClipRecord,
   type DeletedClipSnapshot,
+  type ExportFormat,
   type ExportSize,
   type Project,
   type ProjectAudioRecord,
@@ -472,6 +474,14 @@ export async function setKeepWatermark(keepWatermark: boolean): Promise<void> {
     const db = await getDb()
     const settings = await getSettings()
     await db.put('meta', { ...settings, keepWatermark })
+  })
+}
+
+export async function setExportFormat(exportFormat: ExportFormat): Promise<void> {
+  await enqueueMetaWrite(async () => {
+    const db = await getDb()
+    const settings = await getSettings()
+    await db.put('meta', { ...settings, exportFormat: resolveExportFormat(exportFormat) })
   })
 }
 

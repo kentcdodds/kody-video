@@ -14,6 +14,11 @@ import { buildClipsZip } from '../lib/clips-zip'
 import { clearExportMarker, markExportStarted, reportError } from '../lib/error-reporting'
 import { exportProject, isExportCancelled, planExport, type ExportResult } from '../lib/export'
 import { estimateRemainingMs, formatTimeLeft } from '../lib/export/export-eta'
+import {
+  effectiveExportFormat,
+  probeExportFormats,
+  type ExportFormatSupport,
+} from '../lib/export/export-format'
 import { effectiveExportSize, exportSizeOptions } from '../lib/export/export-size'
 import { exportSignature, loadMatchingExport, persistLastExport } from '../lib/export/last-export'
 import { lastCaptureTimeMs } from '../lib/export/mp4-export-metadata'
@@ -38,6 +43,7 @@ import { reuseAudioMediaBlobs, reuseClipMediaBlobs } from '../lib/reuse-media-bl
 import {
   createProject,
   renameProject,
+  setExportFormat,
   setExportSize,
   setIncludeLocationInExports,
   setKeepWatermark,
@@ -49,6 +55,7 @@ import {
   NEW_PROJECT_ID,
   isImageClip,
   projectOrientation,
+  type ExportFormat,
   type ExportSize,
   type ProjectId,
   type ProjectOrientation,
@@ -110,6 +117,12 @@ export function ProjectPage(handle: Handle<ProjectPageProps>) {
 
   let toastTimer = 0
   let exportRun = 0
+  /** Containers this browser can encode; null until the probe settles. */
+  let formatSupport: ExportFormatSupport | null = null
+  void probeExportFormats().then((support) => {
+    formatSupport = support
+    void handle.update()
+  })
   let exportAbort: AbortController | null = null
   /** Previous encode must finish (or reject) before a restarted run opens
    * decoders — aborting the controller does not stop loadClipVideo. */
@@ -206,6 +219,7 @@ export function ProjectPage(handle: Handle<ProjectPageProps>) {
           keepWatermark: false,
           includeLocationInExports: false,
           exportSize: 'full',
+          exportFormat: 'mp4',
           storage: null,
           locationTaggingEnabled: false,
           error: err instanceof Error ? err.message : 'Could not load this project.',
@@ -341,6 +355,9 @@ export function ProjectPage(handle: Handle<ProjectPageProps>) {
     return { options, size: effectiveExportSize(data.exportSize, options) }
   }
 
+  const exportFormatChoice = (): ExportFormat =>
+    effectiveExportFormat(data?.exportFormat ?? 'mp4', formatSupport)
+
   const setExportState = (next: ExportUiState | null) => {
     exportState = next
     void handle.update()
@@ -387,6 +404,7 @@ export function ProjectPage(handle: Handle<ProjectPageProps>) {
     // letterbox instead of stretching the output to the first take.
     const orientation = projectOrientation(project ?? { orientation: undefined })
     const size = exportSizeChoices().size
+    const format = exportFormatChoice()
     const signature = exportSignature(
       clips,
       watermarked,
@@ -395,6 +413,7 @@ export function ProjectPage(handle: Handle<ProjectPageProps>) {
       includeLocation,
       project?.name ?? '',
       size,
+      format,
     )
     // Stop camera/mic immediately rather than waiting on record-screen
     // unmount. On iOS the combined mic+camera session can hold decoder
@@ -495,6 +514,7 @@ export function ProjectPage(handle: Handle<ProjectPageProps>) {
           projectName: project?.name ?? '',
           orientation,
           size,
+          format,
           background:
             audio && audio.tracks.length > 0
               ? {
@@ -639,6 +659,17 @@ export function ProjectPage(handle: Handle<ProjectPageProps>) {
     }
     return setIncludeLocationInExports(include).catch((err) => {
       reportError(err, 'include-location')
+      throw err
+    })
+  }
+
+  const persistExportFormat = (format: ExportFormat): Promise<void> => {
+    if (data) {
+      data = { ...data, exportFormat: format }
+      void handle.update()
+    }
+    return setExportFormat(format).catch((err) => {
+      reportError(err, 'export-format')
       throw err
     })
   }
@@ -828,6 +859,12 @@ export function ProjectPage(handle: Handle<ProjectPageProps>) {
               const runId = exportRun
               void persistExportSize(size).then(() => restartExportIfStillRunning(runId))
             }}
+            exportFormat={exportFormatChoice()}
+            formatSupport={formatSupport}
+            onExportFormatChange={(format) => {
+              const runId = exportRun
+              void persistExportFormat(format).then(() => restartExportIfStillRunning(runId))
+            }}
             projectName={project.name}
             progress={exportState?.progress ?? 0}
             watermarked={exportState?.watermarked === true}
@@ -863,6 +900,11 @@ export function ProjectPage(handle: Handle<ProjectPageProps>) {
             exportSize={sizeChoices.size}
             onExportSizeChange={(size) => {
               void persistExportSize(size).then(() => startExport())
+            }}
+            exportFormat={exportFormatChoice()}
+            formatSupport={formatSupport}
+            onExportFormatChange={(format) => {
+              void persistExportFormat(format).then(() => startExport())
             }}
             error={exportState.error}
             notice={exportState.notice}

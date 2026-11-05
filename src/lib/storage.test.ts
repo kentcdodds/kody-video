@@ -40,6 +40,7 @@ import {
   setOnboardingDismissed,
   setProjectOrientation,
   setTourCardDismissed,
+  setExportFormat,
   setExportSize,
   setKeepWatermark,
   setVideoQuality,
@@ -321,6 +322,14 @@ describe('storage layer', () => {
     expect((await getSettings()).exportSize).toBe('480p')
     await setExportSize('full')
     expect((await getSettings()).exportSize).toBe('full')
+  })
+
+  it('defaults exportFormat to unset (MP4) and remembers the picked format', async () => {
+    expect((await getSettings()).exportFormat).toBeUndefined()
+    await setExportFormat('webm')
+    expect((await getSettings()).exportFormat).toBe('webm')
+    await setExportFormat('mp4')
+    expect((await getSettings()).exportFormat).toBe('mp4')
   })
 
   it('serializes overlapping mark and location pref writes', async () => {

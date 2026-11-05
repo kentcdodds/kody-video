@@ -15,6 +15,7 @@
     "lint": "tsc -b --pretty false"
   },
   "dependencies": {
+    "@mediabunny/aac-encoder": "^1.52.1",
     "@remix-run/ui": "0.12.1",
     "@sentry/browser": "^10.69.0",
     "client-zip": "^2.5.0",

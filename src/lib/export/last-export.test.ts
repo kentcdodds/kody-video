@@ -25,6 +25,15 @@ describe('exportSignature', () => {
     expect(JSON.parse(small).size).toBe('480p')
   })
 
+  it('keeps MP4 signatures stable and separates WebM', () => {
+    const clips = [fakeClip('clip_a')]
+    const mp4 = exportSignature(clips, true, null, 'portrait', false, '')
+    expect(exportSignature(clips, true, null, 'portrait', false, '', 'full', 'mp4')).toBe(mp4)
+    const webm = exportSignature(clips, true, null, 'portrait', false, '', 'full', 'webm')
+    expect(webm).not.toBe(mp4)
+    expect(JSON.parse(webm).format).toBe('webm')
+  })
+
   it('signs absent and portrait orientations identically', () => {
     const clips = [fakeClip('clip_a')]
     expect(exportSignature(clips, true, null, 'portrait')).toBe(

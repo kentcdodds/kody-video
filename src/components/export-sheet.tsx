@@ -1,10 +1,12 @@
 import type { Handle } from 'remix/component'
 import { on, ref } from 'remix/component'
+import type { ExportFormatSupport } from '../lib/export/export-format'
 import type { ExportSizeOption } from '../lib/export/export-size'
 import { projectFilename } from '../lib/media'
-import type { ExportSize } from '../lib/types'
+import type { ExportFormat, ExportSize } from '../lib/types'
 import { attachSheetModal } from '../lib/sheet-modal'
 import { BrandMark } from './brand-mark'
+import { ExportFormatPicker } from './export-format-picker'
 import { ExportSizePicker } from './export-size-picker'
 
 export type ExportStatus = 'exporting' | 'ready' | 'error'
@@ -51,6 +53,10 @@ interface ExportSheetProps {
   exportSize: ExportSize
   /** Pick a different size: re-exports at it right away. */
   onExportSizeChange: (size: ExportSize) => void
+  exportFormat: ExportFormat
+  formatSupport: ExportFormatSupport | null
+  /** Pick a different container: re-exports in it right away. */
+  onExportFormatChange: (format: ExportFormat) => void
   onKeepWatermarkChange: (keep: boolean) => void
   onIncludeLocationChange: (include: boolean) => void
   onShare: () => void
@@ -100,6 +106,9 @@ export function ExportSheet(handle: Handle<ExportSheetProps>) {
       sizeOptions,
       exportSize,
       onExportSizeChange,
+      exportFormat,
+      formatSupport,
+      onExportFormatChange,
       onKeepWatermarkChange,
       onIncludeLocationChange,
       onShare,
@@ -164,6 +173,19 @@ export function ExportSheet(handle: Handle<ExportSheetProps>) {
                     Saves as {projectFilename(name.trim() || handle.props.projectName, fileExtension)}
                   </p>
                 ) : null}
+              </div>
+              <div className="export-size-field">
+                <p className="export-size-field-label">Format</p>
+                <ExportFormatPicker
+                  value={exportFormat}
+                  support={formatSupport}
+                  actual={fileExtension}
+                  disabled={busy}
+                  onChange={(format) => {
+                    flushName()
+                    onExportFormatChange(format)
+                  }}
+                />
               </div>
               {sizeOptions.length > 1 ? (
                 <div className="export-size-field">
@@ -427,7 +449,7 @@ function fallbackHint(props: {
 }
 
 function formatFileInfo(ext: string | null, bytes: number | null): string {
-  const type = ext ? ext.toUpperCase() : 'Video'
+  const type = ext === 'webm' ? 'WebM' : ext ? ext.toUpperCase() : 'Video'
   if (bytes === null) return type
   const mb = bytes / (1024 * 1024)
   return `${type} · ${mb >= 10 ? Math.round(mb) : Math.round(mb * 10) / 10} MB`

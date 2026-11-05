@@ -17,6 +17,7 @@ import {
   type VideoCodec,
 } from 'mediabunny'
 import { isIosBrowser } from '../platform'
+import { encodableMp4Audio } from './export-format'
 import { clipCanvasFit } from '../clip-fit'
 import {
   clipMusicVolume,
@@ -24,6 +25,7 @@ import {
   isImageClip,
   resolveAudioTrackPlayback,
   type ClipRecord,
+  type ExportFormat,
   type ProjectOrientation,
 } from '../types'
 import { videoBitrateFor } from '../video-quality'
@@ -97,16 +99,27 @@ interface CodecChoice {
  * shares WebM and VP encoding is software-slow. Mediabunny probes actual
  * encodability, including at the output dimensions.
  */
-async function pickCodecs(width: number, height: number): Promise<CodecChoice | null> {
-  const mp4Video = await getFirstEncodableVideoCodec(['avc', 'hevc'], { width, height })
-  const mp4Audio = await getFirstEncodableAudioCodec(['aac'], {
-    numberOfChannels: AUDIO_CHANNELS,
-    sampleRate: AUDIO_SAMPLE_RATE,
-  })
-  if (mp4Video && mp4Audio) {
-    return { container: 'mp4', videoCodec: mp4Video, audioCodec: mp4Audio }
+async function pickCodecs(
+  width: number,
+  height: number,
+  format: ExportFormat = 'mp4',
+): Promise<CodecChoice | null> {
+  if (isIosBrowser()) return pickMp4Codecs(width, height)
+  if (format === 'webm') {
+    return (await pickWebmCodecs(width, height)) ?? (await pickMp4Codecs(width, height))
   }
-  if (isIosBrowser()) return null
+  return (await pickMp4Codecs(width, height)) ?? (await pickWebmCodecs(width, height))
+}
+
+/** H.264/HEVC + AAC; AAC falls back to a WASM encoder when the browser lacks one. */
+async function pickMp4Codecs(width: number, height: number): Promise<CodecChoice | null> {
+  const mp4Video = await getFirstEncodableVideoCodec(['avc', 'hevc'], { width, height })
+  if (!mp4Video) return null
+  const mp4Audio = await encodableMp4Audio()
+  return mp4Audio ? { container: 'mp4', videoCodec: mp4Video, audioCodec: mp4Audio } : null
+}
+
+async function pickWebmCodecs(width: number, height: number): Promise<CodecChoice | null> {
   const webmVideo = await getFirstEncodableVideoCodec(['vp9', 'vp8'], { width, height })
   const webmAudio = await getFirstEncodableAudioCodec(['opus'], {
     numberOfChannels: AUDIO_CHANNELS,
@@ -140,13 +153,14 @@ export async function exportWithWebCodecs(
   signal?: AbortSignal,
   projectName = '',
   maxLongEdge?: number,
+  format: ExportFormat = 'mp4',
 ): Promise<ExportResult> {
   if (!supportsWebCodecsExport()) {
     throw new Error('WebCodecs is not available')
   }
 
   const { width, height } = await probeOutputSize(plan, orientation, maxLongEdge)
-  const choice = await pickCodecs(width, height)
+  const choice = await pickCodecs(width, height, format)
   if (!choice) {
     throw new Error('No supported export codec')
   }
