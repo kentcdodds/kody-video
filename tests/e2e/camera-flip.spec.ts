@@ -90,4 +90,11 @@ test.describe('camera flip', () => {
     await shake('beta')
     await expect(video).not.toHaveClass(/mirror/, { timeout: 5_000 })
   })
+
+  test('?shakeDebug on the home page shows the motion overlay on the camera', async ({ page }) => {
+    await page.goto('/?shakeDebug')
+    await page.locator('.project-slot.empty').first().click()
+    await page.waitForURL(/\/project\//)
+    await expect(page.getByText(/shake debug/)).toBeVisible()
+  })
 })

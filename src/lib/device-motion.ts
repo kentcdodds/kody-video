@@ -49,7 +49,7 @@ export function listenForShake(options: {
   signal: AbortSignal
 }): void {
   if (typeof window === 'undefined' || typeof DeviceMotionEvent === 'undefined') return
-  const debug = shakeDebugEnabled() ? createShakeDebugOverlay(options.signal) : null
+  const debug = shakeDebugOn ? createShakeDebugOverlay(options.signal) : null
   const detector = createShakeDetector({}, debug?.onSwing)
   const onMotion = (event: DeviceMotionEvent) => {
     const enabled = options.isEnabled()
@@ -83,6 +83,9 @@ function shakeDebugEnabled(): boolean {
     return false
   }
 }
+
+// Read on load: the home page URL carries the flag, the camera route doesn't.
+const shakeDebugOn = typeof location !== 'undefined' && shakeDebugEnabled()
 
 function createShakeDebugOverlay(signal: AbortSignal) {
   const el = document.createElement('pre')
