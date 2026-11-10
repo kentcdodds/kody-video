@@ -1,4 +1,4 @@
-import { test, expect } from '@playwright/test'
+import { test, expect, type Page } from '@playwright/test'
 import { openNewProject } from './helpers'
 
 // Two fake cameras so the flip button is enabled at all.
@@ -11,6 +11,27 @@ test.use({
     ],
   },
 })
+
+/** Real-time synthetic "no" shake: 3 Hz, 400 deg/s on one axis for 700 ms. */
+const shake = (page: Page, axis: 'alpha' | 'beta' | 'gamma') =>
+  page.evaluate(
+    (axis) =>
+      new Promise<void>((resolve) => {
+        const started = performance.now()
+        const timer = window.setInterval(() => {
+          const elapsed = performance.now() - started
+          const moving = elapsed < 700
+          const value = moving ? 400 * Math.sin(2 * Math.PI * 3 * (elapsed / 1000)) : 0
+          const rotationRate = { alpha: 0, beta: 0, gamma: 0, [axis]: value }
+          window.dispatchEvent(new DeviceMotionEvent('devicemotion', { rotationRate }))
+          if (elapsed > 1000) {
+            window.clearInterval(timer)
+            resolve()
+          }
+        }, 16)
+      }),
+    axis,
+  )
 
 test.describe('camera flip', () => {
   test('mirror applies only when the selfie feed actually arrives', async ({ page }) => {
@@ -55,39 +76,19 @@ test.describe('camera flip', () => {
 
     // Real-time 60 Hz devicemotion events (the detector reads event.timeStamp):
     // a 3 Hz, 400 deg/s oscillation on one rotationRate axis, then stillness.
-    const shake = (axis: 'alpha' | 'beta' | 'gamma') =>
-      page.evaluate(
-        (axis) =>
-          new Promise<void>((resolve) => {
-            const started = performance.now()
-            const timer = window.setInterval(() => {
-              const elapsed = performance.now() - started
-              const moving = elapsed < 700
-              const value = moving ? 400 * Math.sin(2 * Math.PI * 3 * (elapsed / 1000)) : 0
-              const rotationRate = { alpha: 0, beta: 0, gamma: 0, [axis]: value }
-              window.dispatchEvent(new DeviceMotionEvent('devicemotion', { rotationRate }))
-              if (elapsed > 1000) {
-                window.clearInterval(timer)
-                resolve()
-              }
-            }, 16)
-          }),
-        axis,
-      )
-
     // gamma = rotation around the axis out of the screen: no flip.
-    await shake('gamma')
+    await shake(page, 'gamma')
     await page.waitForTimeout(500)
     await expect(video).not.toHaveClass(/mirror/)
 
     // beta = device y, the vertical axis of an upright phone: flips.
-    await shake('beta')
+    await shake(page, 'beta')
     await expect(page.getByText('Camera flipped')).toBeVisible()
     await expect(video).toHaveClass(/mirror/, { timeout: 5_000 })
 
     // Past the cooldown, the same shake flips back.
     await page.waitForTimeout(1000)
-    await shake('beta')
+    await shake(page, 'beta')
     await expect(video).not.toHaveClass(/mirror/, { timeout: 5_000 })
   })
 
@@ -96,5 +97,23 @@ test.describe('camera flip', () => {
     await page.locator('.project-slot.empty').first().click()
     await page.waitForURL(/\/project\//)
     await expect(page.getByText(/shake debug/)).toBeVisible()
+  })
+
+  test('a shake whose camera fails to open does not claim a flip', async ({ page }) => {
+    await page.addInitScript(() => {
+      const media = navigator.mediaDevices
+      const original = media.getUserMedia.bind(media)
+      media.getUserMedia = async (constraints?: MediaStreamConstraints) => {
+        if (JSON.stringify(constraints?.video ?? {}).includes('user')) {
+          throw new DOMException('Camera busy', 'NotReadableError')
+        }
+        return original(constraints)
+      }
+    })
+    await openNewProject(page)
+    await shake(page, 'beta')
+    await page.waitForTimeout(500)
+    await expect(page.getByText('Camera flipped')).toHaveCount(0)
+    await expect(page.locator('.camera-video')).not.toHaveClass(/mirror/)
   })
 })
