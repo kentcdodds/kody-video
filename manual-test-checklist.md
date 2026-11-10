@@ -131,6 +131,14 @@ see the README) — plain `http://<lan-ip>` fails in most browsers.
   restarts the preview; backgrounding mid-recording still saves the take
 - [ ] Screen off → on while on the camera: preview live again, not frozen
 - [ ] Flip camera works when multiple cameras exist
+- [ ] Shake to flip: holding the phone upright, a quick left-right-left twist flips the
+  camera (toast + vibration on Android); the same shake flips back. Walking, panning, a
+  single turn, nodding, or a side-to-side fan motion do not flip. Shaking while holding to
+  record does nothing. iOS: the motion prompt appears on opening a project; deny it and the
+  app works as before without the gesture. Repeat in landscape.
+  Brave on Android blocks motion sensors by default with no prompt, so the gesture stays
+  off until Site settings > Motion sensors allows it (Brave incognito sends zeroed data
+  even then). Open `/?shakeDebug` before a project to see live rates and swing verdicts.
 
 ### Screen recording (desktop)
 - [ ] Picking a surface starts the take; browser "Stop sharing", the monitor
