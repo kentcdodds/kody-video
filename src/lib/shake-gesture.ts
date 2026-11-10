@@ -67,6 +67,19 @@ interface Swing {
   peakOther: number
 }
 
+/** Why a finished swing did or didn't count (for the debug overlay). */
+export type SwingVerdict = 'counted' | 'too-slow' | 'off-axis' | 'too-long'
+
+export interface SwingReport {
+  sign: 1 | -1
+  peak: number
+  peakOther: number
+  durationMs: number
+  verdict: SwingVerdict
+  /** Alternating qualifying swings in the current run, this one included. */
+  chainLength: number
+}
+
 export interface ShakeDetector {
   /** Feed one sample; true exactly when a shake completes. */
   push: (sample: ShakeSample) => boolean
@@ -74,7 +87,10 @@ export interface ShakeDetector {
   reset: () => void
 }
 
-export function createShakeDetector(overrides: Partial<ShakeOptions> = {}): ShakeDetector {
+export function createShakeDetector(
+  overrides: Partial<ShakeOptions> = {},
+  onSwing?: (report: SwingReport) => void,
+): ShakeDetector {
   const options = { ...defaultShakeOptions, ...overrides }
   let current: Swing | null = null
   let chain: Swing[] = []
@@ -86,16 +102,29 @@ export function createShakeDetector(overrides: Partial<ShakeOptions> = {}): Shak
     chain = []
   }
 
-  const qualifies = (swing: Swing) =>
-    swing.peak >= options.minPeakRate &&
-    swing.peak >= options.dominance * swing.peakOther &&
-    swing.end - swing.start <= options.maxSwingMs
+  const verdictFor = (swing: Swing): SwingVerdict => {
+    if (swing.peak < options.minPeakRate) return 'too-slow'
+    if (swing.peak < options.dominance * swing.peakOther) return 'off-axis'
+    if (swing.end - swing.start > options.maxSwingMs) return 'too-long'
+    return 'counted'
+  }
 
   /** Adds a finished swing to the chain; true when the chain is a shake. */
   const finish = (swing: Swing): boolean => {
-    if (!qualifies(swing)) {
+    const verdict = verdictFor(swing)
+    const report = (chainLength: number) =>
+      onSwing?.({
+        sign: swing.sign,
+        peak: swing.peak,
+        peakOther: swing.peakOther,
+        durationMs: swing.end - swing.start,
+        verdict,
+        chainLength,
+      })
+    if (verdict !== 'counted') {
       // A big off-axis or too-long swing is some other motion: start over.
       chain = []
+      report(0)
       return false
     }
     const previous = chain.at(-1)
@@ -107,6 +136,7 @@ export function createShakeDetector(overrides: Partial<ShakeOptions> = {}): Shak
     }
     chain.push(swing)
     while (chain.length > 0 && swing.end - chain[0]!.start > options.windowMs) chain.shift()
+    report(chain.length)
     return chain.length >= options.minSwings
   }
 

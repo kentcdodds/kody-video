@@ -147,6 +147,21 @@ describe('createShakeDetector', () => {
     expect(times[1]! - times[0]!).toBeGreaterThanOrEqual(1000)
   })
 
+  it('reports each swing with why it did or did not count', () => {
+    const reports: string[] = []
+    const detector = createShakeDetector({}, (report) =>
+      reports.push(`${report.verdict}:${report.chainLength}`),
+    )
+    const samples = [
+      ...oscillation('roll', { hz: 3, amplitude: 400, halfCycles: 1, crosstalk: 0.5 }),
+      ...oscillation('yaw', { hz: 3, amplitude: 120, halfCycles: 1 }, 200),
+      ...oscillation('yaw', { hz: 3, amplitude: 400, halfCycles: 3 }, 400),
+    ]
+    sampled(200, () => ({}), samples.at(-1)!.t + STEP).forEach((s) => samples.push(s))
+    samples.forEach((sample) => detector.push(sample))
+    expect(reports).toEqual(['off-axis:0', 'too-slow:0', 'counted:1', 'counted:2', 'counted:3'])
+  })
+
   it('reset drops a partial shake', () => {
     const detector = createShakeDetector()
     const shake = oscillation('yaw', { hz: 3, amplitude: 400, halfCycles: 3 })
