@@ -57,6 +57,7 @@ import {
 import { MicPickerSheet } from './mic-picker-sheet'
 import { RecordTimer } from './record-timer'
 import { isInteractiveTarget } from '../lib/keyboard'
+import { listenForShake, requestMotionPermission } from '../lib/device-motion'
 
 type RecordingMode = 'hold' | 'hands-free'
 
@@ -644,6 +645,38 @@ export function RecordScreen(handle: Handle<RecordScreenProps>) {
     }
   }
 
+  let flipInFlight = false
+  const canFlipNow = () => camera.canFlip && !recording && countdown === null && !flipInFlight
+  const flipCamera = (): boolean => {
+    if (!canFlipNow()) return false
+    // The baseline belongs to the previous lens; the new camera starts from
+    // its own default zoom.
+    cancelAnimationFrame(zoomRestoreRaf)
+    zoomBaseline = null
+    dragZoomMoved = false
+    flipInFlight = true
+    void camera.flip().finally(() => {
+      flipInFlight = false
+    })
+    return true
+  }
+
+  /** Shake like a head saying "no" to flip (see lib/shake-gesture.ts).
+   * Ignored while recording, like the flip button. */
+  const shakeFlipEnabled = () =>
+    canFlipNow() &&
+    camera.isReady &&
+    !screenSession &&
+    !props.interactionLocked &&
+    !micPickerOpen &&
+    pointerId === null &&
+    !document.hidden
+  const onShake = () => {
+    if (!flipCamera()) return
+    navigator.vibrate?.(30)
+    props.showToast('Camera flipped')
+  }
+
   const startSelfTimer = () => {
     if (recording || props.interactionLocked || countdown !== null) return
     if (screenSession) return
@@ -895,7 +928,7 @@ export function RecordScreen(handle: Handle<RecordScreenProps>) {
         return
       }
       case 'KeyF': {
-        if (!recording && camera.canFlip && countdown === null) void camera.flip()
+        flipCamera()
         return
       }
       case 'KeyT': {
@@ -935,6 +968,7 @@ export function RecordScreen(handle: Handle<RecordScreenProps>) {
     window.addEventListener('pageshow', onPageResume)
     window.addEventListener('keydown', onWindowKeyDown)
     window.addEventListener('keyup', onWindowKeyUp)
+    listenForShake({ onShake, isEnabled: shakeFlipEnabled, signal })
     // Registered before camera.attachVideo's own abort listener so an active
     // take is finished/saved before the camera stream is stopped.
     signal.addEventListener('abort', () => {
@@ -1287,12 +1321,8 @@ export function RecordScreen(handle: Handle<RecordScreenProps>) {
               aria-label="Flip camera"
               disabled={!camera.canFlip || recording || countdown !== null}
               mix={on('click', () => {
-                // The baseline belongs to the previous lens; the new camera
-                // starts from its own default zoom.
-                cancelAnimationFrame(zoomRestoreRaf)
-                zoomBaseline = null
-                dragZoomMoved = false
-                void camera.flip()
+                requestMotionPermission()
+                flipCamera()
               })}
             >
               <IconFlip />

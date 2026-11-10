@@ -42,6 +42,7 @@ import {
   showcaseForHostname,
 } from '../lib/showcase'
 import { navigate } from '../router'
+import { requestMotionPermission } from '../lib/device-motion'
 import { formatBytes, formatStoragePercent, storageSeverity } from '../lib/storage-space'
 import {
   FREE_PROJECTS,
@@ -137,6 +138,9 @@ export function HomePage(handle: Handle) {
   // Nothing is persisted until the first clip is recorded — backing out of
   // an untouched new project leaves no empty project behind.
   const openNewProject = () => {
+    // The tap that opens the camera doubles as iOS's motion-permission
+    // gesture (shake to flip the camera).
+    requestMotionPermission()
     navigate(`/project/${NEW_PROJECT_ID}`)
   }
 
@@ -491,7 +495,11 @@ export function HomePage(handle: Handle) {
                     />
                   ) : null}
                   <div className="slot-fade" aria-hidden="true" />
-                  <a className="slot-open" href={`/project/${project.id}`}>
+                  <a
+                    className="slot-open"
+                    href={`/project/${project.id}`}
+                    mix={on('click', requestMotionPermission)}
+                  >
                     <span className="slot-number">Slot {index + 1}</span>
                     <strong>{project.name}</strong>
                     <small>

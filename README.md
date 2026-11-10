@@ -28,6 +28,10 @@ For a phone on the same network, use your machine’s LAN URL over HTTPS, or tun
 ## What works
 
 - Full-bleed live camera (rear preferred; flip, torch, and zoom when the device exposes them)
+- Shake to flip: twist the phone quickly left-right-left (like shaking your head "no") to
+  switch between the rear and front cameras. Ignored while recording. iOS asks for motion
+  access on the tap that opens a project (or the flip button); denying it just turns the
+  gesture off. Thresholds live in `src/lib/shake-gesture.ts`.
 - Hold-to-record anywhere on the preview; drag up/down while holding to zoom
 - Self-timer for hands-free takes (tap to stop)
 - Recording feedback (REC pill + elapsed) with a page that does **not** re-render per frame — capture stays smooth
