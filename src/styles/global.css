@@ -964,6 +964,34 @@ a {
   color: var(--ink);
 }
 
+.export-broken-clips {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 10px;
+  margin: 12px 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.export-broken-clip {
+  display: grid;
+  justify-items: center;
+  gap: 4px;
+  font-size: 0.8rem;
+  font-weight: 600;
+}
+
+.export-broken-thumb {
+  display: block;
+  width: 44px;
+  height: 64px;
+  object-fit: cover;
+  border: 2px solid var(--danger);
+  border-radius: 8px;
+  background: var(--line);
+}
+
 .export-fallback-hint {
   margin: 12px 0 0;
   padding: 12px;

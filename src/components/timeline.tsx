@@ -45,6 +45,8 @@ interface TimelineProps {
   showAudioBadges?: boolean
   /** Film shape — used for the crop / letterbox badge. */
   filmOrientation: ProjectOrientation
+  /** Clips whose file has no video (export would reject them). */
+  brokenClipIds?: ReadonlySet<ClipId>
   refresh: () => void
 }
 
@@ -402,6 +404,7 @@ export function Timeline(handle: Handle<TimelineProps>) {
           const showDropBefore = draggingId !== null && gapIndex === index
           const isPhoto = isImageClip(clip)
           const fitBadge = clipFitBadge(clip, props.filmOrientation)
+          const isBroken = props.brokenClipIds?.has(clip.id) ?? false
           const showGhostsAfter =
             pendingGhostCount > 0 &&
             draggingId === null &&
@@ -412,10 +415,12 @@ export function Timeline(handle: Handle<TimelineProps>) {
               {showDropBefore ? <div className="timeline-drop-indicator" aria-hidden /> : null}
               <button
                 type="button"
-                className={`clip-thumb${selected ? ' selected' : ''}${isDragging ? ' lifting' : ''}${isPhoto ? ' is-photo' : ''}`}
+                className={`clip-thumb${selected ? ' selected' : ''}${isDragging ? ' lifting' : ''}${isPhoto ? ' is-photo' : ''}${isBroken ? ' is-broken' : ''}`}
                 role="option"
                 aria-selected={selected}
                 aria-label={`${isPhoto ? 'Photo' : 'Clip'} ${index + 1}, ${formatDuration(effectiveDurationMs(clip))}${
+                  isBroken ? ', no video' : ''
+                }${
                   fitBadge === 'crop'
                     ? ', cropped'
                     : fitBadge === 'letterbox'
@@ -471,6 +476,11 @@ export function Timeline(handle: Handle<TimelineProps>) {
                   )}
                 </div>
                 <span className="clip-dur">{formatDuration(effectiveDurationMs(clip))}</span>
+                {isBroken ? (
+                  <span className="clip-broken-badge" aria-hidden="true">
+                    No video
+                  </span>
+                ) : null}
                 {fitBadge ? (
                   <span
                     className="clip-fit-badge"

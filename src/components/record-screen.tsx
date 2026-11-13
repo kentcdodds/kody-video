@@ -14,7 +14,13 @@ import { reportError } from '../lib/error-reporting'
 import { beginCaptureActivity } from '../lib/capture-activity'
 import { recordTakeReport } from '../lib/capture-diagnostics'
 import { appendRecording, removeClip, undoLastDelete } from '../lib/project-actions'
-import { HoldRecorder, type RecordingResult } from '../lib/recorder'
+import { NoVideoRecordingError } from '../lib/clip-video-check'
+import {
+  HoldRecorder,
+  streamHasDeliveringVideo,
+  waitForVideoFrame,
+  type RecordingResult,
+} from '../lib/recorder'
 import { snapshotCamera, snapshotEnvironment, watchCaptureEnvironment } from '../lib/take-environment'
 import { startTakeProbe, type LiveTakeSignals, type TakeProbe } from '../lib/take-probe'
 import { draftTakeReport, type TakeOutcome, type TakeStart } from '../lib/take-report'
@@ -63,6 +69,9 @@ type RecordingMode = 'hold' | 'hands-free'
 
 /** Finger tremble tolerance before drag-to-zoom engages. */
 const DRAG_ZOOM_DEADZONE_PX = 14
+/** How long a press waits for the first camera frame (a just-flipped
+ * camera) before telling the user the camera is not ready. */
+const PREVIEW_FRAME_WAIT_MS = 1500
 
 export interface ToastAction {
   actionLabel: string
@@ -427,7 +436,11 @@ export function RecordScreen(handle: Handle<RecordScreenProps>) {
       // first frames of the take.
       const preview = camera.getStream()
       if (preview) recorder.arm(preview)
-      await camera.enableMic()
+      const previewVideo = camera.getVideoElement()
+      const [, previewHasFrame] = await Promise.all([
+        camera.enableMic(),
+        previewVideo ? waitForVideoFrame(previewVideo, PREVIEW_FRAME_WAIT_MS) : true,
+      ])
       // Aborted presses keep the just-acquired mic warm — the real press
       // usually follows within moments and must not pay a fresh
       // acquisition's silent ramp-up at its head.
@@ -449,6 +462,15 @@ export function RecordScreen(handle: Handle<RecordScreenProps>) {
       const stream = camera.getStream()
       if (!stream?.getAudioTracks().some((track) => track.readyState === 'live')) {
         throw new Error('Microphone unavailable')
+      }
+
+      // No camera frames (just flipped, camera interrupted, track muted or
+      // ended): recording now would save the mic alone.
+      if (!previewHasFrame || !streamHasDeliveringVideo(stream)) {
+        pointerId = null
+        if (!recorder.isRecording) camera.releaseMic({ keepWarm: true })
+        props.showToast('Camera not ready')
+        return false
       }
 
       recorder.arm(stream)
@@ -615,6 +637,12 @@ export function RecordScreen(handle: Handle<RecordScreenProps>) {
       // gate (StorageQuotaExceededError / reportError no-op); other write
       // failures still reach Sentry as handled exceptions — without the twin
       // unhandled AbortError from tx.done.
+      if (err instanceof NoVideoRecordingError) {
+        reportError(err, 'record-no-video', { problem: err.problem, ...err.details })
+        props.showToast(err.message)
+        reportTake(start, live, 'no-video')
+        return
+      }
       reportError(err, 'save-clip')
       props.showToast(err instanceof Error ? err.message : 'Save failed')
       reportTake(start, live, 'save-failed', result ? { result } : undefined)
@@ -646,7 +674,15 @@ export function RecordScreen(handle: Handle<RecordScreenProps>) {
   }
 
   let flipInFlight = false
-  const canFlipNow = () => camera.canFlip && !recording && countdown === null && !flipInFlight
+  // A flip while a take is starting (mic await) or still encoding (stop
+  // grace) swaps the camera under the recorder: the take keeps only audio.
+  const canFlipNow = () =>
+    camera.canFlip &&
+    !recording &&
+    !beginInFlight &&
+    !recorder.isRecording &&
+    countdown === null &&
+    !flipInFlight
   const flipCamera = (): Promise<void> | null => {
     if (!canFlipNow()) return null
     // The baseline belongs to the previous lens; the new camera starts from
@@ -1341,7 +1377,7 @@ export function RecordScreen(handle: Handle<RecordScreenProps>) {
                 type="button"
                 className="zoom-chip lens-chip"
                 aria-label={`Switch rear lens (${camera.rearLensIndex + 1} of ${camera.rearLensCount})`}
-                disabled={recording || countdown !== null || !camera.isReady}
+                disabled={recording || recorder.isRecording || countdown !== null || !camera.isReady}
                 mix={on('click', (event) => {
                   event.stopPropagation()
                   // Each lens has its own zoom range and default.

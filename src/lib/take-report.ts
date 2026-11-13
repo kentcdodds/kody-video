@@ -42,7 +42,7 @@ export type DropReason =
   | 'cold-start'
   | 'unexplained'
 
-export type TakeOutcome = 'saved' | 'empty' | 'save-failed'
+export type TakeOutcome = 'saved' | 'empty' | 'no-video' | 'save-failed'
 
 export interface TakeEnvironment {
   os: string

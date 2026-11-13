@@ -1,15 +1,24 @@
 import type { Handle } from 'remix/component'
 import { on, ref } from 'remix/component'
+import { deleteUnexportableClipsLabel } from '../lib/export/clip-check'
 import type { ExportFormatSupport } from '../lib/export/export-format'
 import type { ExportSizeOption } from '../lib/export/export-size'
 import { projectFilename } from '../lib/media'
-import type { ExportFormat, ExportSize } from '../lib/types'
+import type { ClipId, ExportFormat, ExportSize } from '../lib/types'
 import { attachSheetModal } from '../lib/sheet-modal'
 import { BrandMark } from './brand-mark'
 import { ExportFormatPicker } from './export-format-picker'
 import { ExportSizePicker } from './export-size-picker'
+import { TimelineThumbImage } from './timeline-thumb-image'
 
 export type ExportStatus = 'exporting' | 'ready' | 'error'
+
+/** A clip the export preflight rejected (no video), as the sheet lists it. */
+export interface ExportSheetBrokenClip {
+  clipId: ClipId
+  position: number
+  thumb: Blob | null
+}
 
 /** Same destination the About page credits — native hold-to-record on iPhone. */
 export const OK_VIDEO_URL = 'https://okvideo.app'
@@ -18,6 +27,10 @@ interface ExportSheetProps {
   /** The exporting state renders as the full-screen ExportOverlay instead. */
   status: 'ready' | 'error'
   error: string | null
+  /** Clips that block the export; the error view offers to delete them. */
+  brokenClips: readonly ExportSheetBrokenClip[]
+  /** Delete `brokenClips` (normal delete, undoable) and export again. */
+  onDeleteBrokenClips: () => void
   /** Whether the exported file can go through the system share sheet. */
   canShare: boolean
   fileExtension: string | null
@@ -90,6 +103,8 @@ export function ExportSheet(handle: Handle<ExportSheetProps>) {
     const {
       status,
       error,
+      brokenClips,
+      onDeleteBrokenClips,
       canShare,
       fileExtension,
       fileSizeBytes,
@@ -364,6 +379,20 @@ export function ExportSheet(handle: Handle<ExportSheetProps>) {
             <>
               <h3>Export hit a snag</h3>
               <p className="sheet-message is-error">{error ?? 'Something went wrong.'}</p>
+              {brokenClips.length > 0 ? (
+                <ul className="export-broken-clips" aria-label="Clips with no video">
+                  {brokenClips.map((clip) => (
+                    <li key={clip.clipId} className="export-broken-clip">
+                      {clip.thumb ? (
+                        <TimelineThumbImage blob={clip.thumb} className="export-broken-thumb" />
+                      ) : (
+                        <span className="export-broken-thumb" aria-hidden="true" />
+                      )}
+                      <span>Clip {clip.position}</span>
+                    </li>
+                  ))}
+                </ul>
+              ) : null}
               {showFallbackHint
                 ? fallbackHint({
                     busy,
@@ -379,14 +408,25 @@ export function ExportSheet(handle: Handle<ExportSheetProps>) {
                 : null}
               {notice ? <p className="sheet-message">{notice}</p> : null}
               <div className="sheet-actions">
-                <button
-                  type="button"
-                  className="btn btn-primary"
-                  disabled={busy}
-                  mix={on('click', () => onRetry())}
-                >
-                  Try again
-                </button>
+                {brokenClips.length > 0 ? (
+                  <button
+                    type="button"
+                    className="btn btn-primary"
+                    disabled={busy}
+                    mix={on('click', () => onDeleteBrokenClips())}
+                  >
+                    {deleteUnexportableClipsLabel(brokenClips.map((clip) => clip.position))}
+                  </button>
+                ) : (
+                  <button
+                    type="button"
+                    className="btn btn-primary"
+                    disabled={busy}
+                    mix={on('click', () => onRetry())}
+                  >
+                    Try again
+                  </button>
+                )}
                 <button
                   type="button"
                   className="btn btn-secondary"

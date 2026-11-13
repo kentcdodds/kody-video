@@ -21,6 +21,7 @@ import { PlusRequiredError } from '../lib/storage'
 import { downloadClipFile } from '../lib/media'
 import { resolveSplitMs } from '../lib/clip-edit'
 import { clipIdAfterDelete } from '../lib/clip-selection'
+import { findUnexportableClips } from '../lib/export/clip-check'
 import {
   effectiveDurationMs,
   formatDuration,
@@ -114,6 +115,23 @@ export function EditorScreen(handle: Handle<EditorScreenProps>) {
       }
       throw error
     }
+  }
+
+  /** Clips with no video (old audio-only takes), marked on the filmstrip
+   * before an export trips over them. Probes are cached per clip blob. */
+  let brokenClipIds: ReadonlySet<ClipId> = new Set()
+  let brokenProbeKey = ''
+  const probeBrokenClips = (clips: ClipRecord[]) => {
+    const key = clips.map((clip) => `${clip.id}:${clip.blob.size}`).join('|')
+    if (key === brokenProbeKey) return
+    brokenProbeKey = key
+    void findUnexportableClips(clips).then((found) => {
+      if (brokenProbeKey !== key || handle.signal.aborted) return
+      const next = new Set(found.map((clip) => clip.clipId))
+      if (next.size === brokenClipIds.size && [...next].every((id) => brokenClipIds.has(id))) return
+      brokenClipIds = next
+      void handle.update()
+    })
   }
 
   const visibleClips = (loaded: ClipRecord[]): ClipRecord[] => {
@@ -406,6 +424,7 @@ export function EditorScreen(handle: Handle<EditorScreenProps>) {
       optimisticAdds = optimisticAdds.filter((extra) => !loadedIds.has(extra.clip.id))
     }
     const clips = visibleClips(props.clips)
+    probeBrokenClips(clips)
     const totalDurationMs = clips.reduce((sum, clip) => sum + effectiveDurationMs(clip), 0)
     const resolvedSelectedId = resolveSelectedId(clips)
     const selected = clips.find((c) => c.id === resolvedSelectedId) ?? null
@@ -621,6 +640,7 @@ export function EditorScreen(handle: Handle<EditorScreenProps>) {
               pendingGhostAfterId={ghostAfterId}
               showAudioBadges={props.audio !== null}
               filmOrientation={projectOrientation(project)}
+              brokenClipIds={brokenClipIds}
               refresh={props.refresh}
             />
           )}

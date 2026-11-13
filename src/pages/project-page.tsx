@@ -13,6 +13,7 @@ import { REMOVE_WATERMARK_LINK, shouldWatermarkExports } from '../lib/entitlemen
 import { buildClipsZip } from '../lib/clips-zip'
 import { clearExportMarker, markExportStarted, reportError } from '../lib/error-reporting'
 import { exportProject, isExportCancelled, planExport, type ExportResult } from '../lib/export'
+import { UnexportableClipsError, type UnexportableClip } from '../lib/export/clip-check'
 import { estimateRemainingMs, formatTimeLeft } from '../lib/export/export-eta'
 import {
   effectiveExportFormat,
@@ -37,7 +38,12 @@ import {
   subscribeViewportOrientationChange,
   viewportIsLandscape,
 } from '../lib/platform'
-import { hydrateProjectClips, loadProjectPage, type ProjectLoaderData } from '../lib/project-actions'
+import {
+  hydrateProjectClips,
+  loadProjectPage,
+  removeClip,
+  type ProjectLoaderData,
+} from '../lib/project-actions'
 import { projectBackupFilename, serializeProject } from '../lib/project-transfer'
 import { reuseAudioMediaBlobs, reuseClipMediaBlobs } from '../lib/reuse-media-blobs'
 import {
@@ -89,6 +95,8 @@ interface ExportUiState {
   progress: number
   result: ExportResult | null
   error: string | null
+  /** Clips the preflight found with no video (the error names them). */
+  brokenClips?: UnexportableClip[]
   notice: string | null
   /** Whether THIS export was stamped (entitlement can change mid-sheet). */
   watermarked: boolean
@@ -602,6 +610,7 @@ export function ProjectPage(handle: Handle<ProjectPageProps>) {
             err && typeof err === 'object'
               ? (err as { exportDetail?: Record<string, unknown> }).exportDetail
               : undefined,
+          unexportableClips: err instanceof UnexportableClipsError ? err.clips : undefined,
         })
         if (exportRun !== runId) return
         setExportState({
@@ -609,6 +618,7 @@ export function ProjectPage(handle: Handle<ProjectPageProps>) {
           progress: 0,
           result: null,
           error: err instanceof Error ? err.message : 'Export failed.',
+          brokenClips: err instanceof UnexportableClipsError ? err.clips : undefined,
           notice: null,
           watermarked,
           locationIncluded: false,
@@ -635,6 +645,36 @@ export function ProjectPage(handle: Handle<ProjectPageProps>) {
     exportAbort = null
     exportRun += 1
     setExportState(null)
+  }
+
+  /** Delete the clips the export preflight rejected and export again with
+   * the same settings. No Undo toast: the export overlay would hide it. The
+   * editor's own undo can still bring back the last one (badged No video). */
+  const deleteBrokenClipsAndExport = () => {
+    const broken = exportState?.brokenClips
+    if (!broken?.length || !data) return
+    beginExportAction()
+    void (async () => {
+      try {
+        for (const clip of broken) await removeClip(clip.clipId)
+      } catch (err) {
+        reportError(err, 'delete-unexportable-clips')
+        showToast("Couldn't delete the clips. Try again.")
+        return
+      } finally {
+        endExportAction()
+      }
+      await refresh()
+      const positions = broken.map((clip) => clip.position)
+      showToast(
+        positions.length === 1 ? `Clip ${positions[0]} deleted` : `${positions.length} clips deleted`,
+      )
+      if (!data?.clips.length) {
+        setExportState(null)
+        return
+      }
+      startExport({ force: true })
+    })()
   }
 
   /** Mid-export Plus toggles persist then restart. Stop, Escape, or a
@@ -911,6 +951,12 @@ export function ProjectPage(handle: Handle<ProjectPageProps>) {
               void persistExportFormat(format).then(() => startExport())
             }}
             error={exportState.error}
+            brokenClips={(exportState.brokenClips ?? []).map((broken) => ({
+              clipId: broken.clipId,
+              position: broken.position,
+              thumb: clips.find((clip) => clip.id === broken.clipId)?.thumbs?.[0] ?? null,
+            }))}
+            onDeleteBrokenClips={deleteBrokenClipsAndExport}
             notice={exportState.notice}
             watermarked={exportState.watermarked}
             usedFallback={exportState.usedFallback}

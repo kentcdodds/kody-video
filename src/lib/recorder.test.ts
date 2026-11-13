@@ -1,9 +1,13 @@
 import { describe, expect, it } from 'vitest'
 import {
+  HoldRecorder,
   hintVideoTrackMotion,
+  isVideoTrackDelivering,
+  streamHasDeliveringVideo,
   takeFallbackDurationMs,
   takeTrimEndMs,
   takeTrimStartMs,
+  waitForVideoFrame,
 } from './recorder'
 
 describe('hintVideoTrackMotion', () => {
@@ -75,5 +79,59 @@ describe('takeFallbackDurationMs', () => {
 
   it('never reports shorter than the wall-clock hold', () => {
     expect(takeFallbackDurationMs(1000, 1500, 2000)).toBe(2000)
+  })
+})
+
+function canvasVideoTrack(): MediaStreamTrack {
+  const canvas = document.createElement('canvas')
+  canvas.width = 16
+  canvas.height = 16
+  return canvas.captureStream(30).getVideoTracks()[0]!
+}
+
+describe('video track gating', () => {
+  it('only counts a live, unmuted video track as delivering', () => {
+    const track = canvasVideoTrack()
+    expect(isVideoTrackDelivering(track)).toBe(true)
+    expect(streamHasDeliveringVideo(new MediaStream([track]))).toBe(true)
+    track.stop()
+    expect(isVideoTrackDelivering(track)).toBe(false)
+    expect(streamHasDeliveringVideo(new MediaStream([track]))).toBe(false)
+    expect(streamHasDeliveringVideo(new MediaStream())).toBe(false)
+    expect(isVideoTrackDelivering(undefined)).toBe(false)
+  })
+
+  it('refuses to start a take whose camera track has ended', () => {
+    const track = canvasVideoTrack()
+    track.stop()
+    const recorder = new HoldRecorder()
+    expect(recorder.start(new MediaStream([track]))).toBe(false)
+    expect(recorder.isRecording).toBe(false)
+  })
+
+  it('waitForVideoFrame gives up when the preview never shows a frame', async () => {
+    const video = document.createElement('video')
+    expect(await waitForVideoFrame(video, 50)).toBe(false)
+  })
+
+  it('waitForVideoFrame resolves once the preview decodes a frame', async () => {
+    const canvas = document.createElement('canvas')
+    canvas.width = 16
+    canvas.height = 16
+    const context = canvas.getContext('2d')!
+    const timer = window.setInterval(() => {
+      context.fillStyle = `hsl(${Math.random() * 360} 80% 50%)`
+      context.fillRect(0, 0, 16, 16)
+    }, 20)
+    const video = document.createElement('video')
+    video.muted = true
+    video.srcObject = canvas.captureStream(30)
+    void video.play().catch(() => undefined)
+    try {
+      expect(await waitForVideoFrame(video, 3000)).toBe(true)
+    } finally {
+      window.clearInterval(timer)
+      ;(video.srcObject as MediaStream).getTracks().forEach((t) => t.stop())
+    }
   })
 })
