@@ -648,9 +648,8 @@ export function ProjectPage(handle: Handle<ProjectPageProps>) {
   }
 
   /** Delete the clips the export preflight rejected and export again with
-   * the same settings. The button names what it deletes, and the export
-   * overlay would hide an Undo toast (single-level undo can't restore
-   * several clips anyway), so this delete is final. */
+   * the same settings. No Undo toast: the export overlay would hide it. The
+   * editor's own undo can still bring back the last one (badged No video). */
   const deleteBrokenClipsAndExport = () => {
     const broken = exportState?.brokenClips
     if (!broken?.length || !data) return
