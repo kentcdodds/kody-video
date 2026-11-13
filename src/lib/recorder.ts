@@ -477,9 +477,8 @@ export class HoldRecorder {
         // (lens/HAL interruption, track muted or ended); MediaRecorder then
         // muxes an audio-only file that every duration probe accepts. Such
         // a take must never become a clip.
-        const videoProblem = findClipVideoProblem(blob)
         const resolveIfVideo = (result: RecordingResult) => {
-          void videoProblem.then((problem) => {
+          void findClipVideoProblem(blob, { keepFromMs: result.trimStartMs }).then((problem) => {
             if (!problem) {
               resolve(result)
               return

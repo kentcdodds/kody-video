@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import audioOnlyMp4Url from '../../tests/fixtures/audio-only.mp4?url'
-import { findClipVideoProblem } from './clip-video-check'
+import { findClipVideoProblem, probeClipVideo } from './clip-video-check'
 import { makeTestClipBlob } from './testing/make-test-clip'
 
 async function audioOnlyMp4(): Promise<Blob> {
@@ -17,6 +17,12 @@ describe('findClipVideoProblem', () => {
     expect(await findClipVideoProblem(await makeTestClipBlob(500))).toBeNull()
   })
 
+  it('ignores video frames before the kept range (warm pre-roll)', async () => {
+    const clip = await makeTestClipBlob(500)
+    expect(await findClipVideoProblem(clip, { keepFromMs: 200 })).toBeNull()
+    expect(await findClipVideoProblem(clip, { keepFromMs: 5000 })).toBe('no-video-frames')
+  })
+
   it('flags an empty file', async () => {
     expect(await findClipVideoProblem(new Blob([], { type: 'video/mp4' }))).toBe('no-video-track')
   })
@@ -24,5 +30,6 @@ describe('findClipVideoProblem', () => {
   it('does not condemn bytes it cannot parse', async () => {
     const junk = new Blob([new Uint8Array(4096).fill(7)], { type: 'video/mp4' })
     expect(await findClipVideoProblem(junk)).toBeNull()
+    expect(await probeClipVideo(junk)).toBe('unknown')
   })
 })
