@@ -1,4 +1,4 @@
-import { findClipVideoProblem, type ClipVideoProblem } from '../clip-video-check'
+import { probeClipVideo, type ClipVideoProblem } from '../clip-video-check'
 import { isImageClip, type ClipId, type ClipRecord } from '../types'
 
 export interface UnexportableClip {
@@ -37,16 +37,22 @@ export function deleteUnexportableClipsLabel(positions: readonly number[]): stri
     : `Delete ${positions.length} clips and export`
 }
 
-/** Clip media never changes in place, so one probe per clip blob is enough
- * (the filmstrip and every export reuse it). */
+/** Clip media never changes in place, so one probe per clip blob and trim
+ * start is enough (the filmstrip and every export reuse it). Unreadable or
+ * slow probes are not cached so the next export asks again. */
 const probeCache = new Map<string, Promise<ClipVideoProblem | null>>()
 
 export function probeClipForExport(clip: ClipRecord): Promise<ClipVideoProblem | null> {
   if (isImageClip(clip)) return Promise.resolve(null)
-  const key = `${clip.id}:${clip.blob.size}`
+  const key = `${clip.id}:${clip.blob.size}:${clip.trimStartMs}`
   let pending = probeCache.get(key)
   if (!pending) {
-    pending = findClipVideoProblem(clip.blob).catch(() => null)
+    pending = probeClipVideo(clip.blob, { keepFromMs: clip.trimStartMs })
+      .catch(() => 'unknown' as const)
+      .then((probe) => {
+        if (probe === 'unknown') probeCache.delete(key)
+        return probe === 'ok' || probe === 'unknown' ? null : probe
+      })
     probeCache.set(key, pending)
   }
   return pending
