@@ -66,7 +66,13 @@ export function takeLine(report: TakeReport): string {
         : 'no frames missing',
     )
   } else if (report.outcome !== 'saved') {
-    bits.push(report.outcome === 'empty' ? 'recorded nothing' : 'save failed')
+    bits.push(
+      report.outcome === 'empty'
+        ? 'recorded nothing'
+        : report.outcome === 'no-video'
+          ? 'recorded no video'
+          : 'save failed',
+    )
   } else if (report.analysisError === CLIP_GONE_ERROR) {
     bits.push('clip deleted before analysis')
   } else {

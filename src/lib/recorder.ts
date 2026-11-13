@@ -1,4 +1,5 @@
 import { isMediaElementFailure } from './export/media-error'
+import { findClipVideoProblem, NoVideoRecordingError } from './clip-video-check'
 import { measureBlobDuration, pickRecordingMimeType } from './media'
 import { recordingVideoBitsPerSecond } from './video-quality'
 
@@ -163,6 +164,53 @@ interface RecordingSession {
   trackHeight: number | undefined
   videoBitsPerSecond: number
   framesAtStart: TrackFrameCounts | null
+  /** What the recorded video clone went through during the session. */
+  videoTrackHealth: VideoTrackHealth
+}
+
+export interface VideoTrackHealth {
+  mutedDuringTake: boolean
+  endedDuringTake: boolean
+}
+
+/** A video track that is live AND delivering frames. A muted track is
+ * still `live`, but it hands MediaRecorder nothing to encode. */
+export function isVideoTrackDelivering(track: MediaStreamTrack | undefined): boolean {
+  return !!track && track.readyState === 'live' && !track.muted
+}
+
+/**
+ * Resolves true once the preview element shows a decoded camera frame, or
+ * false after `timeoutMs`. Right after a flip or lens switch the stream is
+ * attached (camera reports ready) before the new camera delivers anything;
+ * a take started then records only the mic.
+ */
+export function waitForVideoFrame(
+  video: HTMLVideoElement,
+  timeoutMs: number,
+): Promise<boolean> {
+  const hasFrame = () =>
+    video.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA && video.videoWidth > 0
+  if (hasFrame()) return Promise.resolve(true)
+  return new Promise((resolve) => {
+    const events = ['loadeddata', 'playing', 'resize', 'timeupdate'] as const
+    const done = (value: boolean) => {
+      window.clearTimeout(timer)
+      events.forEach((name) => video.removeEventListener(name, check))
+      resolve(value)
+    }
+    const check = () => {
+      if (hasFrame()) done(true)
+    }
+    const timer = window.setTimeout(() => done(hasFrame()), timeoutMs)
+    events.forEach((name) => video.addEventListener(name, check))
+  })
+}
+
+/** Whether a stream can feed a take: recording it without a delivering
+ * video track yields an audio-only file. */
+export function streamHasDeliveringVideo(stream: MediaStream): boolean {
+  return stream.getVideoTracks().some(isVideoTrackDelivering)
 }
 
 function stopSessionTracks(session: RecordingSession): void {
@@ -211,7 +259,8 @@ export class HoldRecorder {
     if (this.warmSource !== stream) return false
     if (this.warm?.recorder.state !== 'recording') return false
     if (!sessionHasLiveAudio(this.warm)) return false
-    return this.warm.clonedTracks.every((track) => track.readyState === 'live')
+    if (this.warm.videoTrackHealth.mutedDuringTake) return false
+    return this.warm.clonedTracks.every(isVideoTrackDelivering)
   }
 
   private unbindWarmSource(): void {
@@ -424,6 +473,28 @@ export class HoldRecorder {
           videoBitsPerSecond: session.videoBitsPerSecond,
           trackFrames: trackFrameCountsDelta(session.framesAtStart, framesAtStop),
         })
+        // The camera can stop delivering frames while the mic keeps going
+        // (lens/HAL interruption, track muted or ended); MediaRecorder then
+        // muxes an audio-only file that every duration probe accepts. Such
+        // a take must never become a clip.
+        const videoProblem = findClipVideoProblem(blob)
+        const resolveIfVideo = (result: RecordingResult) => {
+          void videoProblem.then((problem) => {
+            if (!problem) {
+              resolve(result)
+              return
+            }
+            reject(
+              new NoVideoRecordingError(problem, {
+                ...result.facts,
+                mimeType: result.mimeType,
+                durationMs: result.durationMs,
+                byteLength: blob.size,
+                videoTrack: session.videoTrackHealth,
+              }),
+            )
+          })
+        }
         // The blob's real duration differs from wall clock (encoder start
         // latency, stop grace, adopted pre-roll); trims and export math
         // must use the media duration.
@@ -431,7 +502,7 @@ export class HoldRecorder {
           .then((measuredMs) => {
             const durationMs = measuredMs > 0 ? measuredMs : fallbackMs
             const trimEndMs = takeTrimEndMs(durationMs, graceActualMs)
-            resolve({
+            resolveIfVideo({
               blob,
               mimeType: session.mimeType || blob.type || 'video/webm',
               durationMs,
@@ -452,7 +523,7 @@ export class HoldRecorder {
               return
             }
             const trimEndMs = takeTrimEndMs(fallbackMs, graceActualMs)
-            resolve({
+            resolveIfVideo({
               blob,
               mimeType: session.mimeType || blob.type || 'video/webm',
               durationMs: fallbackMs,
@@ -575,6 +646,7 @@ export class HoldRecorder {
   }
 
   private createSession(stream: MediaStream): RecordingSession | null {
+    if (!streamHasDeliveringVideo(stream)) return null
     const settings = stream.getVideoTracks()[0]?.getSettings()
     const clones = stream.getVideoTracks().map((track) => {
       const clone = track.clone()
@@ -598,7 +670,15 @@ export class HoldRecorder {
         trackHeight: settings?.height,
         videoBitsPerSecond,
         framesAtStart: readTrackFrameCounts(clones[0]),
+        videoTrackHealth: { mutedDuringTake: false, endedDuringTake: false },
       }
+      const video = clones[0]
+      video?.addEventListener('mute', () => {
+        session.videoTrackHealth.mutedDuringTake = true
+      })
+      video?.addEventListener('ended', () => {
+        session.videoTrackHealth.endedDuringTake = true
+      })
       recorder.ondataavailable = (event) => {
         if (event.data.size > 0) session.chunks.push(event.data)
       }

@@ -1,6 +1,12 @@
 import { readFile } from 'node:fs/promises'
 import { expect, test } from '@playwright/test'
-import { openNewProject, recordClip } from './helpers'
+import {
+  openNewProject,
+  pressStageUntilRecording,
+  recordClip,
+  saveScreenshot,
+  totalClipCount,
+} from './helpers'
 
 test.describe('recording health reports', () => {
   test('a take is analyzed on-device and exportable from About', async ({ page }) => {
@@ -70,5 +76,51 @@ test.describe('recording health reports', () => {
     await expect(section).toContainText('No takes recorded on this device yet.')
 
     expect(nonGetRequests).toEqual([])
+  })
+
+  test('a take that records no video is not saved and says so', async ({ page }, testInfo) => {
+    // The camera stops feeding the encoder while the mic keeps going: the
+    // take's file carries audio only (the broken-clip shape seen in the wild).
+    await page.addInitScript(() => {
+      const Native = window.MediaRecorder
+      window.MediaRecorder = class extends Native {
+        constructor(stream: MediaStream, options?: MediaRecorderOptions) {
+          const audio = stream.getAudioTracks()
+          super(audio.length > 0 ? new MediaStream(audio) : stream, options)
+        }
+      }
+    })
+    await openNewProject(page)
+
+    for (const colorScheme of ['light', 'dark'] as const) {
+      await page.emulateMedia({ colorScheme })
+      await pressStageUntilRecording(page)
+      await page.waitForTimeout(1200)
+      await page.mouse.up()
+      await expect(page.locator('.toast')).toHaveText("That clip didn't record any video. Try again.", {
+        timeout: 15_000,
+      })
+      await saveScreenshot(page, testInfo, `record-no-video-${colorScheme}`)
+      expect(await totalClipCount(page)).toBe(0)
+      await expect(page.locator('.toast')).toHaveCount(0, { timeout: 10_000 })
+    }
+
+    const outcomes = await page.evaluate(async () => {
+      const diagnostics = await import('/src/lib/capture-diagnostics.ts')
+      const reports = await diagnostics.listTakeReports()
+      return reports.map((report: { outcome: string; clipId?: string }) => ({
+        outcome: report.outcome,
+        clipId: report.clipId ?? null,
+      }))
+    })
+    expect(outcomes).toEqual([
+      { outcome: 'no-video', clipId: null },
+      { outcome: 'no-video', clipId: null },
+    ])
+
+    await page.goto('/about#recording-health')
+    await expect(page.locator('#recording-health .recording-health-takes li').first()).toContainText(
+      'recorded no video',
+    )
   })
 })

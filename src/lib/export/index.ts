@@ -1,4 +1,5 @@
 import { reportError } from '../error-reporting'
+import { findUnexportableClips, UnexportableClipsError } from './clip-check'
 import type { ClipRecord, ExportFormat, ExportSize, ProjectOrientation } from '../types'
 import type { BackgroundAudio } from './background-audio'
 import { ExportCancelledError, isExportCancelled, throwIfExportAborted } from './cancelled'
@@ -80,6 +81,11 @@ export async function exportProject(
   if (plan.segments.length === 0) {
     throw new Error('Nothing to export yet — record a clip first')
   }
+
+  // Probe every clip up front: one broken clip used to surface as a
+  // generic failure partway through the encode, naming none of them.
+  const unexportable = await findUnexportableClips(clips)
+  if (unexportable.length > 0) throw new UnexportableClipsError(unexportable)
 
   throwIfExportAborted(options.signal)
   const watermarkImage = options.watermark === false ? null : await loadWatermarkImage()
