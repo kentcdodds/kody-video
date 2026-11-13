@@ -42,7 +42,6 @@ import {
   hydrateProjectClips,
   loadProjectPage,
   removeClip,
-  undoLastDelete,
   type ProjectLoaderData,
 } from '../lib/project-actions'
 import { projectBackupFilename, serializeProject } from '../lib/project-transfer'
@@ -648,15 +647,13 @@ export function ProjectPage(handle: Handle<ProjectPageProps>) {
     setExportState(null)
   }
 
-  /** Mid-export Plus toggles persist then restart. Stop, Escape, or a
-   * finished encode during that write must not launch a new forced run. */
-  /** Delete the clips the export preflight rejected (the editor's normal
-   * delete, so the last one stays undoable) and export again with the same
-   * settings. */
+  /** Delete the clips the export preflight rejected and export again with
+   * the same settings. The button names what it deletes, and the export
+   * overlay would hide an Undo toast (single-level undo can't restore
+   * several clips anyway), so this delete is final. */
   const deleteBrokenClipsAndExport = () => {
     const broken = exportState?.brokenClips
-    const projectId = data?.project?.id
-    if (!broken?.length || !projectId) return
+    if (!broken?.length || !data) return
     beginExportAction()
     void (async () => {
       try {
@@ -672,18 +669,6 @@ export function ProjectPage(handle: Handle<ProjectPageProps>) {
       const positions = broken.map((clip) => clip.position)
       showToast(
         positions.length === 1 ? `Clip ${positions[0]} deleted` : `${positions.length} clips deleted`,
-        positions.length === 1
-          ? {
-              actionLabel: 'Undo',
-              onAction: () => {
-                void (async () => {
-                  await undoLastDelete(projectId)
-                  await refresh()
-                  showToast('Clip restored')
-                })()
-              },
-            }
-          : undefined,
       )
       if (!data?.clips.length) {
         setExportState(null)
@@ -693,6 +678,8 @@ export function ProjectPage(handle: Handle<ProjectPageProps>) {
     })()
   }
 
+  /** Mid-export Plus toggles persist then restart. Stop, Escape, or a
+   * finished encode during that write must not launch a new forced run. */
   const restartExportIfStillRunning = (startedAtRun: number) => {
     if (exportRun !== startedAtRun) return
     if (exportState?.status !== 'exporting') return
